@@ -1,0 +1,39 @@
+services:
+  # ── Node.js API ────────────────────────────────────────────────────────────
+  - type: web
+    name: trotro-api
+    runtime: node
+    region: frankfurt
+    plan: starter
+    rootDir: rork-trotro-ride-clone-main/backend
+    buildCommand: npm install && npm run migrate
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PGSSL
+        value: "true"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: CORS_ORIGIN
+        value: "*"
+      - key: CACHE_TTL_SECONDS
+        value: "60"
+      - key: DATABASE_URL
+        sync: false
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: trotro-redis
+          property: connectionString
+
+  # ── Redis ──────────────────────────────────────────────────────────────────
+  - type: redis
+    name: trotro-redis
+    region: frankfurt
+    plan: starter
+    maxmemoryPolicy: allkeys-lru
+    ipAllowList: []
