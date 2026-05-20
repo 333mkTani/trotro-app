@@ -1,0 +1,38 @@
+services:
+  # ── Node.js API ────────────────────────────────────────────────────────────
+  - type: web
+    name: trotro-api
+    runtime: node
+    region: frankfurt          # Closest region to Ghana
+    plan: starter              # $7/month — always on, no cold starts
+    rootDir: backend
+    buildCommand: npm install && npm run migrate
+    startCommand: npm start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PGSSL
+        value: "true"
+      - key: JWT_SECRET
+        generateValue: true    # Render auto-generates a secure random value
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: CORS_ORIGIN
+        value: "*"
+      - key: CACHE_TTL_SECONDS
+        value: "60"
+      - key: DATABASE_URL
+        sync: false            # You will paste the Supabase connection string here
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: trotro-redis
+          property: connectionString
+
+  # ── Redis ──────────────────────────────────────────────────────────────────
+  - type: redis
+    name: trotro-redis
+    region: frankfurt
+    plan: starter              # $10/month — 25 MB
+    maxmemoryPolicy: allkeys-lru
