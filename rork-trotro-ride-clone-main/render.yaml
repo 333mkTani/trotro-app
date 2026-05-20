@@ -36,3 +36,4 @@ services:
     region: frankfurt
     plan: starter              # $10/month — 25 MB
     maxmemoryPolicy: allkeys-lru
+    ipAllowList: []            # Empty = only internal Render services can connect
