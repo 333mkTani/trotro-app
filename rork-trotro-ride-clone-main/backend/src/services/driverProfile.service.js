@@ -8,7 +8,7 @@ const getMyBus = async (driverId) => {
     `SELECT b.*, r.name AS route_name, r.origin, r.destination
      FROM buses b
      LEFT JOIN routes r ON r.id = b.route_id
-     WHERE b.driver_id = $1 AND b.status = 'active'
+     WHERE b.driver_id = $1 AND b.status IN ('active', 'paused')
      LIMIT 1`,
     [driverId]
   );
@@ -75,10 +75,11 @@ const getDashboard = async (driverId) => {
 
 const setAvailability = async (driverId, isAvailable) => {
   const bus = await getMyBus(driverId);
-  if (!bus) throw ApiError.notFound('No active bus assigned to this driver');
-  const newStatus = isAvailable ? 'active' : 'inactive';
+  if (!bus) throw ApiError.notFound('No bus assigned to this driver yet');
+  // entity_status enum: active | paused | deleted
+  const newStatus = isAvailable ? 'active' : 'paused';
   const { rows } = await query(
-    `UPDATE buses SET status = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
+    `UPDATE buses SET status = $1 WHERE id = $2 RETURNING *`,
     [newStatus, bus.id]
   );
   return rows[0];
