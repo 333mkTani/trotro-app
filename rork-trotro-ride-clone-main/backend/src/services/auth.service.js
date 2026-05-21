@@ -20,18 +20,33 @@ const register = async ({ phone, fullName, email, password, role = 'passenger' }
   const hash = await bcrypt.hash(password, 10);
 
   const user = await withTransaction(async (client) => {
-    // profiles.id has a FK to users.id — insert users row first
+    // All inserts use the same transaction client — uncommitted rows from one
+    // connection are invisible to others, so FK checks would fail if we mixed
+    // the transaction client with the global query pool.
     await client.query(
       `INSERT INTO public.users (id, phone, email, password_hash) VALUES ($1, $2, $3, $4)`,
       [id, phone, email || null, hash],
     );
-    const profile = await profileModel.insert({ id, phone, fullName, email, role });
-    await authModel.upsertPassword(id, hash);
+    const { rows } = await client.query(
+      `INSERT INTO public.profiles (id, phone, full_name, email, role)
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id, phone, full_name, email, avatar_url, role, fcm_token, theme_mode, created_at, updated_at`,
+      [id, phone, fullName, email || null, role],
+    );
+    await client.query(
+      `INSERT INTO public.auth_credentials (user_id, password_hash)
+       VALUES ($1, $2)
+       ON CONFLICT (user_id) DO UPDATE SET password_hash = excluded.password_hash`,
+      [id, hash],
+    );
     await walletModel.ensureWallet(id, client);
     if (role === 'driver') {
-      await driverModel.insert({ id, fullName, phone });
+      await client.query(
+        `INSERT INTO public.drivers (id, full_name, phone) VALUES ($1, $2, $3)`,
+        [id, fullName, phone],
+      );
     }
-    return profile;
+    return rows[0];
   });
 
   return { user, token: signToken(user) };
