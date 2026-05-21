@@ -2,6 +2,8 @@
  * Migration runner — executes SQL files from database/migrations/ in order.
  * Tracks completed migrations in a _migrations table so each file only runs once.
  */
+// Must be set before any pg connections are made
+process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
