@@ -12,7 +12,7 @@ const { ApiError } = require('../utils/ApiError');
 const signToken = (user) =>
   jwt.sign({ sub: user.id, role: user.role }, env.JWT_SECRET, { expiresIn: env.JWT_EXPIRES_IN });
 
-const register = async ({ phone, fullName, email, password, role = 'passenger' }) => {
+const register = async ({ phone, fullName, email, password, role = 'passenger', busRegistration, routeId, totalSeats = 14 }) => {
   const existing = await profileModel.findByPhone(phone);
   if (existing) throw ApiError.conflict('Phone already registered');
 
@@ -45,6 +45,13 @@ const register = async ({ phone, fullName, email, password, role = 'passenger' }
         `INSERT INTO public.drivers (id, full_name, phone) VALUES ($1, $2, $3)`,
         [id, fullName, phone],
       );
+      if (busRegistration) {
+        await client.query(
+          `INSERT INTO public.buses (registration, driver_id, route_id, total_seats, seats_available)
+           VALUES ($1, $2, $3, $4, $5)`,
+          [busRegistration.toUpperCase(), id, routeId || null, totalSeats, totalSeats],
+        );
+      }
     }
     return rows[0];
   });

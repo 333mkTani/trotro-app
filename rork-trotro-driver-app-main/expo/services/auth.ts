@@ -41,9 +41,19 @@ export async function login(phone: string, password: string): Promise<AuthRespon
   }
 }
 
-export async function register(phone: string, password: string, fullName: string): Promise<AuthResponse> {
+export async function register(
+  phone: string,
+  password: string,
+  fullName: string,
+  busRegistration?: string,
+  routeId?: string,
+  totalSeats?: number,
+): Promise<AuthResponse> {
   try {
-    const { data } = await api.post('/auth/register', { phone, password, fullName, role: 'driver' });
+    const { data } = await api.post('/auth/register', {
+      phone, password, fullName, role: 'driver',
+      busRegistration, routeId, totalSeats,
+    });
     const token: string = data.token;
     const user = await fetchProfile(token);
 

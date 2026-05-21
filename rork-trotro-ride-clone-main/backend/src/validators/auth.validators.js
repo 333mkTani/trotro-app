@@ -6,6 +6,10 @@ const RegisterSchema = z.object({
   email: z.string().email().optional(),
   password: z.string().min(6).max(72),
   role: z.enum(['passenger', 'driver', 'admin']).optional(),
+  // Driver-only bus details
+  busRegistration: z.string().min(2).max(20).optional(),
+  routeId: z.string().uuid().optional(),
+  totalSeats: z.number().int().min(1).max(100).optional(),
 });
 
 const LoginSchema = z.object({
