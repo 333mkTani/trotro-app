@@ -20,6 +20,11 @@ const register = async ({ phone, fullName, email, password, role = 'passenger' }
   const hash = await bcrypt.hash(password, 10);
 
   const user = await withTransaction(async (client) => {
+    // profiles.id has a FK to users.id — insert users row first
+    await client.query(
+      `INSERT INTO public.users (id, phone, email, password_hash) VALUES ($1, $2, $3, $4)`,
+      [id, phone, email || null, hash],
+    );
     const profile = await profileModel.insert({ id, phone, fullName, email, role });
     await authModel.upsertPassword(id, hash);
     await walletModel.ensureWallet(id, client);
