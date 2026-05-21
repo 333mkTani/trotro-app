@@ -9,8 +9,17 @@ const fs = require('fs');
 const path = require('path');
 const { Pool } = require('pg');
 
+// Parse URL manually — pg's built-in parser truncates usernames containing dots
+// (e.g. Supabase Transaction Pooler uses "postgres.PROJECT-REF")
+const dbUrl = new URL(process.env.DATABASE_URL);
+console.log(`[migrate] host=${dbUrl.hostname} port=${dbUrl.port} user=${dbUrl.username} db=${dbUrl.pathname.slice(1)}`);
+
 const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
+  host: dbUrl.hostname,
+  port: parseInt(dbUrl.port, 10) || 5432,
+  user: decodeURIComponent(dbUrl.username),
+  password: decodeURIComponent(dbUrl.password),
+  database: dbUrl.pathname.slice(1),
   ssl: { rejectUnauthorized: false },
 });
 

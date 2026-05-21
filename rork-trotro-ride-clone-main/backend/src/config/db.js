@@ -1,14 +1,23 @@
 const { Pool } = require('pg');
 const { env } = require('./env');
 
-/**
- * Single shared PG pool. Works against any Postgres database including
- * Supabase. For Supabase, use the pooled "Transaction" connection string
- * (port 6543) in serverless environments.
- */
+// Parse URL manually — pg's built-in parser truncates usernames containing dots
+// (Supabase Transaction Pooler uses "postgres.PROJECT-REF" as the username)
+function buildPoolConfig(databaseUrl, useSsl) {
+  if (!databaseUrl) return {};
+  const u = new URL(databaseUrl);
+  return {
+    host: u.hostname,
+    port: parseInt(u.port, 10) || 5432,
+    user: decodeURIComponent(u.username),
+    password: decodeURIComponent(u.password),
+    database: u.pathname.slice(1),
+    ssl: useSsl ? { rejectUnauthorized: false } : false,
+  };
+}
+
 const pool = new Pool({
-  connectionString: env.DATABASE_URL,
-  ssl: env.PGSSL ? { rejectUnauthorized: false } : false,
+  ...buildPoolConfig(env.DATABASE_URL, env.PGSSL),
   max: 10,
   idleTimeoutMillis: 30000,
 });
