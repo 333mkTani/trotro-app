@@ -4,7 +4,7 @@ import { useAuthStore } from '@/store/authStore';
 // Change this to your deployed backend URL for production.
 // For local development with a physical device, use your machine's LAN IP:
 //   e.g. http://192.168.1.100:4000
-export const API_BASE_URL = 'http://localhost:4000';
+export const API_BASE_URL = 'https://trotro-api.onrender.com';
 
 interface RetryableConfig extends InternalAxiosRequestConfig {
   _retry?: boolean;
