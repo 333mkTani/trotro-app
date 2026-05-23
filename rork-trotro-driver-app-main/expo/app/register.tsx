@@ -51,7 +51,7 @@ export default function RegisterScreen() {
   }, [fadeIn, slideUp]);
 
   useEffect(() => {
-    if (isAuth) router.replace('/(tabs)');
+    if (isAuth) router.replace('/(tabs)/dashboard');
   }, [isAuth]);
 
   const registerMut = useMutation({
@@ -65,9 +65,9 @@ export default function RegisterScreen() {
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       const ok = await requestLocationPermission();
       if (ok) await startGpsService();
-      router.replace('/(tabs)');
+      router.replace('/(tabs)/dashboard');
     },
-    onError: (err: Error) => {
+    onError: (_err: Error) => {
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
     },
   });
