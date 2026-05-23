@@ -96,7 +96,7 @@ const updateSeats = async (driverId, { availableSeats, totalSeats }) => {
   if (!fields.length) throw ApiError.badRequest('No seat fields provided');
   values.push(bus.id);
   const { rows } = await query(
-    `UPDATE buses SET ${fields.join(', ')}, updated_at = NOW() WHERE id = $${i} RETURNING *`,
+    `UPDATE buses SET ${fields.join(', ')} WHERE id = $${i} RETURNING *`,
     values
   );
   return rows[0];
