@@ -48,4 +48,6 @@ const updateLocation = async (id, coords) => {
 const nearby = ({ lat, lng, radiusM, routeId, limit }) =>
   busModel.findNearby({ lat, lng, radiusM, routeId, limit });
 
-module.exports = { list, getById, create, updateLocation, nearby };
+const listActive = () => busModel.listActive();
+
+module.exports = { list, getById, create, updateLocation, nearby, listActive };

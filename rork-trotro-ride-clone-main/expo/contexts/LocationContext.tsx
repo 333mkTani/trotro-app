@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Platform } from 'react-native';
 import * as Location from 'expo-location';
 import createContextHook from '@nkzw/create-context-hook';
-import { BusStop, Route as RouteType } from '@/types';
+import { ApproachingBus, BusStop, Route as RouteType } from '@/types';
 import { ALL_REGIONS, RegionData } from '@/mocks/stops';
 import { api } from '@/services/api';
 
@@ -48,6 +48,17 @@ const mapRoute = (r: Record<string, unknown>): RouteType => ({
   status: (r.status as RouteType['status']) ?? 'active',
 });
 
+const mapActiveBus = (b: Record<string, unknown>): ApproachingBus => ({
+  driver_id: b.driver_id as string,
+  bus_registration: b.bus_registration as string,
+  driver_name: (b.driver_name as string) ?? 'Driver',
+  seats_available: (b.seats_available as number) ?? 0,
+  eta_minutes: 5,
+  route_name: (b.route_name as string) ?? '',
+  lat: b.current_lat ? parseFloat(b.current_lat as string) : 0,
+  lng: b.current_lng ? parseFloat(b.current_lng as string) : 0,
+});
+
 export const [LocationProvider, useLocation] = createContextHook(() => {
   const [userLat, setUserLat] = useState<number | null>(null);
   const [userLng, setUserLng] = useState<number | null>(null);
@@ -56,12 +67,16 @@ export const [LocationProvider, useLocation] = createContextHook(() => {
   const [locationError, setLocationError] = useState<string | null>(null);
   const [nearbyStops, setNearbyStops] = useState<BusStop[]>([]);
   const [routes, setRoutes] = useState<RouteType[]>([]);
+  const [activeBuses, setActiveBuses] = useState<ApproachingBus[]>([]);
 
-  // Fetch routes from backend once on mount
+  // Fetch routes and active buses from backend once on mount
   useEffect(() => {
     api.get('/routes')
       .then(({ data }) => setRoutes((data as Record<string, unknown>[]).map(mapRoute)))
       .catch(() => { /* use mock fallback via regionRoutes */ });
+    api.get('/buses/active')
+      .then(({ data }) => setActiveBuses((data as Record<string, unknown>[]).map(mapActiveBus)))
+      .catch(() => {});
   }, []);
 
   // Fetch nearby stops whenever user location changes
@@ -155,6 +170,7 @@ export const [LocationProvider, useLocation] = createContextHook(() => {
     regionName: region.name,
     regionStops,
     regionRoutes,
+    activeBuses,
     mapCenter,
     locationLoading,
     locationError,

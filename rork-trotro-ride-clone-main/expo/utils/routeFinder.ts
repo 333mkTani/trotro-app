@@ -1,7 +1,6 @@
 import { BusStop, ApproachingBus, Route } from '@/types';
 import { ALL_BUS_STOPS } from '@/mocks/stops';
 import { ALL_ROUTES } from '@/mocks/routes';
-import { MOCK_APPROACHING_BUSES } from '@/mocks/data';
 
 export interface RouteRecommendation {
   id: string;
@@ -52,11 +51,6 @@ export function findNearbyStops(
     .sort((a, b) => a.distance_m - b.distance_m);
 }
 
-function getAvailableBusesAtStop(stopId: string): ApproachingBus[] {
-  const buses = MOCK_APPROACHING_BUSES[stopId] ?? [];
-  return buses.filter((b) => b.seats_available > 0);
-}
-
 function estimateWalkMinutes(distanceM: number): number {
   return Math.ceil(distanceM / 80);
 }
@@ -69,9 +63,11 @@ export function findRouteRecommendations(
   maxWalkM: number = 3000,
   stops?: BusStop[],
   routes?: Route[],
+  activeBuses?: ApproachingBus[],
 ): RouteRecommendation[] {
   const stopsToSearch = stops ?? ALL_BUS_STOPS;
   const routesToSearch = routes ?? ALL_ROUTES;
+  const busPool = activeBuses ?? [];
 
   const nearbyPickups = findNearbyStops(userLat, userLng, maxWalkM, stopsToSearch);
   const nearbyDests = findNearbyStops(destLat, destLng, maxWalkM, stopsToSearch);
@@ -96,14 +92,7 @@ export function findRouteRecommendations(
       );
 
       for (const route of matchingRoutes) {
-        const buses = getAvailableBusesAtStop(pickup.id).filter((b) => {
-          return b.route_name === route.name;
-        });
-
-        const allBusesOnRoute = getAvailableBusesAtStop(pickup.id).filter(
-          (b) => b.route_name === route.name,
-        );
-        const busesForOption = allBusesOnRoute.length > 0 ? allBusesOnRoute : buses;
+        const busesForOption = busPool.filter((b) => b.route_name === route.name && b.seats_available > 0);
 
         if (busesForOption.length === 0) continue;
 

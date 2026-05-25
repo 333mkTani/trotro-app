@@ -23,4 +23,8 @@ const nearby = asyncHandler(async (req, res) => {
   res.json(await busService.nearby({ lat, lng, radiusM, limit, routeId }));
 });
 
-module.exports = { list, getById, create, updateLocation, nearby };
+const listActive = asyncHandler(async (req, res) => {
+  res.json(await busService.listActive());
+});
+
+module.exports = { list, getById, create, updateLocation, nearby, listActive };

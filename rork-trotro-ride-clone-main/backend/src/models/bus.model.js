@@ -78,4 +78,18 @@ const findNearby = async ({ lat, lng, radiusM = 2000, routeId, limit = 50 }) => 
   return rows;
 };
 
-module.exports = { list, findById, insert, updateLocation, adjustSeats, findNearby };
+const listActive = async () => {
+  const { rows } = await query(
+    `SELECT b.driver_id, b.registration AS bus_registration, b.route_id,
+            b.seats_available, b.total_seats, b.current_lat, b.current_lng,
+            r.name AS route_name,
+            d.full_name AS driver_name
+     FROM public.buses b
+     LEFT JOIN public.routes r ON r.id = b.route_id
+     LEFT JOIN public.drivers d ON d.id = b.driver_id
+     WHERE b.status = 'active' AND b.seats_available > 0`,
+  );
+  return rows;
+};
+
+module.exports = { list, findById, insert, updateLocation, adjustSeats, findNearby, listActive };

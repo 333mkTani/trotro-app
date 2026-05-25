@@ -64,7 +64,7 @@ export default function FindRouteScreen() {
 
   const router = useRouter();
   const params = useLocalSearchParams<{ pinLat?: string; pinLng?: string; pinLabel?: string }>();
-  const { userLat, userLng, regionStops, regionRoutes, regionName, mapCenter } = useLocation();
+  const { userLat, userLng, regionStops, regionRoutes, activeBuses, regionName, mapCenter } = useLocation();
   const { user } = useAuth();
   const { bookBus } = useBookings();
   const [bookedBooking, setBookedBooking] = useState<Booking | null>(null);
@@ -118,11 +118,11 @@ export default function FindRouteScreen() {
   const onSearch = useCallback((text: string) => {
     setQuery(text);
     if (text.length >= 1) {
-      setSearchResults(searchStops(text));
+      setSearchResults(searchStops(text, regionStops.length > 0 ? regionStops : undefined));
     } else {
       setSearchResults([]);
     }
-  }, []);
+  }, [regionStops]);
 
   const onSelectDestination = useCallback(
     async (stop: BusStop) => {
@@ -135,13 +135,13 @@ export default function FindRouteScreen() {
 
       await new Promise((r) => setTimeout(r, 800));
 
-      const recs = findRouteRecommendations(currentLat, currentLng, stop.lat, stop.lng, 3000, regionStops, regionRoutes);
+      const recs = findRouteRecommendations(currentLat, currentLng, stop.lat, stop.lng, 3000, regionStops, regionRoutes, activeBuses);
       setRecommendations(recs);
       setLoading(false);
 
       Animated.timing(resultsFade, { toValue: 1, duration: 400, useNativeDriver: true }).start();
     },
-    [resultsFade],
+    [resultsFade, activeBuses, currentLat, currentLng, regionStops, regionRoutes],
   );
 
   const onSelectRecommendation = useCallback(
@@ -194,7 +194,9 @@ export default function FindRouteScreen() {
           lng: selected.bestBus.lng ?? 0,
         },
         pickupStopId: selected.pickupStop.id,
+        pickupStopName: selected.pickupStop.name,
         destinationStopId: selected.destinationStop.id,
+        destinationStopName: selected.destinationStop.name,
         passengerId: user.id,
       });
       setBookedBooking(result);

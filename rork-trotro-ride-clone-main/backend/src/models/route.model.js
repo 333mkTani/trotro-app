@@ -4,7 +4,16 @@ const COLUMNS = `id, name, origin, destination, distance_km, duration_min, fare,
 
 const list = async ({ status = 'active' } = {}) => {
   const { rows } = await query(
-    `select ${COLUMNS} from public.routes where status = $1 order by name asc`,
+    `SELECT r.id, r.name, r.origin, r.destination, r.distance_km, r.duration_min, r.fare, r.status, r.created_at,
+            COALESCE(
+              array_agg(rs.stop_id::text ORDER BY rs.sequence) FILTER (WHERE rs.stop_id IS NOT NULL),
+              ARRAY[]::text[]
+            ) AS stops_sequence
+     FROM public.routes r
+     LEFT JOIN public.route_stops rs ON rs.route_id = r.id
+     WHERE r.status = $1
+     GROUP BY r.id
+     ORDER BY r.name ASC`,
     [status],
   );
   return rows;
