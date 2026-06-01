@@ -22,7 +22,31 @@ const getById = async (id, user) => {
 };
 
 const create = async (passengerId, data) => {
-  return bookingModel.insert({ ...data, passengerId });
+  return withTransaction(async (client) => {
+    const booking = await bookingModel.insert({ ...data, passengerId }, client);
+
+    // Auto-confirm immediately so the passenger receives a boarding code on booking
+    const confirmed = await bookingModel.updateStatus(
+      booking.id,
+      'confirmed',
+      { driverId: data.driverId ?? null, busId: data.busId ?? null },
+      client,
+    );
+
+    const code = generateBoardingCode(6);
+    const validUntil = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const qrPayload = buildQrPayload({ bookingId: booking.id, code, validUntil });
+    const verification = await codeModel.insert(
+      { bookingId: booking.id, code, qrPayload, validUntil },
+      client,
+    );
+
+    return {
+      ...confirmed,
+      verification_code: verification.code,
+      code_valid_until: verification.valid_until,
+    };
+  });
 };
 
 /**
