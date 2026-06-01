@@ -320,8 +320,10 @@ export default function HomeScreen() {
                 >
                   <View style={s.busMarkerOuter}>
                     <View style={s.busMarkerCard}>
-                      <Bus size={14} color={Colors.white} />
-                      <Text style={s.busMarkerSeats}>{bus.seats_available}</Text>
+                      <Bus size={16} color={Colors.white} />
+                      <View style={s.busMarkerSeatBadge}>
+                        <Text style={s.busMarkerSeatTxt}>{bus.seats_available}</Text>
+                      </View>
                     </View>
                     <View style={s.busMarkerTail} />
                   </View>
@@ -937,37 +939,50 @@ const make_s = (Colors: ThemePalette) => StyleSheet.create({
     color: Colors.white,
   },
 
-  // Live bus markers
+  // Live bus markers — speech-bubble style (green)
   busMarkerOuter: {
     alignItems: "center",
   },
   busMarkerCard: {
-    flexDirection: "row",
+    width: 44,
+    height: 40,
+    borderRadius: 10,
     alignItems: "center",
-    gap: 4,
+    justifyContent: "center",
     backgroundColor: Colors.success,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 20,
     borderWidth: 2,
     borderColor: Colors.white,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
+    shadowOpacity: 0.28,
     shadowRadius: 5,
     elevation: 6,
   },
-  busMarkerSeats: {
-    fontSize: 12,
+  busMarkerSeatBadge: {
+    position: "absolute" as const,
+    top: -6,
+    right: -6,
+    backgroundColor: Colors.primary,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: Colors.white,
+    paddingHorizontal: 3,
+  },
+  busMarkerSeatTxt: {
+    fontSize: 10,
     fontWeight: "800" as const,
     color: Colors.white,
   },
   busMarkerTail: {
     width: 0,
     height: 0,
-    borderLeftWidth: 6,
-    borderRightWidth: 6,
-    borderTopWidth: 8,
+    borderLeftWidth: 7,
+    borderRightWidth: 7,
+    borderTopWidth: 9,
     borderLeftColor: "transparent",
     borderRightColor: "transparent",
     borderTopColor: Colors.success,
