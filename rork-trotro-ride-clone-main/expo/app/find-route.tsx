@@ -299,7 +299,12 @@ export default function FindRouteScreen() {
     return (
       <View style={st.root}>
         <Stack.Screen options={{ headerShown: false }} />
-        <View style={st.bookedWrap}>
+        <ScrollView
+          style={st.flex}
+          contentContainerStyle={st.bookedWrap}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
           <View style={st.bookedCard}>
             <View style={st.bookedIconWrap}>
               <CheckCircle size={52} color={Colors.white} />
@@ -365,7 +370,7 @@ export default function FindRouteScreen() {
               <Text style={[st.bookedSecTxt, { color: Colors.gray500 }]}>Back to Home</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </ScrollView>
       </View>
     );
   }
@@ -1421,9 +1426,8 @@ const make_st = (Colors: ThemePalette) => StyleSheet.create({
   bookBtnTxt: { fontSize: 16, fontWeight: "700" as const, color: Colors.white },
 
   bookedWrap: {
-    flex: 1,
-    justifyContent: "center" as const,
     padding: 20,
+    paddingBottom: 40,
     backgroundColor: Colors.screenBg,
   },
   bookedCard: {
@@ -1467,9 +1471,9 @@ const make_st = (Colors: ThemePalette) => StyleSheet.create({
     gap: 8,
     marginBottom: 16,
   },
-  detailRow: { flexDirection: "row", justifyContent: "space-between" },
-  detailLabel: { fontSize: 13, color: Colors.gray500 },
-  detailValue: { fontSize: 13, fontWeight: "600" as const, color: Colors.gray800 },
+  detailRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start", gap: 8 },
+  detailLabel: { fontSize: 13, color: Colors.gray500, width: 90, flexShrink: 0 },
+  detailValue: { fontSize: 13, fontWeight: "600" as const, color: Colors.gray800, flex: 1, textAlign: "right" as const },
   etaNote: {
     fontSize: 10,
     color: Colors.gray400,
