@@ -173,6 +173,7 @@ export const [LocationProvider, useLocation] = createContextHook(() => {
     regionId: region.id,
     regionName: region.name,
     regionStops,
+    nearbyStops,
     regionRoutes,
     activeBuses,
     mapCenter,

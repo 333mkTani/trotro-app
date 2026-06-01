@@ -94,22 +94,20 @@ export function findRouteRecommendations(
       for (const route of matchingRoutes) {
         const busesForOption = busPool.filter((b) => b.route_name === route.name && b.seats_available > 0);
 
-        if (busesForOption.length === 0) continue;
-
-        const bestBus = busesForOption.reduce((best, b) =>
-          b.eta_minutes < best.eta_minutes ? b : best,
-        );
+        const bestBus = busesForOption.length > 0
+          ? busesForOption.reduce((best, b) => b.eta_minutes < best.eta_minutes ? b : best)
+          : null;
 
         const walkToPickup = estimateWalkMinutes(pickup.distance_m);
         const pickupIdx = route.stops_sequence.indexOf(pickup.id);
         const destIdx = route.stops_sequence.indexOf(dest.id);
         const segmentRatio = (destIdx - pickupIdx) / (route.stops_sequence.length - 1);
         const rideMinutes = Math.ceil(route.duration_min * segmentRatio);
-        const totalMinutes = walkToPickup + bestBus.eta_minutes + rideMinutes;
+        const totalMinutes = walkToPickup + (bestBus?.eta_minutes ?? 0) + rideMinutes;
 
         const walkScore = Math.max(0, 100 - pickup.distance_m / 30);
-        const etaScore = Math.max(0, 100 - bestBus.eta_minutes * 5);
-        const seatScore = Math.min(bestBus.seats_available * 10, 50);
+        const etaScore = bestBus ? Math.max(0, 100 - bestBus.eta_minutes * 5) : 50;
+        const seatScore = bestBus ? Math.min(bestBus.seats_available * 10, 50) : 0;
         const destWalkScore = Math.max(0, 50 - dest.distance_m / 60);
         const score = walkScore + etaScore + seatScore + destWalkScore;
 
