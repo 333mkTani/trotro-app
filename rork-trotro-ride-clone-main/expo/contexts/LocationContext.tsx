@@ -69,11 +69,15 @@ export const [LocationProvider, useLocation] = createContextHook(() => {
   const [routes, setRoutes] = useState<RouteType[]>([]);
   const [activeBuses, setActiveBuses] = useState<ApproachingBus[]>([]);
 
-  // Fetch routes and active buses from backend once on mount
+  // Fetch routes filtered by the user's detected city; re-fetches when location resolves
   useEffect(() => {
-    api.get('/routes')
+    api.get('/routes', { params: { city: region.id } })
       .then(({ data }) => setRoutes((data as Record<string, unknown>[]).map(mapRoute)))
       .catch(() => { /* use mock fallback via regionRoutes */ });
+  }, [region.id]);
+
+  // Fetch active buses once on mount
+  useEffect(() => {
     api.get('/buses/active')
       .then(({ data }) => setActiveBuses((data as Record<string, unknown>[]).map(mapActiveBus)))
       .catch(() => {});

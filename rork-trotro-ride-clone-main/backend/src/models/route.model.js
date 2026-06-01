@@ -2,7 +2,9 @@ const { query } = require('../config/db');
 
 const COLUMNS = `id, name, origin, destination, distance_km, duration_min, fare, status, created_at`;
 
-const list = async ({ status = 'active' } = {}) => {
+const list = async ({ status = 'active', city = null } = {}) => {
+  const params = [status];
+  const cityClause = city ? `AND r.city = $${params.push(city)}` : '';
   const { rows } = await query(
     `SELECT r.id, r.name, r.origin, r.destination, r.distance_km, r.duration_min, r.fare, r.status, r.created_at,
             COALESCE(
@@ -11,10 +13,10 @@ const list = async ({ status = 'active' } = {}) => {
             ) AS stops_sequence
      FROM public.routes r
      LEFT JOIN public.route_stops rs ON rs.route_id = r.id
-     WHERE r.status = $1
+     WHERE r.status = $1 ${cityClause}
      GROUP BY r.id
      ORDER BY r.name ASC`,
-    [status],
+    params,
   );
   return rows;
 };

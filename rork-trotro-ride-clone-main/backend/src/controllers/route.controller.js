@@ -1,8 +1,9 @@
 const { asyncHandler } = require('../utils/asyncHandler');
 const routeService = require('../services/route.service');
 
-const list = asyncHandler(async (_req, res) => {
-  res.json(await routeService.list());
+const list = asyncHandler(async (req, res) => {
+  const { city } = req.query;
+  res.json(await routeService.list({ city: city || null }));
 });
 
 const getById = asyncHandler(async (req, res) => {

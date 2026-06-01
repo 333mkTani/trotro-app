@@ -2,13 +2,13 @@ const routeModel = require('../models/route.model');
 const cache = require('./cache.service');
 const { ApiError } = require('../utils/ApiError');
 
-const LIST_KEY = 'routes:list:active';
+const LIST_KEY = (city) => city ? `routes:list:active:${city}` : 'routes:list:active';
 const ITEM_KEY = (id) => `routes:item:${id}`;
 const LIST_TTL = 60;
 const ITEM_TTL = 120;
 
-const list = (opts) =>
-  cache.wrap(LIST_KEY, LIST_TTL, () => routeModel.list(opts));
+const list = (opts = {}) =>
+  cache.wrap(LIST_KEY(opts.city), LIST_TTL, () => routeModel.list(opts));
 
 const getById = async (id) =>
   cache.wrap(ITEM_KEY(id), ITEM_TTL, async () => {
