@@ -12,7 +12,7 @@ import {
   PanResponder,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { MapPin, Navigation, Search, Bell, Route, BellRing, ChevronUp, Locate } from "lucide-react-native";
+import { MapPin, Navigation, Search, Bell, Route, BellRing, ChevronUp, Locate, Bus } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
@@ -311,20 +311,28 @@ export default function HomeScreen() {
                   tracksViewChanges={false}
                 >
                   <View style={[s.markerOuter, isSelected && s.markerSelected]}>
-                    <View
-                      style={[
-                        s.markerInner,
-                        activeBusCount > 0 ? s.markerActive : s.markerInactive,
-                        isSelected && s.markerInnerSelected,
-                      ]}
-                    >
-                      <MapPin size={14} color={Colors.white} />
-                    </View>
+                    {/* Bus count badge */}
                     {activeBusCount > 0 && (
                       <View style={s.markerBadge}>
                         <Text style={s.markerBadgeText}>{activeBusCount}</Text>
                       </View>
                     )}
+                    {/* Speech-bubble card */}
+                    <View style={[
+                      s.markerCard,
+                      activeBusCount > 0 ? s.markerCardActive : s.markerCardInactive,
+                      isSelected && s.markerCardSelected,
+                    ]}>
+                      <Bus
+                        size={18}
+                        color={activeBusCount > 0 ? Colors.white : Colors.gray500}
+                      />
+                    </View>
+                    {/* Pointed tail */}
+                    <View style={[
+                      s.markerTail,
+                      { borderTopColor: isSelected ? Colors.primaryDark : activeBusCount > 0 ? Colors.primary : Colors.gray400 },
+                    ]} />
                   </View>
                 </Marker>
               );
@@ -839,47 +847,58 @@ const make_s = (Colors: ThemePalette) => StyleSheet.create({
   markerOuter: {
     alignItems: "center",
     justifyContent: "center",
-    padding: 3,
   },
   markerSelected: {
-    transform: [{ scale: 1.2 }],
+    transform: [{ scale: 1.25 }],
   },
-  markerInner: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+  markerCard: {
+    width: 40,
+    height: 36,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
-    borderWidth: 2.5,
+    borderWidth: 2,
     borderColor: Colors.white,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.25,
+    shadowRadius: 5,
+    elevation: 5,
   },
-  markerActive: {
+  markerCardActive: {
     backgroundColor: Colors.primary,
   },
-  markerInactive: {
-    backgroundColor: Colors.gray400,
+  markerCardInactive: {
+    backgroundColor: Colors.gray300,
   },
-  markerInnerSelected: {
+  markerCardSelected: {
     backgroundColor: Colors.primaryDark,
     borderColor: Colors.primaryLight,
   },
+  markerTail: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 7,
+    borderRightWidth: 7,
+    borderTopWidth: 9,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    marginTop: -1,
+  },
   markerBadge: {
     position: "absolute" as const,
-    top: -2,
-    right: -4,
+    top: -5,
+    right: -6,
     backgroundColor: Colors.success,
-    width: 18,
+    minWidth: 18,
     height: 18,
     borderRadius: 9,
     alignItems: "center",
     justifyContent: "center",
     borderWidth: 1.5,
     borderColor: Colors.white,
+    paddingHorizontal: 3,
+    zIndex: 1,
   },
   markerBadgeText: {
     fontSize: 10,
