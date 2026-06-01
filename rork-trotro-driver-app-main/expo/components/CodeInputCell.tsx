@@ -71,9 +71,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 8,
     justifyContent: 'center',
+    paddingHorizontal: 4,
   },
   cell: {
-    width: 52,
+    flex: 1,
+    maxWidth: 56,
     height: 64,
     borderRadius: 14,
     borderWidth: 2,
