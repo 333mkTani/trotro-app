@@ -1,19 +1,48 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import {
   View, Text, TextInput, Pressable, ActivityIndicator,
   KeyboardAvoidingView, Platform, ScrollView, Animated, StyleSheet,
   Modal, FlatList, TouchableOpacity,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import * as Location from 'expo-location';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMutation } from '@tanstack/react-query';
-import { Phone, Lock, Eye, EyeOff, Bus, User, ArrowLeft, ChevronDown, Hash } from 'lucide-react-native';
+import { Phone, Lock, Eye, EyeOff, Bus, User, ArrowLeft, ChevronDown, Hash, Search } from 'lucide-react-native';
 import { register as performRegister } from '@/services/auth';
 import { useAuthStore } from '@/store/authStore';
 import { startGpsService } from '@/services/gpsService';
 import { usePermissions } from '@/hooks/usePermissions';
 import api from '@/services/api';
+
+const CITY_CENTERS = [
+  { id: 'accra',      lat: 5.6037,  lng: -0.1870 },
+  { id: 'kumasi',     lat: 6.6885,  lng: -1.6244 },
+  { id: 'tamale',     lat: 9.4008,  lng: -0.8393 },
+  { id: 'cape-coast', lat: 5.1053,  lng: -1.2466 },
+  { id: 'takoradi',   lat: 4.8845,  lng: -1.7554 },
+];
+
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function detectCity(lat: number, lng: number): string {
+  let closest = CITY_CENTERS[0];
+  let minDist = Infinity;
+  for (const c of CITY_CENTERS) {
+    const d = haversineKm(lat, lng, c.lat, c.lng);
+    if (d < minDist) { minDist = d; closest = c; }
+  }
+  return closest.id;
+}
 
 interface Route { id: string; name: string; origin: string; destination: string; }
 
@@ -30,6 +59,7 @@ export default function RegisterScreen() {
   const [routes, setRoutes] = useState<Route[]>([]);
   const [showPicker, setShowPicker] = useState(false);
   const [loadingRoutes, setLoadingRoutes] = useState(false);
+  const [search, setSearch] = useState('');
   const [pwVis, setPwVis] = useState(false);
   const [confirmPwVis, setConfirmPwVis] = useState(false);
   const [localError, setLocalError] = useState('');
@@ -44,10 +74,28 @@ export default function RegisterScreen() {
       Animated.timing(slideUp, { toValue: 0, duration: 500, delay: 200, useNativeDriver: true }),
     ]).start();
     setLoadingRoutes(true);
-    api.get('/routes')
-      .then(({ data }) => setRoutes(Array.isArray(data) ? data : []))
-      .catch(() => {})
-      .finally(() => setLoadingRoutes(false));
+    (async () => {
+      let city: string | null = null;
+      try {
+        const { status } = await Location.getForegroundPermissionsAsync();
+        if (status === 'granted') {
+          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          city = detectCity(loc.coords.latitude, loc.coords.longitude);
+        } else {
+          const { status: asked } = await Location.requestForegroundPermissionsAsync();
+          if (asked === 'granted') {
+            const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+            city = detectCity(loc.coords.latitude, loc.coords.longitude);
+          }
+        }
+      } catch { /* no city filter if location unavailable */ }
+      try {
+        const { data } = await api.get('/routes', city ? { params: { city } } : {});
+        setRoutes(Array.isArray(data) ? data : []);
+      } catch { /* leave routes empty */ } finally {
+        setLoadingRoutes(false);
+      }
+    })();
   }, [fadeIn, slideUp]);
 
   useEffect(() => {
@@ -82,6 +130,17 @@ export default function RegisterScreen() {
     if (!routeId) { setLocalError('Please select the route you operate on.'); return; }
     registerMut.mutate();
   }, [fullName, ph, pw, confirmPw, busPlate, routeId, registerMut]);
+
+  const filteredRoutes = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return routes;
+    return routes.filter(
+      (r) =>
+        r.name.toLowerCase().includes(q) ||
+        r.origin.toLowerCase().includes(q) ||
+        r.destination.toLowerCase().includes(q),
+    );
+  }, [routes, search]);
 
   const canSubmit = fullName.trim().length > 0 && ph.trim().length > 0
     && pw.length >= 6 && confirmPw.length > 0 && busPlate.trim().length > 0 && !!routeId;
@@ -194,17 +253,34 @@ export default function RegisterScreen() {
       </KeyboardAvoidingView>
 
       {/* Route picker modal */}
-      <Modal visible={showPicker} animationType="slide" transparent onRequestClose={() => setShowPicker(false)}>
+      <Modal
+        visible={showPicker}
+        animationType="slide"
+        transparent
+        onRequestClose={() => { setShowPicker(false); setSearch(''); }}
+      >
         <View style={s.modalBackdrop}>
           <View style={s.modalCard}>
             <View style={s.modalHeader}>
               <Text style={s.modalTitle}>Select Route</Text>
-              <Pressable onPress={() => setShowPicker(false)} hitSlop={12}>
+              <Pressable onPress={() => { setShowPicker(false); setSearch(''); }} hitSlop={12}>
                 <Text style={s.modalClose}>Done</Text>
               </Pressable>
             </View>
+            <View style={s.searchRow}>
+              <Search size={16} color="#94A3B8" style={{ marginRight: 8 }} />
+              <TextInput
+                style={s.searchInp}
+                placeholder="Search by name, origin or destination…"
+                placeholderTextColor="#94A3B8"
+                value={search}
+                onChangeText={setSearch}
+                autoCorrect={false}
+                clearButtonMode="while-editing"
+              />
+            </View>
             <FlatList
-              data={routes}
+              data={filteredRoutes}
               keyExtractor={(r) => r.id}
               renderItem={({ item }) => (
                 <TouchableOpacity
@@ -213,6 +289,7 @@ export default function RegisterScreen() {
                     setRouteId(item.id);
                     setRouteName(item.name);
                     setShowPicker(false);
+                    setSearch('');
                   }}
                   activeOpacity={0.7}
                 >
@@ -221,9 +298,12 @@ export default function RegisterScreen() {
                 </TouchableOpacity>
               )}
               ListEmptyComponent={
-                <Text style={s.noRoutes}>No routes available. Check your connection.</Text>
+                <Text style={s.noRoutes}>
+                  {search.trim() ? 'No routes match your search.' : 'No routes available. Check your connection.'}
+                </Text>
               }
               ItemSeparatorComponent={() => <View style={s.sep} />}
+              keyboardShouldPersistTaps="handled"
             />
           </View>
         </View>
@@ -270,6 +350,8 @@ const s = StyleSheet.create({
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 20, borderBottomWidth: 1, borderBottomColor: '#F1F5F9' },
   modalTitle: { fontSize: 18, fontWeight: '700' as const, color: '#2D3E40' },
   modalClose: { fontSize: 16, color: '#1565C0', fontWeight: '600' as const },
+  searchRow: { flexDirection: 'row', alignItems: 'center', marginHorizontal: 16, marginBottom: 8, backgroundColor: '#F1F5F9', borderRadius: 10, paddingHorizontal: 12, height: 42 },
+  searchInp: { flex: 1, fontSize: 14, color: '#2D3E40' },
   routeItem: { paddingHorizontal: 20, paddingVertical: 16 },
   routeItemActive: { backgroundColor: '#EFF6FF' },
   routeName: { fontSize: 16, fontWeight: '600' as const, color: '#2D3E40', marginBottom: 2 },
