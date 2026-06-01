@@ -734,8 +734,8 @@ const RecommendationCard = React.memo(function RecommendationCard({
       )}
       <View style={st.recTop}>
         <View style={st.recRoutePill}>
-          <Bus size={12} color={Colors.primary} />
-          <Text style={st.recRouteText}>{rec.route.name}</Text>
+          <Bus size={12} color={Colors.primary} style={{ flexShrink: 0 }} />
+          <Text style={st.recRouteText} numberOfLines={1}>{rec.route.name}</Text>
         </View>
         <View style={st.recTopRight}>
           <View style={st.recFarePill}>
@@ -1047,12 +1047,16 @@ const make_st = (Colors: ThemePalette) => StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 8,
+    flexShrink: 1,
+    minWidth: 0,
   },
-  recRouteText: { fontSize: 12, fontWeight: "600" as const, color: Colors.primary },
+  recRouteText: { fontSize: 12, fontWeight: "600" as const, color: Colors.primary, flexShrink: 1 },
   recTopRight: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
+    flexShrink: 0,
+    marginLeft: 8,
   },
   recFarePill: {
     backgroundColor: Colors.successLight,
