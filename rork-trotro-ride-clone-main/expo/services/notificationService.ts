@@ -1,52 +1,50 @@
 import { Platform } from 'react-native';
+import * as Notifications from 'expo-notifications';
+import * as Device from 'expo-device';
 import { api } from './api';
 
-let messagingModule: typeof import('@react-native-firebase/messaging').default | null = null;
-
-async function getMessaging() {
-  if (Platform.OS === 'web') return null;
-  if (messagingModule) return messagingModule;
-  try {
-    const mod = await import('@react-native-firebase/messaging');
-    messagingModule = mod.default;
-    return messagingModule;
-  } catch {
-    return null;
-  }
-}
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+    shouldShowBanner: true,
+    shouldShowList: true,
+  }),
+});
 
 export async function initPassengerNotifications(): Promise<string | null> {
-  if (Platform.OS === 'web') return null;
-
-  const messaging = await getMessaging();
-  if (!messaging) return null;
+  if (Platform.OS === 'web' || !Device.isDevice) return null;
 
   try {
-    // Request permission (iOS prompts; Android auto-grants on API < 33)
-    const authStatus = await messaging().requestPermission();
-    const enabled =
-      authStatus === messaging.AuthorizationStatus.AUTHORIZED ||
-      authStatus === messaging.AuthorizationStatus.PROVISIONAL;
-
-    if (!enabled) {
-      console.log('[PassengerNotif] Permission denied');
-      return null;
+    if (Platform.OS === 'android') {
+      await Notifications.setNotificationChannelAsync('default', {
+        name: 'Trotro Alerts',
+        importance: Notifications.AndroidImportance.HIGH,
+        vibrationPattern: [0, 250, 250, 250],
+        lightColor: '#E85D04',
+        sound: 'default',
+      });
+      await Notifications.setNotificationChannelAsync('bus_approaching', {
+        name: 'Bus Approaching',
+        importance: Notifications.AndroidImportance.MAX,
+        vibrationPattern: [0, 500, 200, 500],
+        sound: 'default',
+      });
     }
 
-    const token = await messaging().getToken();
-    console.log('[PassengerNotif] FCM token:', token?.slice(0, 20) + '…');
+    const { status: existing } = await Notifications.getPermissionsAsync();
+    let final = existing;
+    if (existing !== 'granted') {
+      const { status } = await Notifications.requestPermissionsAsync();
+      final = status;
+    }
+    if (final !== 'granted') return null;
 
-    // Handle notifications received while app is in foreground
-    messaging().onMessage(async (remoteMessage) => {
-      console.log('[PassengerNotif] Foreground message:', remoteMessage.notification?.title);
-    });
-
-    // Handle background message tap
-    messaging().onNotificationOpenedApp((remoteMessage) => {
-      console.log('[PassengerNotif] Notification opened app:', remoteMessage.data?.type);
-    });
-
-    return token;
+    // getDevicePushTokenAsync returns raw FCM token on Android — sent directly to Firebase
+    const tokenData = await Notifications.getDevicePushTokenAsync();
+    console.log('[PassengerNotif] FCM token type:', tokenData.type);
+    return tokenData.data;
   } catch (e) {
     console.log('[PassengerNotif] Init error:', e);
     return null;
@@ -56,7 +54,7 @@ export async function initPassengerNotifications(): Promise<string | null> {
 export async function registerPushToken(token: string): Promise<void> {
   try {
     await api.post('/profile/push-token', { token });
-    console.log('[PassengerNotif] FCM token registered with backend');
+    console.log('[PassengerNotif] Token registered with backend');
   } catch (e) {
     console.log('[PassengerNotif] Token registration failed:', e);
   }
@@ -68,23 +66,15 @@ export function addNotificationListeners(
 ) {
   if (Platform.OS === 'web') return () => {};
 
-  let unsubscribeMessage: (() => void) | undefined;
-  let unsubscribeOpen: (() => void) | undefined;
-
-  getMessaging().then((messaging) => {
-    if (!messaging) return;
-
-    unsubscribeMessage = messaging().onMessage((msg) => {
-      if (msg.data) onReceive(msg.data as Record<string, unknown>);
-    });
-
-    unsubscribeOpen = messaging().onNotificationOpenedApp((msg) => {
-      if (msg.data) onTap(msg.data as Record<string, unknown>);
-    });
+  const recvSub = Notifications.addNotificationReceivedListener((n) => {
+    onReceive(n.request.content.data as Record<string, unknown>);
+  });
+  const tapSub = Notifications.addNotificationResponseReceivedListener((r) => {
+    onTap(r.notification.request.content.data as Record<string, unknown>);
   });
 
   return () => {
-    unsubscribeMessage?.();
-    unsubscribeOpen?.();
+    recvSub.remove();
+    tapSub.remove();
   };
 }

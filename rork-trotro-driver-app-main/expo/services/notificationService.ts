@@ -76,21 +76,12 @@ export async function initializeNotifications(): Promise<string | null> {
     let token: string | null = null;
     if (Device.isDevice) {
       try {
-        // Use Firebase FCM token directly
-        const { default: messaging } = await import('@react-native-firebase/messaging');
-        token = await messaging().getToken();
-        console.log('[NotificationService] FCM token:', token?.slice(0, 20) + '…');
-      } catch {
-        // Fallback to Expo push token if Firebase not configured yet
-        try {
-          const tokenData = await Notifications.getExpoPushTokenAsync({
-            projectId: process.env.EXPO_PUBLIC_PROJECT_ID,
-          });
-          token = tokenData.data;
-          console.log('[NotificationService] Expo push token (fallback):', token);
-        } catch (e2) {
-          console.log('[NotificationService] Could not get any push token:', e2);
-        }
+        // getDevicePushTokenAsync returns raw FCM token on Android
+        const tokenData = await Notifications.getDevicePushTokenAsync();
+        token = tokenData.data;
+        console.log('[NotificationService] FCM token obtained, type:', tokenData.type);
+      } catch (e) {
+        console.log('[NotificationService] Could not get push token:', e);
       }
     } else {
       console.log('[NotificationService] Running on simulator, skipping push token');
