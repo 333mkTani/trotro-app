@@ -35,6 +35,7 @@ import {
   Map,
   Banknote,
   QrCode,
+  Building2,
 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import StaticColors from "@/constants/colors";
@@ -56,6 +57,16 @@ const SCREEN_W = Dimensions.get("window").width;
 const BUFFERS: BufferMinutes[] = [10, 15, 20];
 
 type Phase = "search" | "results" | "confirm";
+
+interface PlaceResult {
+  place_id: number;
+  display_name: string;
+  name: string;
+  lat: string;
+  lon: string;
+  type: string;
+  class: string;
+}
 
 export default function FindRouteScreen() {
   const { colors: themeColors } = useTheme();
@@ -81,6 +92,9 @@ export default function FindRouteScreen() {
   const [buffer, setBuffer] = useState<BufferMinutes>(10);
   const [booking, setBooking] = useState(false);
   const [booked, setBooked] = useState(false);
+  const [placeResults, setPlaceResults] = useState<PlaceResult[]>([]);
+  const [geocoding, setGeocoding] = useState(false);
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fadeIn = useRef(new Animated.Value(0)).current;
   const slideUp = useRef(new Animated.Value(40)).current;
@@ -120,12 +134,40 @@ export default function FindRouteScreen() {
 
   const onSearch = useCallback((text: string) => {
     setQuery(text);
-    if (text.length >= 1) {
-      setSearchResults(searchStops(text, stopsForSearch.length > 0 ? stopsForSearch : undefined));
-    } else {
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+
+    if (text.length < 2) {
       setSearchResults([]);
+      setPlaceResults([]);
+      setGeocoding(false);
+      return;
     }
-  }, [stopsForSearch]);
+
+    // Instant local stop search
+    setSearchResults(searchStops(text, stopsForSearch.length > 0 ? stopsForSearch : undefined));
+
+    // Debounced place geocoding via Nominatim
+    setGeocoding(true);
+    searchTimer.current = setTimeout(async () => {
+      try {
+        const cLat = currentLat;
+        const cLng = currentLng;
+        const d = 0.35;
+        const viewbox = `${cLng - d},${cLat - d},${cLng + d},${cLat + d}`;
+        const url =
+          `https://nominatim.openstreetmap.org/search?` +
+          `q=${encodeURIComponent(text)}&format=json&limit=6&countrycodes=gh` +
+          `&viewbox=${viewbox}&bounded=0`;
+        const res = await fetch(url, { headers: { "User-Agent": "TrotroPassengerApp/1.0" } });
+        const data: PlaceResult[] = await res.json();
+        setPlaceResults(data);
+      } catch {
+        setPlaceResults([]);
+      } finally {
+        setGeocoding(false);
+      }
+    }, 600);
+  }, [stopsForSearch, currentLat, currentLng]);
 
   const onSelectDestination = useCallback(
     async (stop: BusStop) => {
@@ -145,6 +187,20 @@ export default function FindRouteScreen() {
       Animated.timing(resultsFade, { toValue: 1, duration: 400, useNativeDriver: true }).start();
     },
     [resultsFade, activeBuses, currentLat, currentLng, stopsForSearch, regionRoutes],
+  );
+
+  const onSelectPlace = useCallback(
+    async (place: PlaceResult) => {
+      if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      const lat = parseFloat(place.lat);
+      const lng = parseFloat(place.lon);
+      const name = place.name?.trim() || place.display_name.split(",")[0].trim();
+      setPlaceResults([]);
+      setGeocoding(false);
+      // Pass place coordinates as synthetic destination — routeFinder finds nearest stop internally
+      await onSelectDestination({ id: `place-${place.place_id}`, name, type: "stop" as const, lat, lng, status: "active" as const });
+    },
+    [onSelectDestination],
   );
 
   const onSelectRecommendation = useCallback(
@@ -214,9 +270,12 @@ export default function FindRouteScreen() {
   }, [selected, user, bookBus]);
 
   const onReset = useCallback(() => {
+    if (searchTimer.current) clearTimeout(searchTimer.current);
     setPhase("search");
     setQuery("");
     setSearchResults([]);
+    setPlaceResults([]);
+    setGeocoding(false);
     setSelectedDest(null);
     setRecommendations([]);
     setSelected(null);
@@ -342,7 +401,7 @@ export default function FindRouteScreen() {
                 <TextInput
                   ref={inputRef}
                   style={st.searchInput}
-                  placeholder="Where are you going?"
+                  placeholder="Search a place, landmark or stop…"
                   placeholderTextColor={Colors.gray400}
                   value={query}
                   onChangeText={onSearch}
@@ -386,36 +445,79 @@ export default function FindRouteScreen() {
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
-              {searchResults.length > 0 ? (
+              {query.length >= 2 && (
                 <View>
-                  <Text style={st.sectionLabel}>SEARCH RESULTS</Text>
-                  {searchResults.map((stop) => (
-                    <TouchableOpacity
-                      key={stop.id}
-                      style={st.resultItem}
-                      onPress={() => onSelectDestination(stop)}
-                      activeOpacity={0.6}
-                    >
-                      <View style={st.resultIcon}>
-                        <MapPin size={16} color={Colors.primary} />
-                      </View>
-                      <View style={st.resultText}>
-                        <Text style={st.resultName}>{stop.name}</Text>
-                        <Text style={st.resultType}>
-                          {stop.type === "station" ? "Station" : "Bus Stop"}
-                        </Text>
-                      </View>
-                      <ChevronRight size={16} color={Colors.gray300} />
-                    </TouchableOpacity>
-                  ))}
+                  {searchResults.length > 0 && (
+                    <View>
+                      <Text style={st.sectionLabel}>BUS STOPS</Text>
+                      {searchResults.map((stop) => (
+                        <TouchableOpacity
+                          key={stop.id}
+                          style={st.resultItem}
+                          onPress={() => onSelectDestination(stop)}
+                          activeOpacity={0.6}
+                        >
+                          <View style={st.resultIcon}>
+                            <MapPin size={16} color={Colors.primary} />
+                          </View>
+                          <View style={st.resultText}>
+                            <Text style={st.resultName}>{stop.name}</Text>
+                            <Text style={st.resultType}>
+                              {stop.type === "station" ? "Station" : "Bus Stop"}
+                            </Text>
+                          </View>
+                          <ChevronRight size={16} color={Colors.gray300} />
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+
+                  {geocoding && (
+                    <View style={st.geocodingRow}>
+                      <ActivityIndicator size="small" color={Colors.primary} />
+                      <Text style={st.geocodingText}>Searching places…</Text>
+                    </View>
+                  )}
+
+                  {placeResults.length > 0 && (
+                    <View>
+                      <Text style={st.sectionLabel}>PLACES NEARBY</Text>
+                      {placeResults.map((place) => {
+                        const placeName = place.name?.trim() || place.display_name.split(",")[0].trim();
+                        const placeAddr = place.display_name.split(",").slice(1, 3).join(",").trim();
+                        return (
+                          <TouchableOpacity
+                            key={place.place_id}
+                            style={st.resultItem}
+                            onPress={() => onSelectPlace(place)}
+                            activeOpacity={0.6}
+                          >
+                            <View style={[st.resultIcon, { backgroundColor: "#FFF3E0" }]}>
+                              <Building2 size={16} color={Colors.warning} />
+                            </View>
+                            <View style={st.resultText}>
+                              <Text style={st.resultName}>{placeName}</Text>
+                              <Text style={st.resultType} numberOfLines={1}>{placeAddr || "Place"}</Text>
+                            </View>
+                            <View style={st.placeChip}>
+                              <Text style={st.placeChipTxt}>Find stop</Text>
+                              <ChevronRight size={13} color={Colors.primary} />
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  )}
+
+                  {!geocoding && searchResults.length === 0 && placeResults.length === 0 && (
+                    <View style={st.emptySearch}>
+                      <AlertTriangle size={28} color={Colors.gray300} />
+                      <Text style={st.emptyText}>No results for "{query}"</Text>
+                      <Text style={st.emptyHint}>Try a landmark, neighbourhood, or bus stop name</Text>
+                    </View>
+                  )}
                 </View>
-              ) : query.length > 0 ? (
-                <View style={st.emptySearch}>
-                  <AlertTriangle size={28} color={Colors.gray300} />
-                  <Text style={st.emptyText}>No stops matching "{query}"</Text>
-                  <Text style={st.emptyHint}>Try a different name or browse popular stops</Text>
-                </View>
-              ) : null}
+              )}
 
               {query.length === 0 && (
                 <>
@@ -503,7 +605,9 @@ export default function FindRouteScreen() {
                       {selectedDest?.name}
                     </Text>
                     <Text style={st.resultsHint}>
-                      Sorted by convenience. Only showing buses with available seats.
+                      {selectedDest?.id.startsWith("place-")
+                        ? "Showing routes to the nearest stop. The card tells you where to board and alight."
+                        : "Sorted by convenience. Board and alight stops are shown on each card."}
                     </Text>
                   </View>
                   {recommendations.map((rec, idx) => (
@@ -1440,6 +1544,24 @@ const make_st = (Colors: ThemePalette) => StyleSheet.create({
     fontWeight: "600" as const,
     color: Colors.gray500,
   },
+  geocodingRow: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+  },
+  geocodingText: { fontSize: 13, color: Colors.gray500 },
+  placeChip: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 2,
+    backgroundColor: Colors.primaryFaded,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  placeChipTxt: { fontSize: 11, fontWeight: "600" as const, color: Colors.primary },
 });
 
 let st: ReturnType<typeof make_st> = make_st(StaticColors as unknown as ThemePalette);
