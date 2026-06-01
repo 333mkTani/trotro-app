@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "667159065595",
+    "project_id": "trotro-app-50bfa",
+    "storage_bucket": "trotro-app-50bfa.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:667159065595:android:6c52aa0b3e5f348e09515e",
+        "android_client_info": {
+          "package_name": "app.rork.xhzxzlgi78rh6x1hlotnk"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBSN1lSBMNnFPJRd4FopDiLzdM3YAWQFCk"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
