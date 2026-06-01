@@ -41,7 +41,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { activeAlerts, triggeredAlerts } = useBusAlerts();
-  const { regionStops, regionName, mapCenter, refreshLocation } = useLocation();
+  const { regionStops, activeBuses, regionName, mapCenter, refreshLocation } = useLocation();
   const [refreshing, setRefreshing] = useState(false);
   const [offline] = useState(false);
   const [selectedStop, setSelectedStop] = useState<string | null>(null);
@@ -298,6 +298,37 @@ export default function HomeScreen() {
             toolbarEnabled={false}
             mapPadding={{ top: topInset + 60, right: 0, bottom: SCREEN_HEIGHT * 0.5, left: 0 }}
           >
+            {/* Live bus markers — only rendered when lat/lng is known */}
+            {activeBuses
+              .filter((b) => b.lat !== 0 && b.lng !== 0 && b.seats_available > 0)
+              .map((bus) => (
+                <Marker
+                  key={bus.driver_id}
+                  coordinate={{ latitude: bus.lat, longitude: bus.lng }}
+                  tracksViewChanges={false}
+                  onPress={() => router.push({
+                    pathname: "/book-bus",
+                    params: {
+                      driverId: bus.driver_id,
+                      driverName: bus.driver_name,
+                      busReg: bus.bus_registration,
+                      routeName: bus.route_name,
+                      seats: String(bus.seats_available),
+                      eta: String(bus.eta_minutes),
+                    },
+                  })}
+                >
+                  <View style={s.busMarkerOuter}>
+                    <View style={s.busMarkerCard}>
+                      <Bus size={14} color={Colors.white} />
+                      <Text style={s.busMarkerSeats}>{bus.seats_available}</Text>
+                    </View>
+                    <View style={s.busMarkerTail} />
+                  </View>
+                </Marker>
+              ))
+            }
+
             {sortedStops.map((stop) => {
               const buses = MOCK_APPROACHING_BUSES[stop.id] ?? [];
               const activeBusCount = buses.filter((b) => b.seats_available > 0).length;
@@ -904,6 +935,43 @@ const make_s = (Colors: ThemePalette) => StyleSheet.create({
     fontSize: 10,
     fontWeight: "700" as const,
     color: Colors.white,
+  },
+
+  // Live bus markers
+  busMarkerOuter: {
+    alignItems: "center",
+  },
+  busMarkerCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: Colors.success,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: Colors.white,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 6,
+  },
+  busMarkerSeats: {
+    fontSize: 12,
+    fontWeight: "800" as const,
+    color: Colors.white,
+  },
+  busMarkerTail: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 6,
+    borderRightWidth: 6,
+    borderTopWidth: 8,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderTopColor: Colors.success,
+    marginTop: -1,
   },
 });
 
