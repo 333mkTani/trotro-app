@@ -15,14 +15,16 @@
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "app.rork.xhzxzlgi78rh6x1hlotnk"
+      "bundleIdentifier": "app.rork.xhzxzlgi78rh6x1hlotnk",
+      "googleServicesFile": "./GoogleService-Info.plist"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "package": "app.rork.xhzxzlgi78rh6x1hlotnk"
+      "package": "app.rork.xhzxzlgi78rh6x1hlotnk",
+      "googleServicesFile": "./google-services.json"
     },
     "web": {
       "favicon": "./assets/images/favicon.png"
@@ -35,7 +37,9 @@
         }
       ],
       "expo-font",
-      "expo-web-browser"
+      "expo-web-browser",
+      "@react-native-firebase/app",
+      "@react-native-firebase/messaging"
     ],
     "experiments": {
       "typedRoutes": true
