@@ -352,6 +352,30 @@ export default function FindRouteScreen() {
               <AlertTriangle size={13} color={Colors.warning} />
               <Text style={st.noWaitBookedTxt}>Buses will not wait for you at the stop. Please arrive before the bus does.</Text>
             </View>
+            {selected.bestBus && (
+              <TouchableOpacity
+                style={[st.bookedBtn, { backgroundColor: Colors.success, marginBottom: 10 }]}
+                onPress={() => router.push({
+                  pathname: "/tracking",
+                  params: {
+                    driverId: selected.bestBus!.driver_id,
+                    driverName: selected.bestBus!.driver_name,
+                    busReg: selected.bestBus!.bus_registration,
+                    routeName: selected.route.name,
+                    seats: String(selected.bestBus!.seats_available),
+                    eta: String(selected.bestBus!.eta_minutes),
+                    lat: String(selected.bestBus!.lat ?? 0),
+                    lng: String(selected.bestBus!.lng ?? 0),
+                    stopLat: String(selected.pickupStop.lat),
+                    stopLng: String(selected.pickupStop.lng),
+                    stopName: selected.pickupStop.name,
+                  },
+                })}
+                activeOpacity={0.8}
+              >
+                <Text style={st.bookedBtnTxt}>Track Bus Live</Text>
+              </TouchableOpacity>
+            )}
             <TouchableOpacity
               style={st.bookedBtn}
               onPress={() => router.push("/(tabs)/rides")}

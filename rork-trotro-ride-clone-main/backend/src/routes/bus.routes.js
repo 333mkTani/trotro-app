@@ -7,6 +7,7 @@ const { UuidParam, NearbyQuery } = require('../validators/common.validators');
 router.get('/', ctrl.list);
 router.get('/active', ctrl.listActive);
 router.get('/nearby', validate({ query: NearbyQuery }), ctrl.nearby);
+router.get('/driver/:driverId/location', ctrl.getDriverLocation);
 router.get('/:id', validate({ params: UuidParam }), ctrl.getById);
 router.post('/', requireAuth, requireRole('admin'), ctrl.create);
 router.patch('/:id/location', requireAuth, requireRole('driver', 'admin'), ctrl.updateLocation);

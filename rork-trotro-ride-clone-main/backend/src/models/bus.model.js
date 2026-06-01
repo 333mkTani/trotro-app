@@ -92,4 +92,12 @@ const listActive = async () => {
   return rows;
 };
 
-module.exports = { list, findById, insert, updateLocation, adjustSeats, findNearby, listActive };
+const findByDriverId = async (driverId) => {
+  const { rows } = await query(
+    `select ${COLUMNS} from public.buses where driver_id = $1 and status in ('active', 'paused') limit 1`,
+    [driverId],
+  );
+  return rows[0] || null;
+};
+
+module.exports = { list, findById, insert, updateLocation, adjustSeats, findNearby, listActive, findByDriverId };

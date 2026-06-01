@@ -50,4 +50,31 @@ const nearby = ({ lat, lng, radiusM, routeId, limit }) =>
 
 const listActive = () => busModel.listActive();
 
-module.exports = { list, getById, create, updateLocation, nearby, listActive };
+/** Returns the latest GPS position for a driver's bus.
+ *  Checks Redis cache first (updated every GPS ping) then falls back to DB. */
+const getDriverLocation = async (driverId) => {
+  const bus = await busModel.findByDriverId(driverId);
+  if (!bus) throw ApiError.notFound('Bus not found for driver');
+
+  // Try Redis cache for freshest reading
+  const cached = await cache.get(LOC_KEY(bus.id));
+  if (cached) {
+    return {
+      bus_id: bus.id,
+      lat: cached.lat,
+      lng: cached.lng,
+      seats_available: bus.seats_available,
+      last_ping_at: cached.at,
+    };
+  }
+
+  return {
+    bus_id: bus.id,
+    lat: bus.current_lat,
+    lng: bus.current_lng,
+    seats_available: bus.seats_available,
+    last_ping_at: bus.last_ping_at,
+  };
+};
+
+module.exports = { list, getById, create, updateLocation, nearby, listActive, getDriverLocation };

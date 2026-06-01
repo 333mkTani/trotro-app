@@ -25,6 +25,7 @@ import {
 import * as Haptics from "expo-haptics";
 import StaticColors from "@/constants/colors";
 import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
+import { api } from "@/services/api";
 const Colors = StaticColors;
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -82,6 +83,16 @@ function generateRoutePoints(
     points.push({ latitude: lat, longitude: lng });
   }
   return points;
+}
+
+function haversineMetres(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 export default function TrackingScreen() {
@@ -155,42 +166,53 @@ export default function TrackingScreen() {
   }, []);
 
   useEffect(() => {
-    const totalDurationMs = initialEta * 60 * 1000;
-    const tickMs = 3000;
-    let elapsed = 0;
+    const driverId = p.driverId;
+    const totalDistM = haversineMetres(busStartLat, busStartLng, stopLat, stopLng);
+    let simElapsed = 0;
+    const simTickMs = 4000;
 
-    const interval = setInterval(() => {
-      elapsed += tickMs;
-      const newProgress = Math.min(1, elapsed / totalDurationMs);
-      setProgress(newProgress);
+    const poll = async () => {
+      try {
+        if (!driverId) throw new Error("no driverId");
+        const { data } = await api.get(`/buses/driver/${driverId}/location`);
+        const realLat = parseFloat(data.lat);
+        const realLng = parseFloat(data.lng);
 
-      const newPos = interpolateCoords(busStartLat, busStartLng, stopLat, stopLng, newProgress);
-      const jitterLat = (Math.random() - 0.5) * 0.0003;
-      const jitterLng = (Math.random() - 0.5) * 0.0003;
-      setBusPosition({ lat: newPos.lat + jitterLat, lng: newPos.lng + jitterLng });
+        if (realLat && realLng && realLat !== 0 && realLng !== 0) {
+          setBusPosition({ lat: realLat, lng: realLng });
 
-      const remainingMin = Math.max(1, Math.round(initialEta * (1 - newProgress)));
-      setEta(remainingMin);
+          const distToStop = haversineMetres(realLat, realLng, stopLat, stopLng);
+          const etaMins = Math.max(1, Math.round(distToStop / 250)); // ~15 km/h
+          setEta(etaMins);
 
-      const secs = Math.floor(elapsed / 1000);
-      if (secs < 60) {
-        setLastUpdate(`${secs}s ago`);
-      } else {
-        setLastUpdate(`${Math.floor(secs / 60)}m ago`);
-      }
+          const newProgress = totalDistM > 0
+            ? Math.min(1, Math.max(0, 1 - distToStop / totalDistM))
+            : 0;
+          setProgress(newProgress);
+          setLastUpdate("Just now");
 
-      console.log("[Tracking] Bus progress:", (newProgress * 100).toFixed(1) + "%", "ETA:", remainingMin, "min");
-
-      if (newProgress >= 1) {
-        clearInterval(interval);
-        if (Platform.OS !== "web") {
-          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          if (newProgress >= 0.98 && Platform.OS !== "web") {
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          }
+          return;
         }
-      }
-    }, tickMs);
+      } catch { /* fall through to simulation */ }
 
+      // Simulation fallback when real GPS unavailable
+      simElapsed += simTickMs;
+      const newProgress = Math.min(1, simElapsed / (initialEta * 60 * 1000));
+      const newPos = interpolateCoords(busStartLat, busStartLng, stopLat, stopLng, newProgress);
+      setBusPosition({ lat: newPos.lat, lng: newPos.lng });
+      setProgress(newProgress);
+      setEta(Math.max(1, Math.round(initialEta * (1 - newProgress))));
+      const secs = Math.floor(simElapsed / 1000);
+      setLastUpdate(secs < 60 ? `${secs}s ago` : `${Math.floor(secs / 60)}m ago`);
+    };
+
+    poll();
+    const interval = setInterval(poll, 5000);
     return () => clearInterval(interval);
-  }, [busStartLat, busStartLng, stopLat, stopLng, initialEta]);
+  }, [busStartLat, busStartLng, stopLat, stopLng, initialEta, p.driverId]);
 
   const mapRegion = useMemo(() => {
     const centerLat = (busStartLat + stopLat) / 2;
