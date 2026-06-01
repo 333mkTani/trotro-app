@@ -13,4 +13,8 @@ const updateMe = async (userId, patch) => {
   return updated;
 };
 
-module.exports = { getMe, updateMe };
+const savePushToken = async (userId, token) => {
+  await profileModel.update(userId, { fcmToken: token });
+};
+
+module.exports = { getMe, updateMe, savePushToken };

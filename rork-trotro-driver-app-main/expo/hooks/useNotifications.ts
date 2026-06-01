@@ -35,6 +35,17 @@ export function useNotifications(isAuthenticated: boolean) {
           console.log('[useNotifications] Initialized, token:', token ? 'obtained' : 'none');
         }
 
+        // Register token with backend so passengers can be notified via this driver
+        if (token) {
+          try {
+            const api = (await import('@/services/api')).default;
+            await api.post('/profile/push-token', { token });
+            console.log('[useNotifications] Push token registered with backend');
+          } catch (e) {
+            console.log('[useNotifications] Token registration failed:', e);
+          }
+        }
+
         notificationListenerRef.current = Notifications.addNotificationReceivedListener(
           (notification) => {
             console.log('[useNotifications] Notification received:', notification.request.content.title);

@@ -4,6 +4,8 @@ const codeModel = require('../models/code.model');
 const busModel = require('../models/bus.model');
 const ratingModel = require('../models/rating.model');
 const driverModel = require('../models/driver.model');
+const profileModel = require('../models/profile.model');
+const push = require('./push.service');
 const { ApiError } = require('../utils/ApiError');
 const { generateBoardingCode, buildQrPayload } = require('../utils/codes');
 
@@ -40,6 +42,24 @@ const create = async (passengerId, data) => {
       { bookingId: booking.id, code, qrPayload, validUntil },
       client,
     );
+
+    // Non-blocking: notify the driver about the new booking
+    if (data.driverId) {
+      setImmediate(async () => {
+        try {
+          const driverProfile = await profileModel.findById(data.driverId);
+          if (driverProfile?.fcm_token) {
+            await push.send(driverProfile.fcm_token, {
+              title: '🎫 New Passenger Booking',
+              body: `${confirmed.pickup_stop_name} → ${confirmed.destination_stop_name}`,
+              data: { type: 'new_booking', bookingId: booking.id },
+            });
+          }
+        } catch (e) {
+          console.error('[booking] driver notify failed:', e.message);
+        }
+      });
+    }
 
     return {
       ...confirmed,

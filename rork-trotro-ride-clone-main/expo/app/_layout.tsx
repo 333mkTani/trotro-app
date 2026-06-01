@@ -1,8 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack, useRouter, useSegments } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
-import React, { useEffect } from "react";
-import { ActivityIndicator, View, StyleSheet } from "react-native";
+import React, { useEffect, useRef } from "react";
+import { ActivityIndicator, View, StyleSheet, Platform } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { BusAlertProvider } from "@/contexts/BusAlertContext";
@@ -10,6 +10,7 @@ import { BookingProvider } from "@/contexts/BookingContext";
 import { WalletProvider } from "@/contexts/WalletContext";
 import { LocationProvider } from "@/contexts/LocationContext";
 import { ThemeProvider, useTheme } from "@/contexts/ThemeContext";
+import { initPassengerNotifications, registerPushToken, addNotificationListeners } from "@/services/notificationService";
 import Colors from "@/constants/colors";
 
 SplashScreen.preventAutoHideAsync();
@@ -21,6 +22,7 @@ function RootLayoutNav() {
   const { colors } = useTheme();
   const router = useRouter();
   const segments = useSegments();
+  const notifInitialized = useRef(false);
 
   const headerOpts = {
     headerStyle: { backgroundColor: colors.screenBg },
@@ -40,6 +42,33 @@ function RootLayoutNav() {
       router.replace("/");
     }
   }, [isAuthenticated, isLoading, segments]);
+
+  // Set up push notifications once authenticated
+  useEffect(() => {
+    if (!isAuthenticated || Platform.OS === 'web' || notifInitialized.current) return;
+    notifInitialized.current = true;
+
+    let cleanup: (() => void) | undefined;
+
+    (async () => {
+      const token = await initPassengerNotifications();
+      if (token) await registerPushToken(token);
+
+      cleanup = addNotificationListeners(
+        (_data) => {
+          // Notification received while app is open — no special handling needed
+        },
+        (data) => {
+          // User tapped a notification
+          if (data?.type === 'bus_approaching' && data?.bookingId) {
+            router.push("/ride-notification");
+          }
+        },
+      );
+    })();
+
+    return () => cleanup?.();
+  }, [isAuthenticated]);
 
   if (isLoading) {
     return (

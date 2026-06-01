@@ -11,4 +11,11 @@ const updateMe = asyncHandler(async (req, res) => {
   res.json(updated);
 });
 
-module.exports = { me, updateMe };
+const savePushToken = asyncHandler(async (req, res) => {
+  const { token } = req.body;
+  if (!token) return res.status(400).json({ error: 'token required' });
+  await profileService.savePushToken(req.user.id, token);
+  res.json({ ok: true });
+});
+
+module.exports = { me, updateMe, savePushToken };

@@ -98,4 +98,30 @@ const updateStatus = async (id, status, extra = {}, client) => {
   return rows[0] || null;
 };
 
-module.exports = { findById, listForPassenger, listForDriver, insert, updateStatus };
+// Returns confirmed bookings for a driver that haven't had a proximity notification sent yet.
+// Joins bus_stops for stop coords and profiles for the passenger's push token.
+const listConfirmedForDriverUnnotified = async (driverId) => {
+  const { rows } = await query(
+    `SELECT b.id, b.passenger_id, b.pickup_stop_id,
+            s.lat AS stop_lat, s.lng AS stop_lng,
+            p.fcm_token AS passenger_push_token,
+            b.route_name, b.pickup_stop_name
+       FROM public.bookings b
+       JOIN public.bus_stops s ON s.id = b.pickup_stop_id
+       JOIN public.profiles p ON p.id = b.passenger_id
+      WHERE b.driver_id = $1
+        AND b.status = 'confirmed'
+        AND b.notification_sent_at IS NULL`,
+    [driverId],
+  );
+  return rows;
+};
+
+const markNotified = async (id) => {
+  await query(
+    `UPDATE public.bookings SET notification_sent_at = now() WHERE id = $1`,
+    [id],
+  );
+};
+
+module.exports = { findById, listForPassenger, listForDriver, insert, updateStatus, listConfirmedForDriverUnnotified, markNotified };

@@ -1,7 +1,21 @@
 const busModel = require('../models/bus.model');
+const bookingModel = require('../models/booking.model');
 const cache = require('./cache.service');
+const push = require('./push.service');
 const { publisher, isReady } = require('../config/redis');
 const { ApiError } = require('../utils/ApiError');
+
+const APPROACH_RADIUS_M = 500;
+
+function haversineM(lat1, lng1, lat2, lng2) {
+  const R = 6371000;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLng = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
 
 const ITEM_KEY = (id) => `buses:item:${id}`;
 const LOC_KEY = (id) => `buses:loc:${id}`;
@@ -39,6 +53,32 @@ const updateLocation = async (id, coords) => {
     } catch (err) {
       console.error('[bus] publish failed', err.message);
     }
+  }
+
+  // Non-blocking: check if any booked passengers should be notified
+  if (updated.driver_id) {
+    setImmediate(async () => {
+      try {
+        const bookings = await bookingModel.listConfirmedForDriverUnnotified(updated.driver_id);
+        for (const b of bookings) {
+          const dist = haversineM(
+            Number(coords.lat), Number(coords.lng),
+            parseFloat(b.stop_lat), parseFloat(b.stop_lng),
+          );
+          if (dist <= APPROACH_RADIUS_M) {
+            await push.send(b.passenger_push_token, {
+              title: '🚌 Your bus is approaching!',
+              body: `Head to ${b.pickup_stop_name} now — bus is ${Math.round(dist)}m away.`,
+              data: { type: 'bus_approaching', bookingId: b.id },
+            });
+            await bookingModel.markNotified(b.id);
+            console.log(`[bus] notified passenger for booking ${b.id}, dist ${Math.round(dist)}m`);
+          }
+        }
+      } catch (err) {
+        console.error('[bus] proximity notify failed:', err.message);
+      }
+    });
   }
 
   return updated;
