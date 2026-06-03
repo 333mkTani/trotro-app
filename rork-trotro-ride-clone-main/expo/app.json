@@ -42,6 +42,15 @@
     ],
     "experiments": {
       "typedRoutes": true
-    }
+    },
+    "extra": {
+      "router": {
+        "origin": "https://rork.com/"
+      },
+      "eas": {
+        "projectId": "44f8638b-0314-4a7b-b0c0-33771ea29a6a"
+      }
+    },
+    "owner": "tanixor"
   }
 }
