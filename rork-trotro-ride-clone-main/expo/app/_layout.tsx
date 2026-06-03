@@ -12,6 +12,10 @@ import { LocationProvider } from "@/contexts/LocationContext";
 import { ThemeProvider, useTheme } from "@/contexts/ThemeContext";
 import { initPassengerNotifications, registerPushToken, addNotificationListeners } from "@/services/notificationService";
 import Colors from "@/constants/colors";
+import MapLibreGL from "@maplibre/maplibre-react-native";
+
+// OpenFreeMap tiles don't need an access token
+MapLibreGL.setAccessToken(null);
 
 SplashScreen.preventAutoHideAsync();
 

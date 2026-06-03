@@ -9,7 +9,7 @@ import {
   Dimensions,
 } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE } from "react-native-maps";
+import MapLibreGL from "@maplibre/maplibre-react-native";
 import {
   Bus,
   Users,
@@ -102,7 +102,7 @@ export default function TrackingScreen() {
 
   const router = useRouter();
   const p = useLocalSearchParams<TrackingParams>();
-  const mapRef = useRef<MapView>(null);
+  const cameraRef = useRef<MapLibreGL.Camera>(null);
 
   const busStartLat = Number(p.lat) || 5.575;
   const busStartLng = Number(p.lng) || -0.205;
@@ -229,12 +229,15 @@ export default function TrackingScreen() {
 
   const recenterMap = useCallback(() => {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    mapRef.current?.fitToCoordinates(
-      [
-        { latitude: busPosition.lat, longitude: busPosition.lng },
-        { latitude: stopLat, longitude: stopLng },
-      ],
-      { edgePadding: { top: 80, right: 60, bottom: 200, left: 60 }, animated: true }
+    const minLng = Math.min(busPosition.lng, stopLng);
+    const maxLng = Math.max(busPosition.lng, stopLng);
+    const minLat = Math.min(busPosition.lat, stopLat);
+    const maxLat = Math.max(busPosition.lat, stopLat);
+    cameraRef.current?.fitBounds(
+      [maxLng, maxLat], // NE [lng, lat]
+      [minLng, minLat], // SW [lng, lat]
+      [80, 60, 200, 60], // padding [top, right, bottom, left]
+      500
     );
   }, [busPosition, stopLat, stopLng]);
 
@@ -259,58 +262,77 @@ export default function TrackingScreen() {
       />
 
       {Platform.OS !== "web" ? (
-        <MapView
-          ref={mapRef}
+        <MapLibreGL.MapView
           style={StyleSheet.absoluteFillObject}
-          provider={PROVIDER_GOOGLE}
-          initialRegion={mapRegion}
-          showsUserLocation={false}
-          showsMyLocationButton={false}
-          showsCompass={false}
-          toolbarEnabled={false}
-          mapPadding={{ top: 60, right: 0, bottom: 260, left: 0 }}
+          styleURL="https://tiles.openfreemap.org/styles/liberty"
+          logoEnabled={false}
+          attributionEnabled={false}
         >
-          <Polyline
-            coordinates={routePoints}
-            strokeColor={Colors.gray300}
-            strokeWidth={4}
-            lineDashPattern={[8, 6]}
+          <MapLibreGL.Camera
+            ref={cameraRef}
+            centerCoordinate={[mapRegion.longitude, mapRegion.latitude]}
+            zoomLevel={13}
+            animationDuration={0}
           />
-          {travelledPoints.length > 1 && (
-            <Polyline
-              coordinates={travelledPoints}
-              strokeColor={Colors.primary}
-              strokeWidth={5}
+
+          {/* Full dashed route line */}
+          <MapLibreGL.ShapeSource
+            id="route-full"
+            shape={{
+              type: "Feature",
+              geometry: {
+                type: "LineString",
+                coordinates: routePoints.map((p) => [p.longitude, p.latitude]),
+              },
+              properties: {},
+            }}
+          >
+            <MapLibreGL.LineLayer
+              id="route-full-line"
+              style={{ lineColor: Colors.gray300, lineWidth: 4, lineDasharray: [2, 1.5] }}
             />
+          </MapLibreGL.ShapeSource>
+
+          {/* Travelled portion */}
+          {travelledPoints.length > 1 && (
+            <MapLibreGL.ShapeSource
+              id="route-travelled"
+              shape={{
+                type: "Feature",
+                geometry: {
+                  type: "LineString",
+                  coordinates: travelledPoints.map((p) => [p.longitude, p.latitude]),
+                },
+                properties: {},
+              }}
+            >
+              <MapLibreGL.LineLayer
+                id="route-travelled-line"
+                style={{ lineColor: Colors.primary, lineWidth: 5 }}
+              />
+            </MapLibreGL.ShapeSource>
           )}
 
-          <Marker
-            coordinate={{ latitude: stopLat, longitude: stopLng }}
-            anchor={{ x: 0.5, y: 1 }}
-            title={stopName}
-          >
+          {/* Stop marker */}
+          <MapLibreGL.MarkerView coordinate={[stopLng, stopLat]}>
             <View style={st.stopMarker}>
               <View style={st.stopMarkerInner}>
                 <MapPin size={16} color={Colors.white} />
               </View>
               <View style={st.stopMarkerTail} />
             </View>
-          </Marker>
+          </MapLibreGL.MarkerView>
 
-          <Marker
-            coordinate={{ latitude: busPosition.lat, longitude: busPosition.lng }}
-            anchor={{ x: 0.5, y: 0.5 }}
-            title={busReg}
-            description={`ETA: ${eta} min`}
-          >
+          {/* Bus marker */}
+          <MapLibreGL.MarkerView coordinate={[busPosition.lng, busPosition.lat]}>
             <View style={st.busMarkerWrap}>
               <View style={st.busMarkerPulse} />
               <View style={st.busMarkerCore}>
                 <Bus size={18} color={Colors.white} />
               </View>
             </View>
-          </Marker>
-        </MapView>
+          </MapLibreGL.MarkerView>
+        </MapLibreGL.MapView>
       ) : (
         <View style={[StyleSheet.absoluteFillObject, st.webMapFallback]}>
           <View style={st.webMapContent}>

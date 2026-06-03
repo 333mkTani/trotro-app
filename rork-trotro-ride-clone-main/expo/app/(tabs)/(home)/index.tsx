@@ -15,7 +15,7 @@ import { useRouter } from "expo-router";
 import { MapPin, Navigation, Search, Bell, Route, BellRing, ChevronUp, Locate, Bus } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import MapView, { Marker, PROVIDER_GOOGLE } from "react-native-maps";
+import MapLibreGL from "@maplibre/maplibre-react-native";
 import * as Location from "expo-location";
 import StaticColors from "@/constants/colors";
 import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
@@ -45,7 +45,7 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [offline] = useState(false);
   const [selectedStop, setSelectedStop] = useState<string | null>(null);
-  const mapRef = useRef<MapView>(null);
+  const cameraRef = useRef<MapLibreGL.Camera>(null);
   const scrollRef = useRef<ScrollView>(null);
 
   const topInset = insets.top || 0;
@@ -222,9 +222,11 @@ export default function HomeScreen() {
       const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== "granted") {
         console.log("[Home] Location permission denied, recentering to default");
-        if (mapRef.current) {
-          mapRef.current.animateToRegion(mapCenter, 500);
-        }
+        cameraRef.current?.setCamera({
+          centerCoordinate: [mapCenter.longitude, mapCenter.latitude],
+          zoomLevel: 12,
+          animationDuration: 500,
+        });
         return;
       }
 
@@ -233,17 +235,11 @@ export default function HomeScreen() {
       });
       console.log("[Home] Current location:", location.coords.latitude, location.coords.longitude);
 
-      if (mapRef.current) {
-        mapRef.current.animateToRegion(
-          {
-            latitude: location.coords.latitude,
-            longitude: location.coords.longitude,
-            latitudeDelta: 0.01,
-            longitudeDelta: 0.01,
-          },
-          500
-        );
-      }
+      cameraRef.current?.setCamera({
+        centerCoordinate: [location.coords.longitude, location.coords.latitude],
+        zoomLevel: 15,
+        animationDuration: 500,
+      });
     } catch (err) {
       console.log("[Home] Location error, falling back to default:", err);
       if (mapRef.current) {
@@ -288,46 +284,54 @@ export default function HomeScreen() {
             <Text style={s.webMapSub}>Tap a stop below to explore</Text>
           </View>
         ) : (
-          <MapView
-            ref={mapRef}
+          <MapLibreGL.MapView
             style={s.map}
-            initialRegion={mapCenter}
+            styleURL="https://tiles.openfreemap.org/styles/liberty"
             onPress={onMapPress}
-            showsUserLocation
-            showsMyLocationButton={false}
-            toolbarEnabled={false}
-            mapPadding={{ top: topInset + 60, right: 0, bottom: SCREEN_HEIGHT * 0.5, left: 0 }}
+            logoEnabled={false}
+            attributionEnabled={false}
           >
+            <MapLibreGL.Camera
+              ref={cameraRef}
+              centerCoordinate={[mapCenter.longitude, mapCenter.latitude]}
+              zoomLevel={12}
+              animationDuration={0}
+            />
+            <MapLibreGL.UserLocation visible />
+
             {/* Live bus markers — only rendered when lat/lng is known */}
             {activeBuses
               .filter((b) => b.lat !== 0 && b.lng !== 0 && b.seats_available > 0)
               .map((bus) => (
-                <Marker
+                <MapLibreGL.MarkerView
                   key={bus.driver_id}
-                  coordinate={{ latitude: bus.lat, longitude: bus.lng }}
-                  tracksViewChanges={false}
-                  onPress={() => router.push({
-                    pathname: "/book-bus",
-                    params: {
-                      driverId: bus.driver_id,
-                      driverName: bus.driver_name,
-                      busReg: bus.bus_registration,
-                      routeName: bus.route_name,
-                      seats: String(bus.seats_available),
-                      eta: String(bus.eta_minutes),
-                    },
-                  })}
+                  coordinate={[bus.lng, bus.lat]}
                 >
-                  <View style={s.busMarkerOuter}>
-                    <View style={s.busMarkerCard}>
-                      <Bus size={16} color={Colors.white} />
-                      <View style={s.busMarkerSeatBadge}>
-                        <Text style={s.busMarkerSeatTxt}>{bus.seats_available}</Text>
+                  <TouchableOpacity
+                    onPress={() => router.push({
+                      pathname: "/book-bus",
+                      params: {
+                        driverId: bus.driver_id,
+                        driverName: bus.driver_name,
+                        busReg: bus.bus_registration,
+                        routeName: bus.route_name,
+                        seats: String(bus.seats_available),
+                        eta: String(bus.eta_minutes),
+                      },
+                    })}
+                    activeOpacity={0.8}
+                  >
+                    <View style={s.busMarkerOuter}>
+                      <View style={s.busMarkerCard}>
+                        <Bus size={16} color={Colors.white} />
+                        <View style={s.busMarkerSeatBadge}>
+                          <Text style={s.busMarkerSeatTxt}>{bus.seats_available}</Text>
+                        </View>
                       </View>
+                      <View style={s.busMarkerTail} />
                     </View>
-                    <View style={s.busMarkerTail} />
-                  </View>
-                </Marker>
+                  </TouchableOpacity>
+                </MapLibreGL.MarkerView>
               ))
             }
 
@@ -337,40 +341,40 @@ export default function HomeScreen() {
               const isSelected = selectedStop === stop.id;
 
               return (
-                <Marker
+                <MapLibreGL.MarkerView
                   key={stop.id}
-                  coordinate={{ latitude: stop.lat, longitude: stop.lng }}
-                  onPress={() => onStopMarkerPress(stop)}
-                  tracksViewChanges={false}
+                  coordinate={[stop.lng, stop.lat]}
                 >
-                  <View style={[s.markerOuter, isSelected && s.markerSelected]}>
-                    {/* Bus count badge */}
-                    {activeBusCount > 0 && (
-                      <View style={s.markerBadge}>
-                        <Text style={s.markerBadgeText}>{activeBusCount}</Text>
+                  <TouchableOpacity
+                    onPress={() => onStopMarkerPress(stop)}
+                    activeOpacity={0.8}
+                  >
+                    <View style={[s.markerOuter, isSelected && s.markerSelected]}>
+                      {activeBusCount > 0 && (
+                        <View style={s.markerBadge}>
+                          <Text style={s.markerBadgeText}>{activeBusCount}</Text>
+                        </View>
+                      )}
+                      <View style={[
+                        s.markerCard,
+                        activeBusCount > 0 ? s.markerCardActive : s.markerCardInactive,
+                        isSelected && s.markerCardSelected,
+                      ]}>
+                        <Bus
+                          size={18}
+                          color={activeBusCount > 0 ? Colors.white : Colors.gray500}
+                        />
                       </View>
-                    )}
-                    {/* Speech-bubble card */}
-                    <View style={[
-                      s.markerCard,
-                      activeBusCount > 0 ? s.markerCardActive : s.markerCardInactive,
-                      isSelected && s.markerCardSelected,
-                    ]}>
-                      <Bus
-                        size={18}
-                        color={activeBusCount > 0 ? Colors.white : Colors.gray500}
-                      />
+                      <View style={[
+                        s.markerTail,
+                        { borderTopColor: isSelected ? Colors.primaryDark : activeBusCount > 0 ? Colors.primary : Colors.gray400 },
+                      ]} />
                     </View>
-                    {/* Pointed tail */}
-                    <View style={[
-                      s.markerTail,
-                      { borderTopColor: isSelected ? Colors.primaryDark : activeBusCount > 0 ? Colors.primary : Colors.gray400 },
-                    ]} />
-                  </View>
-                </Marker>
+                  </TouchableOpacity>
+                </MapLibreGL.MarkerView>
               );
             })}
-          </MapView>
+          </MapLibreGL.MapView>
         )}
       </Animated.View>
 
@@ -542,16 +546,12 @@ export default function HomeScreen() {
               buses={MOCK_APPROACHING_BUSES[stop.id] ?? []}
               onPress={() => {
                 setSelectedStop(stop.id);
-                if (Platform.OS !== "web" && mapRef.current) {
-                  mapRef.current.animateToRegion(
-                    {
-                      latitude: stop.lat,
-                      longitude: stop.lng,
-                      latitudeDelta: 0.02,
-                      longitudeDelta: 0.02,
-                    },
-                    400
-                  );
+                if (Platform.OS !== "web") {
+                  cameraRef.current?.setCamera({
+                    centerCoordinate: [stop.lng, stop.lat],
+                    zoomLevel: 14,
+                    animationDuration: 400,
+                  });
                 }
               }}
               onBusPress={onBusPress}

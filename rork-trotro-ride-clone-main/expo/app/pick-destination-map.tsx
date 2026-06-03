@@ -12,7 +12,7 @@ import { Stack } from "expo-router";
 import { MapPin, Check, X, Crosshair } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import MapView, { Marker, Region } from "react-native-maps";
+import MapLibreGL from "@maplibre/maplibre-react-native";
 import StaticColors from "@/constants/colors";
 import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
 import { useLocation } from "@/contexts/LocationContext";
@@ -36,13 +36,12 @@ export default function PickDestinationMapScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { mapCenter, regionStops } = useLocation();
-  const mapRef = useRef<MapView>(null);
+  const cameraRef = useRef<MapLibreGL.Camera>(null);
   const [pin, setPin] = useState<PinnedLocation | null>(null);
   const [nearestStopName, setNearestStopName] = useState<string | null>(null);
   const [nearestStopDistance, setNearestStopDistance] = useState<number>(0);
 
-  const onMapPress = useCallback((e: { nativeEvent: { coordinate: { latitude: number; longitude: number } } }) => {
-    const { latitude, longitude } = e.nativeEvent.coordinate;
+  const handlePinDrop = useCallback((latitude: number, longitude: number) => {
     console.log("[PickMap] Pin dropped at:", latitude, longitude);
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
@@ -56,7 +55,7 @@ export default function PickDestinationMapScreen() {
       setNearestStopName(null);
       setNearestStopDistance(0);
     }
-  }, []);
+  }, [regionStops]);
 
   const onConfirm = useCallback(() => {
     if (!pin) return;
@@ -81,8 +80,12 @@ export default function PickDestinationMapScreen() {
   }, []);
 
   const recenter = useCallback(() => {
-    mapRef.current?.animateToRegion(mapCenter, 400);
-  }, []);
+    cameraRef.current?.setCamera({
+      centerCoordinate: [mapCenter.longitude, mapCenter.latitude],
+      zoomLevel: 12,
+      animationDuration: 400,
+    });
+  }, [mapCenter]);
 
   return (
     <View style={s.root}>
@@ -109,29 +112,43 @@ export default function PickDestinationMapScreen() {
         </View>
       ) : (
         <>
-          <MapView
-            ref={mapRef}
+          <MapLibreGL.MapView
             style={s.map}
-            initialRegion={mapCenter}
-            onPress={onMapPress}
-            showsUserLocation
-            showsMyLocationButton={false}
-            toolbarEnabled={false}
+            styleURL="https://tiles.openfreemap.org/styles/liberty"
+            logoEnabled={false}
+            attributionEnabled={false}
+            onPress={(feature) => {
+              if (feature.geometry.type === "Point") {
+                const [lng, lat] = feature.geometry.coordinates as [number, number];
+                handlePinDrop(lat, lng);
+              }
+            }}
           >
+            <MapLibreGL.Camera
+              ref={cameraRef}
+              centerCoordinate={[mapCenter.longitude, mapCenter.latitude]}
+              zoomLevel={12}
+              animationDuration={0}
+            />
+            <MapLibreGL.UserLocation visible />
             {pin && (
-              <Marker
-                coordinate={pin}
+              <MapLibreGL.PointAnnotation
+                id="destination-pin"
+                coordinate={[pin.longitude, pin.latitude]}
                 draggable
-                onDragEnd={(e) => onMapPress(e)}
+                onDragEnd={(feature) => {
+                  const [lng, lat] = feature.geometry.coordinates as [number, number];
+                  handlePinDrop(lat, lng);
+                }}
               >
                 <View style={s.pinMarker}>
                   <View style={s.pinDot} />
                   <View style={s.pinStem} />
                   <View style={s.pinShadow} />
                 </View>
-              </Marker>
+              </MapLibreGL.PointAnnotation>
             )}
-          </MapView>
+          </MapLibreGL.MapView>
 
           {!pin && (
             <View style={[s.instructionBanner, { top: insets.top + 60 }]} pointerEvents="none">

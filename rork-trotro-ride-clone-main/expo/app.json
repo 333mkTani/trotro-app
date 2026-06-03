@@ -38,7 +38,8 @@
       ],
       "expo-font",
       "expo-web-browser",
-      "expo-notifications"
+      "expo-notifications",
+      "@maplibre/maplibre-react-native"
     ],
     "experiments": {
       "typedRoutes": true
