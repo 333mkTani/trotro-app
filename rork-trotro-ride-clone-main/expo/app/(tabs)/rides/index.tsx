@@ -7,7 +7,7 @@ import StaticColors from "@/constants/colors";
 import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { MOCK_VERIFICATION_CODES } from "@/mocks/data";
-import { BookingStatus } from "@/types";
+import { Booking, BookingStatus } from "@/types";
 import BookingCard from "@/components/BookingCard";
 import { useBookings } from "@/contexts/BookingContext";
 const Colors = StaticColors;
@@ -59,7 +59,7 @@ export default function RidesScreen() {
     if (code) router.push({ pathname: "/verification", params: { code: code.code, bookingId: code.booking_id, validUntil: code.valid_until, routeName: code.route_name ?? "", pickupStop: code.pickup_stop ?? "", destinationStop: code.destination_stop ?? "" } });
   }, [router, allBookings]);
 
-  const onNavigate = useCallback((booking: typeof MOCK_BOOKINGS[0]) => {
+  const onNavigate = useCallback((booking: Booking) => {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     router.push({
       pathname: "/navigate-to-pickup",
