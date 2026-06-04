@@ -301,42 +301,7 @@ export default function HomeScreen() {
             />
             <MapLibreGL.UserLocation visible />
 
-            {/* Live bus markers — only rendered when lat/lng is known */}
-            {activeBuses
-              .filter((b) => b.lat !== 0 && b.lng !== 0 && b.seats_available > 0)
-              .map((bus) => (
-                <MapLibreGL.MarkerView
-                  key={bus.driver_id}
-                  coordinate={[bus.lng, bus.lat]}
-                >
-                  <TouchableOpacity
-                    onPress={() => router.push({
-                      pathname: "/book-bus",
-                      params: {
-                        driverId: bus.driver_id,
-                        driverName: bus.driver_name,
-                        busReg: bus.bus_registration,
-                        routeName: bus.route_name,
-                        seats: String(bus.seats_available),
-                        eta: String(bus.eta_minutes),
-                      },
-                    })}
-                    activeOpacity={0.8}
-                  >
-                    <View style={s.busMarkerOuter}>
-                      <View style={s.busMarkerCard}>
-                        <Bus size={16} color={Colors.white} />
-                        <View style={s.busMarkerSeatBadge}>
-                          <Text style={s.busMarkerSeatTxt}>{bus.seats_available}</Text>
-                        </View>
-                      </View>
-                      <View style={s.busMarkerTail} />
-                    </View>
-                  </TouchableOpacity>
-                </MapLibreGL.MarkerView>
-              ))
-            }
-
+            {/* Stop markers first so the live bus markers below render on top */}
             {sortedStops.map((stop) => {
               const buses = MOCK_APPROACHING_BUSES[stop.id] ?? [];
               const activeBusCount = buses.filter((b) => b.seats_available > 0).length;
@@ -346,6 +311,7 @@ export default function HomeScreen() {
                 <MapLibreGL.MarkerView
                   key={stop.id}
                   coordinate={[stop.lng, stop.lat]}
+                  allowOverlap
                 >
                   <TouchableOpacity
                     onPress={() => onStopMarkerPress(stop)}
@@ -376,6 +342,43 @@ export default function HomeScreen() {
                 </MapLibreGL.MarkerView>
               );
             })}
+
+            {/* Live bus markers — rendered last so they sit on top of stops (priority) */}
+            {activeBuses
+              .filter((b) => b.lat !== 0 && b.lng !== 0 && b.seats_available > 0)
+              .map((bus) => (
+                <MapLibreGL.MarkerView
+                  key={bus.driver_id}
+                  coordinate={[bus.lng, bus.lat]}
+                  allowOverlap
+                >
+                  <TouchableOpacity
+                    onPress={() => router.push({
+                      pathname: "/book-bus",
+                      params: {
+                        driverId: bus.driver_id,
+                        driverName: bus.driver_name,
+                        busReg: bus.bus_registration,
+                        routeName: bus.route_name,
+                        seats: String(bus.seats_available),
+                        eta: String(bus.eta_minutes),
+                      },
+                    })}
+                    activeOpacity={0.8}
+                  >
+                    <View style={s.busMarkerOuter}>
+                      <View style={s.busMarkerCard}>
+                        <Bus size={16} color={Colors.white} />
+                        <View style={s.busMarkerSeatBadge}>
+                          <Text style={s.busMarkerSeatTxt}>{bus.seats_available}</Text>
+                        </View>
+                      </View>
+                      <View style={s.busMarkerTail} />
+                    </View>
+                  </TouchableOpacity>
+                </MapLibreGL.MarkerView>
+              ))
+            }
           </MapLibreGL.MapView>
         )}
       </Animated.View>
@@ -882,6 +885,8 @@ const make_s = (Colors: ThemePalette) => StyleSheet.create({
   markerOuter: {
     alignItems: "center",
     justifyContent: "center",
+    paddingTop: 8,
+    paddingHorizontal: 8,
   },
   markerSelected: {
     transform: [{ scale: 1.25 }],
@@ -944,6 +949,8 @@ const make_s = (Colors: ThemePalette) => StyleSheet.create({
   // Live bus markers — speech-bubble style (green)
   busMarkerOuter: {
     alignItems: "center",
+    paddingTop: 8,
+    paddingHorizontal: 8,
   },
   busMarkerCard: {
     width: 44,
