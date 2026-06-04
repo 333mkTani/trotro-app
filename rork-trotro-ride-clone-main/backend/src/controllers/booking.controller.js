@@ -24,7 +24,7 @@ const cancel = asyncHandler(async (req, res) => {
 });
 
 const complete = asyncHandler(async (req, res) => {
-  res.json(await bookingService.complete(req.params.id));
+  res.json(await bookingService.complete(req.params.id, req.user));
 });
 
 const code = asyncHandler(async (req, res) => {

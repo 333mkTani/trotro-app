@@ -130,7 +130,17 @@ const cancel = async (bookingId, user) => {
   });
 };
 
-const complete = async (bookingId) => {
+const complete = async (bookingId, user) => {
+  const existing = await bookingModel.findById(bookingId);
+  if (!existing) throw ApiError.notFound('Booking not found');
+  if (
+    user &&
+    user.role !== 'admin' &&
+    existing.passenger_id !== user.id &&
+    existing.driver_id !== user.id
+  ) {
+    throw ApiError.forbidden();
+  }
   return withTransaction(async (client) => {
     const booking = await bookingModel.updateStatus(bookingId, 'completed', {}, client);
     if (!booking) throw ApiError.notFound('Booking not found');
