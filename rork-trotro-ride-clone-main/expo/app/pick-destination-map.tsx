@@ -36,7 +36,7 @@ export default function PickDestinationMapScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { mapCenter, regionStops } = useLocation();
-  const cameraRef = useRef<MapLibreGL.Camera>(null);
+  const cameraRef = useRef<React.ComponentRef<typeof MapLibreGL.Camera>>(null);
   const [pin, setPin] = useState<PinnedLocation | null>(null);
   const [nearestStopName, setNearestStopName] = useState<string | null>(null);
   const [nearestStopDistance, setNearestStopDistance] = useState<number>(0);
@@ -114,7 +114,7 @@ export default function PickDestinationMapScreen() {
         <>
           <MapLibreGL.MapView
             style={s.map}
-            styleURL="https://tiles.openfreemap.org/styles/liberty"
+            mapStyle="https://tiles.openfreemap.org/styles/liberty"
             logoEnabled={false}
             attributionEnabled={false}
             onPress={(feature) => {

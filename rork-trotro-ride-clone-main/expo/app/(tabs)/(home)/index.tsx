@@ -45,7 +45,7 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [offline] = useState(false);
   const [selectedStop, setSelectedStop] = useState<string | null>(null);
-  const cameraRef = useRef<MapLibreGL.Camera>(null);
+  const cameraRef = useRef<React.ComponentRef<typeof MapLibreGL.Camera>>(null);
   const scrollRef = useRef<ScrollView>(null);
 
   const topInset = insets.top || 0;
@@ -242,9 +242,11 @@ export default function HomeScreen() {
       });
     } catch (err) {
       console.log("[Home] Location error, falling back to default:", err);
-      if (mapRef.current) {
-        mapRef.current.animateToRegion(mapCenter, 500);
-      }
+      cameraRef.current?.setCamera({
+        centerCoordinate: [mapCenter.longitude, mapCenter.latitude],
+        zoomLevel: 12,
+        animationDuration: 500,
+      });
     }
   }, [mapCenter]);
 
@@ -286,7 +288,7 @@ export default function HomeScreen() {
         ) : (
           <MapLibreGL.MapView
             style={s.map}
-            styleURL="https://tiles.openfreemap.org/styles/liberty"
+            mapStyle="https://tiles.openfreemap.org/styles/liberty"
             onPress={onMapPress}
             logoEnabled={false}
             attributionEnabled={false}

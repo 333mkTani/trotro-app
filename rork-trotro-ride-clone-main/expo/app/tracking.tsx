@@ -102,7 +102,7 @@ export default function TrackingScreen() {
 
   const router = useRouter();
   const p = useLocalSearchParams<TrackingParams>();
-  const cameraRef = useRef<MapLibreGL.Camera>(null);
+  const cameraRef = useRef<React.ComponentRef<typeof MapLibreGL.Camera>>(null);
 
   const busStartLat = Number(p.lat) || 5.575;
   const busStartLng = Number(p.lng) || -0.205;
@@ -264,7 +264,7 @@ export default function TrackingScreen() {
       {Platform.OS !== "web" ? (
         <MapLibreGL.MapView
           style={StyleSheet.absoluteFillObject}
-          styleURL="https://tiles.openfreemap.org/styles/liberty"
+          mapStyle="https://tiles.openfreemap.org/styles/liberty"
           logoEnabled={false}
           attributionEnabled={false}
         >
