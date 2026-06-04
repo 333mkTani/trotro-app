@@ -351,6 +351,7 @@ export default function HomeScreen() {
                   key={bus.driver_id}
                   coordinate={[bus.lng, bus.lat]}
                   allowOverlap
+                  isSelected
                 >
                   <TouchableOpacity
                     onPress={() => router.push({
