@@ -141,34 +141,35 @@ export async function getTransactions(): Promise<WalletTransaction[]> {
   }));
 }
 
-export async function requestWithdrawal(
-  amount: number,
-  method: string,
-  _accountNumber: string,
-  _accountName: string,
-  _provider?: string
-): Promise<WalletTransaction> {
-  return {
-    id: `wd-${Date.now()}`,
-    type: 'WITHDRAWAL',
-    amount: -amount,
-    currency: 'GHS',
-    description: `Withdrawal via ${method}`,
-    status: 'PENDING',
-    created_at: new Date().toISOString(),
-  };
+export interface PayoutBank {
+  name: string;
+  code: string;
 }
 
-export async function fundWallet(amount: number, channel: string): Promise<WalletTransaction> {
-  const { data } = await api.post('/wallet/topup', { amount, paymentMethod: channel });
+export async function getPayoutBanks(): Promise<PayoutBank[]> {
+  const { data } = await api.get('/wallet/banks');
+  return data as PayoutBank[];
+}
+
+export async function requestWithdrawal(params: {
+  amount: number;
+  method: 'MOBILE_MONEY' | 'BANK_TRANSFER';
+  accountNumber: string;
+  accountName: string;
+  providerId?: string;
+  bankCode?: string;
+}): Promise<WalletTransaction> {
+  const { data } = await api.post('/wallet/withdraw', params);
+  const tx = (data as { transaction: Record<string, unknown> }).transaction;
   return {
-    id: (data as Record<string, unknown>).id as string,
-    type: 'TRIP_EARNING',
-    amount,
+    id: tx.id as string,
+    type: 'WITHDRAWAL',
+    amount: parseFloat(tx.amount as string),
     currency: 'GHS',
-    description: `Wallet top-up via ${channel}`,
-    status: 'COMPLETED',
-    created_at: (data as Record<string, unknown>).created_at as string,
+    description: (tx.description as string) ?? '',
+    status: ((tx.status as string)?.toUpperCase() ?? 'PENDING') as WalletTransaction['status'],
+    created_at: tx.created_at as string,
+    reference: tx.reference as string | undefined,
   };
 }
 
@@ -178,8 +179,25 @@ export async function updateDrivingStatus(_status: DrivingStatus): Promise<void>
   return;
 }
 
-export async function autoAcceptBooking(_availableSeats: number): Promise<AutoAcceptedBooking | null> {
-  return null;
+export async function autoAcceptBooking(availableSeats: number): Promise<AutoAcceptedBooking | null> {
+  if (availableSeats <= 0) return null;
+
+  const { data } = await api.get('/bookings', { params: { status: 'pending' } });
+  const pending = data as Record<string, unknown>[];
+  if (!pending.length) return null;
+
+  const next = pending[0];
+  const { data: result } = await api.post(`/bookings/${next.id}/confirm`);
+  const booking = (result as Record<string, unknown>).booking as Record<string, unknown>;
+
+  return {
+    id: booking.id as string,
+    passenger_name: (next.passenger_name as string) ?? 'Passenger',
+    pickup_stop: (booking.pickup_stop_name as string) ?? '',
+    destination_stop: (booking.destination_stop_name as string) ?? '',
+    seats_taken: 1,
+    auto_accepted_at: new Date().toISOString(),
+  };
 }
 
 export async function updateSeatCount(available: number, total: number): Promise<{ available: number; total: number }> {

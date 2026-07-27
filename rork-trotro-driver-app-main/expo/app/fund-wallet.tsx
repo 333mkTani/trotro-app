@@ -23,7 +23,7 @@ import {
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
-import { fundWallet } from '@/services/driverApi';
+import { payWithPaystack } from '@/services/paystack';
 
 const QUICK_AMOUNTS = [20, 50, 100, 200, 500];
 
@@ -56,13 +56,19 @@ export default function FundWalletScreen() {
   const totalCharge = parsedAmount + fee;
 
   const fundMut = useMutation({
-    mutationFn: () => fundWallet(parsedAmount, 'PAYSTACK'),
-    onSuccess: () => {
+    mutationFn: () => payWithPaystack(parsedAmount, 'card'),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ['wallet-balance'] });
+      qc.invalidateQueries({ queryKey: ['wallet-transactions'] });
+
+      if (!result.success) {
+        Alert.alert('Payment Not Completed', 'We couldn’t confirm this payment with Paystack. Your wallet has not been charged — please try again.');
+        return;
+      }
+
       if (Platform.OS !== 'web') {
         Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       }
-      qc.invalidateQueries({ queryKey: ['wallet-balance'] });
-      qc.invalidateQueries({ queryKey: ['wallet-transactions'] });
       setFundedAmount(parsedAmount);
       setShowSuccess(true);
       Animated.parallel([

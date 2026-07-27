@@ -137,20 +137,6 @@ export interface WithdrawalRequest {
   provider?: string;
 }
 
-export interface PaystackInitResponse {
-  authorization_url: string;
-  access_code: string;
-  reference: string;
-}
-
-export interface PaystackVerifyResponse {
-  status: boolean;
-  reference: string;
-  amount: number;
-  currency: string;
-  channel: string;
-}
-
 export type SeatEventType = 'BOARDING' | 'ALIGHTING' | 'SYSTEM_ADJUSTMENT' | 'VERIFICATION';
 
 export interface SeatEvent {

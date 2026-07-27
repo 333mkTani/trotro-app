@@ -5,6 +5,7 @@ import React, { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useAuthStore } from "@/store/authStore";
 import { useNotifications } from "@/hooks/useNotifications";
+import { useDriverSocket } from "@/hooks/useDriverSocket";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -32,6 +33,7 @@ function RootLayoutNav() {
 function AppWithNotifications() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   useNotifications(isAuthenticated);
+  useDriverSocket(isAuthenticated);
   return <RootLayoutNav />;
 }
 

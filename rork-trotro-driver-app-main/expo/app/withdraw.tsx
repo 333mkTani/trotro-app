@@ -24,7 +24,7 @@ import {
 } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
-import { getWalletBalance, requestWithdrawal } from '@/services/driverApi';
+import { getWalletBalance, requestWithdrawal, getPayoutBanks, PayoutBank } from '@/services/driverApi';
 
 type WithdrawMethod = 'MOBILE_MONEY' | 'BANK_TRANSFER';
 
@@ -55,12 +55,19 @@ export default function WithdrawScreen() {
     queryFn: getWalletBalance,
   });
 
+  const banksQ = useQuery({
+    queryKey: ['payout-banks'],
+    queryFn: getPayoutBanks,
+  });
+
   const [method, setMethod] = useState<WithdrawMethod>('MOBILE_MONEY');
   const [amount, setAmount] = useState<string>('');
   const [accountNumber, setAccountNumber] = useState<string>('');
   const [accountName, setAccountName] = useState<string>('');
   const [selectedProvider, setSelectedProvider] = useState<string>('mtn');
   const [showProviders, setShowProviders] = useState<boolean>(false);
+  const [selectedBank, setSelectedBank] = useState<PayoutBank | null>(null);
+  const [showBanks, setShowBanks] = useState<boolean>(false);
   const [showSuccess, setShowSuccess] = useState<boolean>(false);
 
   const successScale = useRef(new Animated.Value(0)).current;
@@ -68,14 +75,14 @@ export default function WithdrawScreen() {
 
   const withdrawMut = useMutation({
     mutationFn: () => {
-      const provider = MOMO_PROVIDERS.find(p => p.id === selectedProvider);
-      return requestWithdrawal(
-        parseFloat(amount),
+      return requestWithdrawal({
+        amount: parseFloat(amount),
         method,
         accountNumber,
         accountName,
-        provider?.name
-      );
+        providerId: method === 'MOBILE_MONEY' ? selectedProvider : undefined,
+        bankCode: method === 'BANK_TRANSFER' ? selectedBank?.code : undefined,
+      });
     },
     onSuccess: () => {
       if (Platform.OS !== 'web') {
@@ -96,7 +103,12 @@ export default function WithdrawScreen() {
 
   const parsedAmount = parseFloat(amount) || 0;
   const availableBalance = balanceQ.data?.available ?? 0;
-  const isValid = parsedAmount >= 5 && parsedAmount <= availableBalance && accountNumber.length >= 6 && accountName.length >= 2;
+  const isValid =
+    parsedAmount >= 5 &&
+    parsedAmount <= availableBalance &&
+    accountNumber.length >= 6 &&
+    accountName.length >= 2 &&
+    (method === 'MOBILE_MONEY' || !!selectedBank);
 
   const handleQuickAmount = useCallback((val: number) => {
     if (Platform.OS !== 'web') {
@@ -112,13 +124,13 @@ export default function WithdrawScreen() {
     }
     Alert.alert(
       'Confirm Withdrawal',
-      `Withdraw GHS ${parsedAmount.toFixed(2)} to ${method === 'MOBILE_MONEY' ? MOMO_PROVIDERS.find(p => p.id === selectedProvider)?.name : 'Bank Account'} (${accountNumber})?`,
+      `Withdraw GHS ${parsedAmount.toFixed(2)} to ${method === 'MOBILE_MONEY' ? MOMO_PROVIDERS.find(p => p.id === selectedProvider)?.name : selectedBank?.name ?? 'Bank Account'} (${accountNumber})?`,
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Withdraw', onPress: () => withdrawMut.mutate(), style: 'destructive' },
       ]
     );
-  }, [isValid, parsedAmount, method, selectedProvider, accountNumber, withdrawMut]);
+  }, [isValid, parsedAmount, method, selectedProvider, selectedBank, accountNumber, withdrawMut]);
 
   const handleDone = useCallback(() => {
     router.back();
@@ -140,9 +152,9 @@ export default function WithdrawScreen() {
           <Text style={styles.successTitle}>Withdrawal Submitted</Text>
           <Text style={styles.successAmount}>GHS {parsedAmount.toFixed(2)}</Text>
           <Text style={styles.successDesc}>
-            Your withdrawal to {currentProvider?.name ?? 'your account'} ending in {accountNumber.slice(-4)} is being processed.
+            Your withdrawal to {method === 'MOBILE_MONEY' ? currentProvider?.name : selectedBank?.name} ending in {accountNumber.slice(-4)} is being processed.
           </Text>
-          <Text style={styles.successNote}>Funds typically arrive within 1-5 minutes</Text>
+          <Text style={styles.successNote}>You&apos;ll see it update in your transaction history once it completes</Text>
           <Pressable
             style={({ pressed }) => [styles.doneBtn, pressed && styles.doneBtnPressed]}
             onPress={handleDone}
@@ -234,6 +246,40 @@ export default function WithdrawScreen() {
                       {p.id === selectedProvider && <Check size={16} color={Colors.primary} />}
                     </Pressable>
                   ))}
+                </View>
+              )}
+            </>
+          )}
+
+          {method === 'BANK_TRANSFER' && (
+            <>
+              <Text style={styles.fieldLabel}>Bank</Text>
+              <Pressable
+                style={styles.providerSelector}
+                onPress={() => setShowBanks(!showBanks)}
+                disabled={banksQ.isLoading}
+                testID="bank-selector"
+              >
+                <Text style={styles.providerName}>
+                  {banksQ.isLoading ? 'Loading banks…' : selectedBank?.name ?? 'Select your bank'}
+                </Text>
+                <ChevronDown size={18} color={Colors.textSecondary} />
+              </Pressable>
+              {showBanks && (
+                <View style={styles.providerList}>
+                  <ScrollView style={styles.bankScroll} nestedScrollEnabled>
+                    {(banksQ.data ?? []).map((b) => (
+                      <Pressable
+                        key={b.code}
+                        style={[styles.providerOption, b.code === selectedBank?.code && styles.providerOptionActive]}
+                        onPress={() => { setSelectedBank(b); setShowBanks(false); }}
+                        testID={`bank-${b.code}`}
+                      >
+                        <Text style={styles.providerOptionText}>{b.name}</Text>
+                        {b.code === selectedBank?.code && <Check size={16} color={Colors.primary} />}
+                      </Pressable>
+                    ))}
+                  </ScrollView>
                 </View>
               )}
             </>
@@ -452,6 +498,9 @@ const styles = StyleSheet.create({
     fontWeight: '500' as const,
     color: Colors.textPrimary,
     flex: 1,
+  },
+  bankScroll: {
+    maxHeight: 240,
   },
   amountInputWrap: {
     flexDirection: 'row',
