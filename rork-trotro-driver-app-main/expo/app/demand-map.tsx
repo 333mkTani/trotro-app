@@ -58,7 +58,7 @@ export default function TrotroDemandHeatmap() {
 
 const dm = StyleSheet.create({
   c: { flex: 1, backgroundColor: Colors.background },
-  mapArea: { height: '40%', backgroundColor: '#E3F2FD', justifyContent: 'center', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: Colors.border },
+  mapArea: { height: '40%', backgroundColor: '#E3F2FD', justifyContent: 'center', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: Colors.borderLight },
   mapInner: { alignItems: 'center', gap: 8 }, mapTitle: { fontSize: 18, fontWeight: '700' as const, color: Colors.primary }, mapSub: { fontSize: 14, color: Colors.textSecondary }, eta: { fontSize: 11, color: Colors.disabled, fontStyle: 'italic' as const, marginTop: 8 },
   legend: { flexDirection: 'row', gap: 16, marginTop: 20 }, legI: { flexDirection: 'row', alignItems: 'center', gap: 6 }, legD: { width: 12, height: 12, borderRadius: 6 }, legT: { fontSize: 12, color: Colors.textSecondary },
   listArea: { flex: 1, padding: 16 }, listTitle: { fontSize: 17, fontWeight: '700' as const, color: Colors.textPrimary, marginBottom: 12 }, listPad: { paddingBottom: 80 },

@@ -14,6 +14,7 @@ const Colors = {
   disabled: '#B0BEC5',
   borderLight: '#E2E8F0',
   offlineBg: '#FFF8E1',
+  offlineText: '#8D6E00',
   light: {
     text: '#2D3E40',
     background: '#F5F9F9',

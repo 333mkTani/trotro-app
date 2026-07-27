@@ -79,7 +79,7 @@ const styles = StyleSheet.create({
     height: 64,
     borderRadius: 14,
     borderWidth: 2,
-    borderColor: Colors.border,
+    borderColor: Colors.borderLight,
     backgroundColor: Colors.surface,
     fontSize: 24,
     fontWeight: '700' as const,
