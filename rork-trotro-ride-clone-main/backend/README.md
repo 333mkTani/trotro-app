@@ -55,6 +55,7 @@ The schema lives at `expo/supabase/schema.sql`. Apply it once to your database (
 | Bus Alerts | `/api/alerts` |
 | Wallet | `/api/wallet` |
 | Driver Ratings | `/api/ratings` |
+| Webhooks | `/api/webhooks` |
 
 Health check: `GET /health`.
 
@@ -72,6 +73,42 @@ Both endpoints use a `geography(Point, 4326)` column kept in sync from `lat/lng`
 - Bus location updates are published to `bus:{busId}:location` for any subscriber (worker, websocket bridge, etc.).
 - `/api/*` rate limiter switches to a **Redis-backed store** when `REDIS_URL` is set so limits are shared across instances.
 - Set `REDIS_URL=` (empty) to disable; the cache, pub/sub, and limiter all degrade safely.
+
+### Wallet & Paystack (top-ups and payouts)
+
+Every passenger and driver has a wallet (`GET /api/wallet`, `GET /api/wallet/transactions`). Money moves through Paystack in both directions:
+
+- **Top-up** (`POST /api/wallet/topup/initialize` → `POST /api/wallet/topup/verify`) — the client opens a Paystack Checkout/inline transaction, then the backend verifies it server-side via `paystack.service.js#verifyTransaction` before crediting the wallet. Never trust a client-reported "payment succeeded" — the wallet is only credited once Paystack confirms the transaction status directly.
+- **Withdrawal / payout** (`POST /api/wallet/withdraw`, banks list at `GET /api/wallet/banks`) — `wallet.service.js#requestWithdrawal` debits the wallet immediately, then calls Paystack Transfers (`createTransferRecipient` + `initiateTransfer`) to pay out to a bank account or mobile money wallet. Three outcomes are handled:
+  - Paystack confirms instantly → transaction marked `completed`.
+  - Paystack accepts but hasn't confirmed (e.g. OTP-gated transfers) → transaction stays `pending`; it is finalized later by the webhook.
+  - Paystack rejects the transfer, or the mobile money provider can't be resolved to a Paystack bank code → the wallet is refunded and the transaction is marked `failed`.
+- **Webhook** (`POST /api/webhooks/paystack`) — `webhook.controller.js` verifies the `x-paystack-signature` header (HMAC-SHA512 over the raw request body, see `paystack.service.js#verifyWebhookSignature`) before processing anything. `transfer.success` / `transfer.failed` / `transfer.reversed` events finalize any `pending` withdrawal (row-locked, idempotent — a replayed webhook is a no-op once the transaction is no longer `pending`). The raw body needed for signature verification is captured in `app.js`'s `express.json()` `verify` hook (`req.rawBody`), since JSON parsing would otherwise discard it.
+
+Set `PAYSTACK_SECRET_KEY` in `.env` (server-side only — never expose it to a client bundle) and register the webhook URL (`https://<your-api-host>/api/webhooks/paystack`) in the Paystack dashboard.
+
+### Real-time bus tracking (Socket.IO)
+
+`src/realtime/io.js` attaches a Socket.IO server to the same `http.Server` as Express (see `server.js`), authenticated via JWT at handshake (`socket.handshake.auth.token`, checked against `JWT_SECRET` and, if configured, `SUPABASE_JWT_SECRET`).
+
+Room conventions:
+
+| Room | Who's in it | Purpose |
+| --- | --- | --- |
+| `user:<userId>` | that user's own sockets | booking updates, alerts |
+| `driver:<driverId>` | that driver's own sockets | assignments, payout status |
+| `bus:<busId>` | passengers tracking a bus | live location for one bus |
+| `route:<routeId>` | passengers watching a route | live location for any bus on that route |
+
+Drivers emit `bus:location` (`{ busId, routeId?, lat, lng, heading?, speed?, ts? }`); the server re-broadcasts it to the `bus:` and `route:` rooms and publishes it on the `bus:location` Redis channel so other API instances stay in sync. When `REDIS_URL` is set, the Socket.IO Redis adapter fans events out across multiple Node instances behind Nginx; without it, the server runs in single-instance mode. Server-side code elsewhere in the app can push events via `emitToUser` / `emitToDriver` / `emitToBus` / `emitToRoute` exported from `realtime/io.js`.
+
+## Testing
+
+```bash
+npm test
+```
+
+Runs the Jest suite (`jest.config.js`, `testEnvironment: 'node'`) against `src/**/__tests__/**/*.test.js`. Coverage focuses on pure/service logic — utils, validators, `paystack.service.js`, and `wallet.service.js` (mocking the DB and the Paystack HTTP calls) — rather than hitting a live database.
 
 ## Nginx (edge / API gateway)
 
