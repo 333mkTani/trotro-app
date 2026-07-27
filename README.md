@@ -1,6 +1,6 @@
 # Trotro
 
-A ride-hailing app for Accra's trotro (shared minibus) system: passengers find nearby stops and routes, track approaching buses live, book seats, and pay; drivers go online, accept requests, navigate, verify boarding codes, and manage their earnings — all backed by a shared Express/PostgreSQL/Redis/Socket.IO API.
+A nationwide ride-hailing app for Ghana's trotro (shared minibus) system: passengers find nearby stops and routes, track approaching buses live, book seats, and pay; drivers go online, accept requests, navigate, verify boarding codes, and manage their earnings — all backed by a shared Express/PostgreSQL/Redis/Socket.IO API.
 
 ## Sub-projects
 
