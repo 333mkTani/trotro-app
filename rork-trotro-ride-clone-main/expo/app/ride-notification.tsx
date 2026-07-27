@@ -5,7 +5,7 @@ import { Bus, Clock, Users, CheckCircle, X, AlarmClock, AlertTriangle } from "lu
 import * as Haptics from "expo-haptics";
 import StaticColors from "@/constants/colors";
 import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
-import { MOCK_BOOKINGS } from "@/mocks/data";
+import { useBookings } from "@/contexts/BookingContext";
 const Colors = StaticColors;
 
 export default function RideNotificationScreen() {
@@ -14,10 +14,11 @@ export default function RideNotificationScreen() {
   st = React.useMemo(() => make_st(themeColors), [themeColors]);
 
   const nav = useRouter();
+  const { bookings } = useBookings();
   const slide = useRef(new Animated.Value(60)).current;
   const opacity = useRef(new Animated.Value(0)).current;
   const pulse = useRef(new Animated.Value(1)).current;
-  const bk = MOCK_BOOKINGS.find((b) => b.status === "confirmed");
+  const bk = bookings.find((b) => b.status === "confirmed");
 
   useEffect(() => {
     Animated.parallel([Animated.spring(slide, { toValue: 0, useNativeDriver: true, tension: 50, friction: 9 }), Animated.timing(opacity, { toValue: 1, duration: 500, useNativeDriver: true })]).start();

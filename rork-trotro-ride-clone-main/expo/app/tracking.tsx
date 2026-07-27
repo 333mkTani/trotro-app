@@ -26,6 +26,14 @@ import * as Haptics from "expo-haptics";
 import StaticColors from "@/constants/colors";
 import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
 import { api } from "@/services/api";
+import {
+  connectSocket,
+  disconnectSocket,
+  getSocket,
+  subscribeToBus,
+  unsubscribeFromBus,
+  type BusLocationEvent,
+} from "@/services/socket";
 const Colors = StaticColors;
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -120,6 +128,8 @@ export default function TrackingScreen() {
   const [progress, setProgress] = useState(0);
   const [expanded, setExpanded] = useState(true);
   const [lastUpdate, setLastUpdate] = useState("Just now");
+  const [socketLive, setSocketLive] = useState(false);
+  const busIdRef = useRef<string | null>(null);
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const sheetAnim = useRef(new Animated.Value(0)).current;
@@ -165,13 +175,88 @@ export default function TrackingScreen() {
     };
   }, []);
 
+  const totalDistM = useMemo(
+    () => haversineMetres(busStartLat, busStartLng, stopLat, stopLng),
+    [busStartLat, busStartLng, stopLat, stopLng]
+  );
+
+  const applyRealPosition = useCallback((realLat: number, realLng: number) => {
+    setBusPosition({ lat: realLat, lng: realLng });
+
+    const distToStop = haversineMetres(realLat, realLng, stopLat, stopLng);
+    const etaMins = Math.max(1, Math.round(distToStop / 250)); // ~15 km/h
+    setEta(etaMins);
+
+    const newProgress = totalDistM > 0
+      ? Math.min(1, Math.max(0, 1 - distToStop / totalDistM))
+      : 0;
+    setProgress(newProgress);
+    setLastUpdate("Just now");
+
+    if (newProgress >= 0.98 && Platform.OS !== "web") {
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
+  }, [stopLat, stopLng, totalDistM]);
+
+  // Real-time bus position via Socket.IO, subscribed to this bus's room.
   useEffect(() => {
     const driverId = p.driverId;
-    const totalDistM = haversineMetres(busStartLat, busStartLng, stopLat, stopLng);
+    if (!driverId) return;
+
+    let cancelled = false;
+    let busId: string | null = null;
+
+    const onLocation = (event: BusLocationEvent) => {
+      if (!busId || event.busId !== busId) return;
+      applyRealPosition(event.lat, event.lng);
+    };
+
+    const setup = async () => {
+      try {
+        const { data } = await api.get(`/buses/driver/${driverId}/location`);
+        if (cancelled) return;
+        busId = (data?.bus_id as string | undefined) ?? null;
+        if (!busId) return;
+        busIdRef.current = busId;
+
+        await connectSocket();
+        if (cancelled) return;
+
+        subscribeToBus(busId);
+        const socket = getSocket();
+        socket?.on("bus:location", onLocation);
+        socket?.on("connect", () => setSocketLive(true));
+        socket?.on("disconnect", () => setSocketLive(false));
+        setSocketLive(socket?.connected ?? false);
+      } catch {
+        // No socket connection — REST polling below still covers tracking.
+      }
+    };
+
+    setup();
+
+    return () => {
+      cancelled = true;
+      const socket = getSocket();
+      socket?.off("bus:location", onLocation);
+      if (busId) unsubscribeFromBus(busId);
+      setSocketLive(false);
+    };
+  }, [p.driverId, applyRealPosition]);
+
+  useEffect(() => {
+    return () => disconnectSocket();
+  }, []);
+
+  // REST fallback: keeps tracking working if the socket is unavailable, and
+  // simulates motion when no real GPS reading exists yet.
+  useEffect(() => {
+    const driverId = p.driverId;
     let simElapsed = 0;
     const simTickMs = 4000;
 
     const poll = async () => {
+      if (socketLive) return; // socket is delivering live updates already
       try {
         if (!driverId) throw new Error("no driverId");
         const { data } = await api.get(`/buses/driver/${driverId}/location`);
@@ -179,21 +264,7 @@ export default function TrackingScreen() {
         const realLng = parseFloat(data.lng);
 
         if (realLat && realLng && realLat !== 0 && realLng !== 0) {
-          setBusPosition({ lat: realLat, lng: realLng });
-
-          const distToStop = haversineMetres(realLat, realLng, stopLat, stopLng);
-          const etaMins = Math.max(1, Math.round(distToStop / 250)); // ~15 km/h
-          setEta(etaMins);
-
-          const newProgress = totalDistM > 0
-            ? Math.min(1, Math.max(0, 1 - distToStop / totalDistM))
-            : 0;
-          setProgress(newProgress);
-          setLastUpdate("Just now");
-
-          if (newProgress >= 0.98 && Platform.OS !== "web") {
-            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-          }
+          applyRealPosition(realLat, realLng);
           return;
         }
       } catch { /* fall through to simulation */ }
@@ -212,7 +283,7 @@ export default function TrackingScreen() {
     poll();
     const interval = setInterval(poll, 5000);
     return () => clearInterval(interval);
-  }, [busStartLat, busStartLng, stopLat, stopLng, initialEta, p.driverId]);
+  }, [busStartLat, busStartLng, stopLat, stopLng, initialEta, p.driverId, socketLive, applyRealPosition]);
 
   const mapRegion = useMemo(() => {
     const centerLat = (busStartLat + stopLat) / 2;

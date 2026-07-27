@@ -29,4 +29,11 @@ const updateLocation = asyncHandler(async (req, res) => {
   res.json(bus);
 });
 
-module.exports = { getProfile, getDashboard, setAvailability, updateSeats, updateLocation };
+const updateRoute = asyncHandler(async (req, res) => {
+  const { routeId } = req.body;
+  if (!routeId) throw Object.assign(new Error('routeId is required'), { statusCode: 400 });
+  const bus = await svc.updateRoute(req.user.id, routeId);
+  res.json(bus);
+});
+
+module.exports = { getProfile, getDashboard, setAvailability, updateSeats, updateLocation, updateRoute };

@@ -10,7 +10,7 @@ const AUTH_TOKEN_KEY = 'auth_token';
 
 export const api = axios.create({
   baseURL: `${API_BASE_URL}/api`,
-  timeout: 15000,
+  timeout: 60000,
   headers: { 'Content-Type': 'application/json' },
 });
 
@@ -20,9 +20,28 @@ api.interceptors.request.use(async (config) => {
   return config;
 });
 
+const MAX_503_RETRIES = 3;
+const RETRY_DELAY_MS = 20000;
+
 api.interceptors.response.use(
   (res) => res,
-  (error) => {
+  async (error) => {
+    const status = error.response?.status;
+
+    // Render.com free tier returns 503 while the server cold-starts (can take ~60s).
+    // Retry automatically so the user doesn't have to keep tapping.
+    if (status === 503) {
+      const cfg = error.config as typeof error.config & { _retries?: number };
+      cfg._retries = (cfg._retries ?? 0) + 1;
+      if (cfg._retries <= MAX_503_RETRIES) {
+        await new Promise<void>((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
+        return api.request(cfg);
+      }
+      return Promise.reject(
+        new Error('Server is starting up. Please wait a moment and try again.')
+      );
+    }
+
     const message =
       error.response?.data?.message ||
       error.response?.data?.error ||

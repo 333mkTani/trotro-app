@@ -4,6 +4,7 @@ const cache = require('./cache.service');
 const push = require('./push.service');
 const { publisher, isReady } = require('../config/redis');
 const { ApiError } = require('../utils/ApiError');
+const { emitToBus, emitToRoute } = require('../realtime/io');
 
 const APPROACH_RADIUS_M = 500;
 
@@ -43,6 +44,10 @@ const updateLocation = async (id, coords) => {
     at: new Date().toISOString(),
   }, LOCATION_TTL);
   await cache.del(ITEM_KEY(id));
+
+  const event = { busId: id, routeId: updated.route_id, lat: coords.lat, lng: coords.lng, ts: Date.now() };
+  emitToBus(id, 'bus:location', event);
+  if (updated.route_id) emitToRoute(updated.route_id, 'bus:location', event);
 
   if (isReady()) {
     try {

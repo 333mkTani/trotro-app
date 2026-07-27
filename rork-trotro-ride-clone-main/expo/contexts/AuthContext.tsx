@@ -19,12 +19,17 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
         const raw = await AsyncStorage.getItem(AUTH_USER_KEY);
         if (!mounted) return;
         if (raw) {
-          setUser(JSON.parse(raw) as User);
-          // Re-validate with backend
-          const { data } = await api.get('/profiles/me');
-          if (mounted) {
-            setUser(data);
-            await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(data));
+          const cached = JSON.parse(raw) as User;
+          if (mounted) setUser(cached);
+          // Re-validate with backend; keep cached session on network failure
+          try {
+            const { data } = await api.get('/profiles/me');
+            if (mounted) {
+              setUser(data);
+              await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(data));
+            }
+          } catch {
+            // Backend unreachable — keep the cached session so the user stays logged in
           }
         }
       } catch {

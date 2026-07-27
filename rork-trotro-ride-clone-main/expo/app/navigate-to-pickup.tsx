@@ -24,7 +24,7 @@ import {
 import * as Haptics from "expo-haptics";
 import StaticColors from "@/constants/colors";
 import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
-import { getStopById } from "@/mocks/stops";
+import { useLocation } from "@/contexts/LocationContext";
 const Colors = StaticColors;
 
 type Params = {
@@ -71,7 +71,11 @@ export default function NavigateToPickupScreen() {
 
   const router = useRouter();
   const params = useLocalSearchParams<Params>();
-  const stop = useMemo(() => getStopById(params.stopId ?? ""), [params.stopId]);
+  const { regionStops } = useLocation();
+  const stop = useMemo(
+    () => regionStops.find((s) => s.id === (params.stopId ?? "")),
+    [regionStops, params.stopId]
+  );
 
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [locationLoading, setLocationLoading] = useState(true);

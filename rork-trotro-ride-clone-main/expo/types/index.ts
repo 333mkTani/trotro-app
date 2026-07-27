@@ -48,6 +48,7 @@ export interface Route {
   origin: string;
   destination: string;
   stops_sequence: string[];
+  reverse_stops_sequence: string[];
   distance_km: number;
   duration_min: number;
   fare: number;

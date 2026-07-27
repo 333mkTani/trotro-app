@@ -6,7 +6,6 @@ import { Filter } from "lucide-react-native";
 import StaticColors from "@/constants/colors";
 import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { MOCK_VERIFICATION_CODES } from "@/mocks/data";
 import { Booking, BookingStatus } from "@/types";
 import BookingCard from "@/components/BookingCard";
 import { useBookings } from "@/contexts/BookingContext";
@@ -55,8 +54,7 @@ export default function RidesScreen() {
       });
       return;
     }
-    const code = MOCK_VERIFICATION_CODES.find((c) => c.booking_id === id);
-    if (code) router.push({ pathname: "/verification", params: { code: code.code, bookingId: code.booking_id, validUntil: code.valid_until, routeName: code.route_name ?? "", pickupStop: code.pickup_stop ?? "", destinationStop: code.destination_stop ?? "" } });
+    // No verification code available for this booking yet
   }, [router, allBookings]);
 
   const onNavigate = useCallback((booking: Booking) => {

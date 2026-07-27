@@ -2,6 +2,7 @@ const { query } = require('../config/db');
 const busModel = require('../models/bus.model');
 const walletModel = require('../models/wallet.model');
 const { ApiError } = require('../utils/ApiError');
+const { emitToBus, emitToRoute } = require('../realtime/io');
 
 const getMyBus = async (driverId) => {
   const { rows } = await query(
@@ -105,7 +106,29 @@ const updateSeats = async (driverId, { availableSeats, totalSeats }) => {
 const updateLocation = async (driverId, { lat, lng }) => {
   const bus = await getMyBus(driverId);
   if (!bus) throw ApiError.notFound('No active bus assigned to this driver');
-  return busModel.updateLocation(bus.id, { lat, lng });
+  const updated = await busModel.updateLocation(bus.id, { lat, lng });
+
+  const event = { busId: updated.id, routeId: updated.route_id, lat, lng, driverId, ts: Date.now() };
+  emitToBus(updated.id, 'bus:location', event);
+  if (updated.route_id) emitToRoute(updated.route_id, 'bus:location', event);
+
+  return updated;
 };
 
-module.exports = { getProfile, getDashboard, setAvailability, updateSeats, updateLocation, getMyBus };
+const updateRoute = async (driverId, routeId) => {
+  const bus = await getMyBus(driverId);
+  if (!bus) throw ApiError.notFound('No active bus assigned to this driver');
+  // Verify the route exists
+  const { rows: routeRows } = await query(
+    `SELECT id FROM routes WHERE id = $1 AND status = 'active'`,
+    [routeId]
+  );
+  if (!routeRows[0]) throw ApiError.notFound('Route not found');
+  const { rows } = await query(
+    `UPDATE buses SET route_id = $1 WHERE id = $2 RETURNING *`,
+    [routeId, bus.id]
+  );
+  return rows[0];
+};
+
+module.exports = { getProfile, getDashboard, setAvailability, updateSeats, updateLocation, updateRoute, getMyBus };

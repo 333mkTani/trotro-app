@@ -22,7 +22,6 @@ import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useBusAlerts } from "@/contexts/BusAlertContext";
 import { useLocation } from "@/contexts/LocationContext";
-import { MOCK_APPROACHING_BUSES } from "@/mocks/data";
 import { ApproachingBus, BusStop } from "@/types";
 import StopCard from "@/components/StopCard";
 import OfflineBanner from "@/components/OfflineBanner";
@@ -41,7 +40,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { activeAlerts, triggeredAlerts } = useBusAlerts();
-  const { regionStops, activeBuses, regionName, mapCenter, refreshLocation } = useLocation();
+  const { regionStops, activeBuses, regionRoutes, regionName, mapCenter, refreshLocation } = useLocation();
   const [refreshing, setRefreshing] = useState(false);
   const [offline] = useState(false);
   const [selectedStop, setSelectedStop] = useState<string | null>(null);
@@ -128,13 +127,34 @@ export default function HomeScreen() {
   ).current;
 
   const sortedStops = useMemo(() => {
-    const mapped = regionStops.map((stop) => ({
-      ...stop,
-      distance_m: Math.floor(Math.random() * 3000 + 200),
-    }));
-    mapped.sort((a, b) => (a.distance_m ?? 0) - (b.distance_m ?? 0));
-    return mapped;
+    const seen = new Set<string>();
+    const unique = regionStops.filter((s) => {
+      if (!s.id) return false;
+      if (seen.has(s.id)) return false;
+      seen.add(s.id);
+      return true;
+    });
+    return [...unique].sort((a, b) => (a.distance_m ?? 0) - (b.distance_m ?? 0));
   }, [regionStops]);
+
+  // Map each stop ID to the set of route names that serve it, so we can filter
+  // activeBuses per-stop instead of showing all buses at every stop.
+  const stopRouteNames = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    for (const route of regionRoutes) {
+      for (const stopId of route.stops_sequence) {
+        if (!map.has(stopId)) map.set(stopId, new Set());
+        map.get(stopId)!.add(route.name);
+      }
+    }
+    return map;
+  }, [regionRoutes]);
+
+  const getBusesForStop = useCallback((stopId: string) => {
+    const routeNames = stopRouteNames.get(stopId);
+    if (!routeNames || routeNames.size === 0) return [];
+    return activeBuses.filter((b) => routeNames.has(b.route_name) && b.seats_available > 0);
+  }, [stopRouteNames, activeBuses]);
 
   const doRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -301,49 +321,7 @@ export default function HomeScreen() {
             />
             <MapLibreGL.UserLocation visible />
 
-            {/* Stop markers first so the live bus markers below render on top */}
-            {sortedStops.map((stop) => {
-              const buses = MOCK_APPROACHING_BUSES[stop.id] ?? [];
-              const activeBusCount = buses.filter((b) => b.seats_available > 0).length;
-              const isSelected = selectedStop === stop.id;
-
-              return (
-                <MapLibreGL.MarkerView
-                  key={stop.id}
-                  coordinate={[stop.lng, stop.lat]}
-                  allowOverlap
-                >
-                  <TouchableOpacity
-                    onPress={() => onStopMarkerPress(stop)}
-                    activeOpacity={0.8}
-                  >
-                    <View style={[s.markerOuter, isSelected && s.markerSelected]}>
-                      {activeBusCount > 0 && (
-                        <View style={s.markerBadge}>
-                          <Text style={s.markerBadgeText}>{activeBusCount}</Text>
-                        </View>
-                      )}
-                      <View style={[
-                        s.markerCard,
-                        activeBusCount > 0 ? s.markerCardActive : s.markerCardInactive,
-                        isSelected && s.markerCardSelected,
-                      ]}>
-                        <Bus
-                          size={18}
-                          color={activeBusCount > 0 ? Colors.white : Colors.gray500}
-                        />
-                      </View>
-                      <View style={[
-                        s.markerTail,
-                        { borderTopColor: isSelected ? Colors.primaryDark : activeBusCount > 0 ? Colors.primary : Colors.gray400 },
-                      ]} />
-                    </View>
-                  </TouchableOpacity>
-                </MapLibreGL.MarkerView>
-              );
-            })}
-
-            {/* Live bus markers — rendered last so they sit on top of stops (priority) */}
+            {/* Only active bus markers on the map */}
             {activeBuses
               .filter((b) => b.lat !== 0 && b.lng !== 0 && b.seats_available > 0)
               .map((bus) => (
@@ -549,7 +527,7 @@ export default function HomeScreen() {
             <StopCard
               key={stop.id}
               stop={stop}
-              buses={MOCK_APPROACHING_BUSES[stop.id] ?? []}
+              buses={getBusesForStop(stop.id)}
               onPress={() => {
                 setSelectedStop(stop.id);
                 if (Platform.OS !== "web") {

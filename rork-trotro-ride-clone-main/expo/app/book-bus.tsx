@@ -32,9 +32,8 @@ import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useBookings } from "@/contexts/BookingContext";
 import { useLocation } from "@/contexts/LocationContext";
-import { ALL_BUS_STOPS } from "@/mocks/stops";
-import { ALL_ROUTES } from "@/mocks/routes";
 import { BusStop, Booking } from "@/types";
+import { api } from "@/services/api";
 import QRCode from "@/components/QRCode";
 const Colors = StaticColors;
 
@@ -63,6 +62,7 @@ export default function BookBusScreen() {
   const [showDestPicker, setShowDestPicker] = useState(false);
   const [booked, setBooked] = useState(false);
   const [bookedBooking, setBookedBooking] = useState<Booking | null>(null);
+  const [allRouteStops, setAllRouteStops] = useState<BusStop[]>([]);
 
   const fadeIn = useRef(new Animated.Value(0)).current;
   const slideUp = useRef(new Animated.Value(30)).current;
@@ -76,19 +76,44 @@ export default function BookBusScreen() {
   }, []);
 
   const route = useMemo(() => {
-    return ALL_ROUTES.find((r) => r.name === params.routeName);
-  }, [params.routeName]);
+    return regionRoutes.find((r) => r.name === params.routeName);
+  }, [regionRoutes, params.routeName]);
+
+  // Fetch all stops for this route from the backend so we can show the full list
+  // (regionStops only covers ~3km radius; stops like Adum/Kejetia would be missing).
+  useEffect(() => {
+    if (!route?.id) return;
+    api.get(`/routes/${route.id}`)
+      .then(({ data }) => {
+        const stops = ((data as Record<string, unknown>).stops as Record<string, unknown>[]) ?? [];
+        setAllRouteStops(
+          stops
+            .filter((s) => !!s.id && s.status === "active")
+            .map((s) => ({
+              id: s.id as string,
+              name: s.name as string,
+              type: (s.type as BusStop["type"]) ?? "stop",
+              lat: parseFloat(s.lat as string),
+              lng: parseFloat(s.lng as string),
+              status: (s.status as BusStop["status"]) ?? "active",
+            })),
+        );
+      })
+      .catch(() => { /* fall back to regionStops via destinationStops memo */ });
+  }, [route?.id]);
 
   const destinationStops = useMemo(() => {
     if (!route || !params.stopId) return [];
     const seq = route.stops_sequence;
-    const pickupIdx = seq.indexOf(params.stopId);
-    if (pickupIdx < 0) return [];
+    // Use the full route stop list when available; fall back to nearby stops.
+    const stopPool = allRouteStops.length > 0 ? allRouteStops : regionStops;
+    // Show all stops on the route except the boarding stop. Both forward and
+    // reverse stops are valid destinations since the route is bidirectional.
     return seq
-      .slice(pickupIdx + 1)
-      .map((id) => ALL_BUS_STOPS.find((s) => s.id === id))
+      .filter((id: string) => id !== params.stopId)
+      .map((id: string) => stopPool.find((s) => s.id === id))
       .filter((s): s is BusStop => !!s && s.status === "active");
-  }, [route, params.stopId]);
+  }, [route, allRouteStops, regionStops, params.stopId]);
 
   const estimatedTravelMin = useMemo(() => {
     if (!route || !selectedDest || !params.stopId) return null;
@@ -96,7 +121,8 @@ export default function BookBusScreen() {
     const pickupIdx = seq.indexOf(params.stopId);
     const destIdx = seq.indexOf(selectedDest.id);
     if (pickupIdx < 0 || destIdx < 0) return null;
-    const fraction = (destIdx - pickupIdx) / (seq.length - 1);
+    // Use Math.abs so reverse-direction trips give positive travel time.
+    const fraction = Math.abs(destIdx - pickupIdx) / (seq.length - 1);
     return Math.round(route.duration_min * fraction);
   }, [route, selectedDest, params.stopId]);
 
@@ -130,7 +156,9 @@ export default function BookBusScreen() {
           lng: 0,
         },
         pickupStopId: params.stopId ?? "",
+        pickupStopName: params.stopName ?? "",
         destinationStopId: selectedDest.id,
+        destinationStopName: selectedDest.name,
         passengerId: user.id,
       });
 

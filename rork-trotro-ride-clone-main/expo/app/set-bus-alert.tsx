@@ -30,7 +30,6 @@ import * as Haptics from "expo-haptics";
 import StaticColors from "@/constants/colors";
 import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
 import { useLocation } from "@/contexts/LocationContext";
-import { MOCK_APPROACHING_BUSES } from "@/mocks/data";
 import { BusStop, Route as RouteType, DayOfWeek, ScheduleTimeMode, DayTimeEntry, AlertSchedule } from "@/types";
 import { useBusAlerts } from "@/contexts/BusAlertContext";
 const Colors = StaticColors;
@@ -63,18 +62,10 @@ export default function SetBusAlertScreen() {
     );
   }, [regionRoutes]);
 
-  const getBusPreviewForStop = useCallback((stopId: string, routeId?: string): number => {
-    const buses = MOCK_APPROACHING_BUSES[stopId] ?? [];
-    const filtered = buses.filter((b) => {
-      if (b.seats_available <= 0) return false;
-      if (routeId && routeId !== "any") {
-        const route = regionRoutes.find((r) => r.id === routeId);
-        if (route && b.route_name !== route.name) return false;
-      }
-      return true;
-    });
-    return filtered.length;
-  }, [regionRoutes]);
+  const getBusPreviewForStop = useCallback((_stopId: string, _routeId?: string): number => {
+    // Live bus counts come from activeBuses in LocationContext, resolved at alert trigger time
+    return 0;
+  }, []);
 
   const [selectedStop, setSelectedStop] = useState<BusStop | null>(null);
   const [selectedRoute, setSelectedRoute] = useState<string>("any");

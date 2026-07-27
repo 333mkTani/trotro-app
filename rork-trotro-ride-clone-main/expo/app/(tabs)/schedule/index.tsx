@@ -30,7 +30,6 @@ import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
 import { useLocation } from "@/contexts/LocationContext";
 import { useBookings } from "@/contexts/BookingContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { MOCK_SCHEDULING_RULES } from "@/mocks/data";
 import {
   BusStop,
   BufferMinutes,
@@ -106,13 +105,15 @@ export default function ScheduleScreen() {
   const route = useMemo((): RouteType | null => {
     if (!pickup || !dest) return null;
     return (
-      regionRoutes.find(
-        (r) =>
-          r.status === "active" &&
-          r.stops_sequence.includes(pickup.id) &&
-          r.stops_sequence.includes(dest.id) &&
-          r.stops_sequence.indexOf(pickup.id) < r.stops_sequence.indexOf(dest.id),
-      ) ?? null
+      regionRoutes.find((r) => {
+        if (r.status !== "active") return false;
+        const puIdx = r.stops_sequence.indexOf(pickup.id);
+        const destIdx = r.stops_sequence.indexOf(dest.id);
+        // Both stops must be on the route at different positions.
+        // Direction is not enforced here — the same physical route serves
+        // both directions and the fare/name are identical either way.
+        return puIdx >= 0 && destIdx >= 0 && puIdx !== destIdx;
+      }) ?? null
     );
   }, [pickup, dest, regionRoutes]);
 

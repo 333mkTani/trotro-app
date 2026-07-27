@@ -27,6 +27,7 @@ import * as Haptics from "expo-haptics";
 import StaticColors from "@/constants/colors";
 import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
 import { useBusAlerts } from "@/contexts/BusAlertContext";
+import { useLocation } from "@/contexts/LocationContext";
 import { ApproachingBus } from "@/types";
 const Colors = StaticColors;
 
@@ -38,6 +39,7 @@ export default function AlertBusesScreen() {
   const router = useRouter();
   const { alertId } = useLocalSearchParams<{ alertId: string }>();
   const { alerts } = useBusAlerts();
+  const { regionStops } = useLocation();
 
   const alert = useMemo(
     () => alerts.find((a) => a.id === alertId),
@@ -73,9 +75,8 @@ export default function AlertBusesScreen() {
 
   const stopData = useMemo(() => {
     if (!alert) return null;
-    const allStops = require('@/mocks/stops').ALL_BUS_STOPS;
-    return allStops.find((s: { id: string }) => s.id === alert.stop_id) ?? null;
-  }, [alert]);
+    return regionStops.find((s) => s.id === alert.stop_id) ?? null;
+  }, [alert, regionStops]);
 
   const onTrack = useCallback(
     (bus: ApproachingBus) => {

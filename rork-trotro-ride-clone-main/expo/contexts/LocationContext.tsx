@@ -3,8 +3,23 @@ import { Platform } from 'react-native';
 import * as Location from 'expo-location';
 import createContextHook from '@nkzw/create-context-hook';
 import { ApproachingBus, BusStop, Route as RouteType } from '@/types';
-import { ALL_REGIONS, RegionData } from '@/mocks/stops';
 import { api } from '@/services/api';
+
+export interface RegionData {
+  id: string;
+  name: string;
+  centerLat: number;
+  centerLng: number;
+}
+
+// Region centre-points only — no mock stops
+export const ALL_REGIONS: RegionData[] = [
+  { id: 'kumasi',     name: 'Kumasi, Ashanti Region',     centerLat: 6.6885, centerLng: -1.6244 },
+  { id: 'accra',      name: 'Accra, Greater Accra',        centerLat: 5.5900, centerLng: -0.2050 },
+  { id: 'tamale',     name: 'Tamale, Northern Region',     centerLat: 9.4034, centerLng: -0.8424 },
+  { id: 'cape-coast', name: 'Cape Coast, Central Region',  centerLat: 5.1036, centerLng: -1.2466 },
+  { id: 'takoradi',   name: 'Takoradi, Western Region',    centerLat: 4.8894, centerLng: -1.7554 },
+];
 
 function haversineDistance(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371000;
@@ -42,6 +57,7 @@ const mapRoute = (r: Record<string, unknown>): RouteType => ({
   origin: r.origin as string,
   destination: r.destination as string,
   stops_sequence: (r.stops_sequence as string[]) ?? [],
+  reverse_stops_sequence: (r.reverse_stops_sequence as string[]) ?? [],
   distance_km: parseFloat(r.distance_km as string),
   duration_min: parseFloat(r.duration_min as string),
   fare: parseFloat(r.fare as string),
@@ -73,7 +89,7 @@ export const [LocationProvider, useLocation] = createContextHook(() => {
   useEffect(() => {
     api.get('/routes', { params: { city: region.id } })
       .then(({ data }) => setRoutes((data as Record<string, unknown>[]).map(mapRoute)))
-      .catch(() => { /* use mock fallback via regionRoutes */ });
+      .catch(() => { /* routes stay empty until API responds */ });
   }, [region.id]);
 
   // Fetch active buses once on mount
@@ -87,7 +103,7 @@ export const [LocationProvider, useLocation] = createContextHook(() => {
   useEffect(() => {
     if (userLat === null || userLng === null) return;
     api.get('/stops/nearby', { params: { lat: userLat, lng: userLng, radius_m: 3000, limit: 50 } })
-      .then(({ data }) => setNearbyStops((data as Record<string, unknown>[]).map(mapStop)))
+      .then(({ data }) => setNearbyStops((data as Record<string, unknown>[]).filter((s) => !!s.id).map(mapStop)))
       .catch(() => { /* keep previous stops */ });
   }, [userLat, userLng]);
 
@@ -138,12 +154,10 @@ export const [LocationProvider, useLocation] = createContextHook(() => {
 
   useEffect(() => { fetchLocation(); }, [fetchLocation]);
 
-  // Use backend nearby stops when available, otherwise fall back to region mock stops
+  // Use backend nearby stops — no mock fallback
   const regionStops = useMemo(
-    () => nearbyStops.length > 0
-      ? nearbyStops.filter((s) => s.status === 'active')
-      : region.stops.filter((s) => s.status === 'active'),
-    [nearbyStops, region]
+    () => nearbyStops.filter((s) => s.status === 'active'),
+    [nearbyStops]
   );
 
   // Use backend routes when available, otherwise fall back to region mock routes

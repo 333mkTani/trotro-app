@@ -4,7 +4,7 @@ import { MapPin, Bus, Users, ChevronRight, AlertTriangle, Ticket } from "lucide-
 import StaticColors from "@/constants/colors";
 import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
 import { BusStop, ApproachingBus } from "@/types";
-import { ACCRA_ROUTES } from "@/mocks/routes";
+import { useLocation } from "@/contexts/LocationContext";
 const Colors = StaticColors;
 
 interface StopCardProps {
@@ -25,6 +25,7 @@ export default React.memo(function StopCard({
   const { colors: themeColors } = useTheme();
   const Colors = themeColors;
   styles = React.useMemo(() => make_styles(themeColors), [themeColors]);
+  const { regionRoutes } = useLocation();
 
   const activeBuses = buses.filter((b) => b.seats_available > 0);
 
@@ -53,7 +54,7 @@ export default React.memo(function StopCard({
             <Text style={styles.stopType}>
               {stop.type === "station" ? "Station" : "Bus Stop"}
               {stop.distance_m
-                ? ` · ${stop.distance_m < 1000 ? `${stop.distance_m}m` : `${(stop.distance_m / 1000).toFixed(1)}km`}`
+                ? ` · ${stop.distance_m < 1000 ? `${Math.round(stop.distance_m)}m` : `${(stop.distance_m / 1000).toFixed(1)}km`}`
                 : ""}
             </Text>
           </View>
@@ -64,7 +65,7 @@ export default React.memo(function StopCard({
       {activeBuses.length > 0 ? (
         <View style={styles.busesContainer}>
           {activeBuses.slice(0, 3).map((bus) => {
-            const fare = ACCRA_ROUTES.find((r) => r.name === bus.route_name)?.fare ?? 0;
+            const fare = regionRoutes.find((r) => r.name === bus.route_name)?.fare ?? 0;
             return (
               <View key={bus.driver_id} style={styles.busRow}>
                 <TouchableOpacity

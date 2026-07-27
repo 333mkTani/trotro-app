@@ -53,7 +53,7 @@ export async function initPassengerNotifications(): Promise<string | null> {
 
 export async function registerPushToken(token: string): Promise<void> {
   try {
-    await api.post('/profile/push-token', { token });
+    await api.post('/profiles/push-token', { token });
     console.log('[PassengerNotif] Token registered with backend');
   } catch (e) {
     console.log('[PassengerNotif] Token registration failed:', e);

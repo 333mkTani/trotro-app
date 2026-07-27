@@ -4,7 +4,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { Alert, Platform } from 'react-native';
 import { BusAlert, ApproachingBus, DayOfWeek } from '@/types';
-import { MOCK_APPROACHING_BUSES } from '@/mocks/data';
+import { api } from '@/services/api';
 import { useLocation } from '@/contexts/LocationContext';
 
 const ALERTS_STORAGE_KEY = 'trotro_bus_alerts';
@@ -19,18 +19,26 @@ const DAY_MAP: Record<number, DayOfWeek> = {
   6: 'Sat',
 };
 
-function getBusesForRouteAtStop(routeId: string, stopId: string, routes: { id: string; name: string }[]): ApproachingBus[] {
-  const route = routes.find((r) => r.id === routeId);
-  if (!route) return [];
-  const buses = MOCK_APPROACHING_BUSES[stopId] ?? [];
-  return buses.filter(
-    (b) => b.seats_available > 0 && b.route_name === route.name,
-  );
-}
-
-function getAllBusesAtStop(stopId: string): ApproachingBus[] {
-  const buses = MOCK_APPROACHING_BUSES[stopId] ?? [];
-  return buses.filter((b) => b.seats_available > 0);
+async function fetchBusesAtStop(stopId: string, routeName?: string): Promise<ApproachingBus[]> {
+  try {
+    const params: Record<string, string> = { stop_id: stopId };
+    if (routeName) params.route_name = routeName;
+    const { data } = await api.get('/buses/active', { params });
+    return (data as Record<string, unknown>[])
+      .map((b) => ({
+        driver_id: b.driver_id as string,
+        bus_registration: b.bus_registration as string,
+        driver_name: (b.driver_name as string) ?? 'Driver',
+        seats_available: (b.seats_available as number) ?? 0,
+        eta_minutes: (b.eta_minutes as number) ?? 5,
+        route_name: (b.route_name as string) ?? '',
+        lat: b.current_lat ? parseFloat(b.current_lat as string) : 0,
+        lng: b.current_lng ? parseFloat(b.current_lng as string) : 0,
+      }))
+      .filter((b) => b.seats_available > 0);
+  } catch {
+    return [];
+  }
 }
 
 function getScheduledTimeForDay(alert: BusAlert, day: DayOfWeek): { hour: number; minute: number } | null {
@@ -123,12 +131,10 @@ export const [BusAlertProvider, useBusAlerts] = createContextHook(() => {
       const alert = alerts.find((a) => a.id === alertId);
       if (!alert || !alert.is_active) return null;
 
-      let buses: ApproachingBus[];
-      if (alert.route_id === 'any') {
-        buses = getAllBusesAtStop(alert.stop_id);
-      } else {
-        buses = getBusesForRouteAtStop(alert.route_id, alert.stop_id, regionRoutes);
-      }
+      const routeName = alert.route_id !== 'any'
+        ? regionRoutes.find((r) => r.id === alert.route_id)?.name
+        : undefined;
+      const buses = await fetchBusesAtStop(alert.stop_id, routeName);
 
       const isScheduled = !!alert.schedule && alert.schedule.days.length > 0;
       const todayKey = new Date().toISOString().split('T')[0];

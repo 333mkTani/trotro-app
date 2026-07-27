@@ -230,6 +230,9 @@ export async function checkRouteChangeEligibility(): Promise<RouteChangeEligibil
 }
 
 export async function changeRoute(routeId: string): Promise<Route> {
+  // Persist the route change in the database first
+  await api.patch('/drivers/me/route', { routeId });
+  // Then fetch the full route details to return to the store
   const { data } = await api.get(`/routes/${routeId}`);
   return { id: data.id, name: data.name, origin: data.origin, destination: data.destination };
 }
