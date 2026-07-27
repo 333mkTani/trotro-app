@@ -30,7 +30,20 @@ const listForPassenger = async (passengerId, { status } = {}) => {
   return rows;
 };
 
-const listForDriver = async (driverId, { status } = {}) => {
+// Bookings this driver can see: ones already assigned to them, plus (when
+// checking 'pending') unclaimed same-route requests any driver on that
+// route may accept via POST /bookings/:id/confirm.
+const listForDriver = async (driverId, { status, routeId } = {}) => {
+  if (status === 'pending' && routeId) {
+    const { rows } = await query(
+      `select ${COLUMNS} from public.bookings
+        where status = 'pending'
+          and (driver_id = $1 or (driver_id is null and route_id = $2))
+        order by created_at desc`,
+      [driverId, routeId],
+    );
+    return rows;
+  }
   if (status) {
     const { rows } = await query(
       `select ${COLUMNS} from public.bookings

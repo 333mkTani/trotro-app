@@ -16,7 +16,11 @@ const create = asyncHandler(async (req, res) => {
 
 const confirm = asyncHandler(async (req, res) => {
   const { driverId, busId } = req.body || {};
-  res.json(await bookingService.confirm(req.params.id, { driverId, busId }));
+  // A driver claims a booking as themselves — never on another driver's
+  // behalf, regardless of what the client sends. Only admins may assign
+  // an explicit driverId (e.g. dispatch tooling).
+  const effectiveDriverId = req.user.role === 'driver' ? req.user.id : driverId;
+  res.json(await bookingService.confirm(req.params.id, { driverId: effectiveDriverId, busId }));
 });
 
 const cancel = asyncHandler(async (req, res) => {

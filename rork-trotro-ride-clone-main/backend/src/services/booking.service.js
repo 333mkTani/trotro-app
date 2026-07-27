@@ -8,9 +8,13 @@ const profileModel = require('../models/profile.model');
 const push = require('./push.service');
 const { ApiError } = require('../utils/ApiError');
 const { generateBoardingCode, buildQrPayload } = require('../utils/codes');
+const { emitToDriver, emitToRoute } = require('../realtime/io');
 
 const listForUser = async (user, { status }) => {
-  if (user.role === 'driver') return bookingModel.listForDriver(user.id, { status });
+  if (user.role === 'driver') {
+    const bus = await busModel.findByDriverId(user.id);
+    return bookingModel.listForDriver(user.id, { status, routeId: bus?.route_id ?? null });
+  }
   return bookingModel.listForPassenger(user.id, { status });
 };
 
@@ -27,11 +31,20 @@ const create = async (passengerId, data) => {
   return withTransaction(async (client) => {
     const booking = await bookingModel.insert({ ...data, passengerId }, client);
 
-    // Auto-confirm immediately so the passenger receives a boarding code on booking
+    // A specific bus/driver was picked (live availability already checked
+    // passenger-side), so confirm immediately and hand out a boarding code.
+    // Without a driver there's nothing to board yet — leave it 'pending'
+    // until a driver claims it via POST /bookings/:id/confirm. Drivers
+    // currently on the same route are notified live if they're connected.
+    if (!data.driverId) {
+      if (data.routeId) emitToRoute(data.routeId, 'booking:new', booking);
+      return booking;
+    }
+
     const confirmed = await bookingModel.updateStatus(
       booking.id,
       'confirmed',
-      { driverId: data.driverId ?? null, busId: data.busId ?? null },
+      { driverId: data.driverId, busId: data.busId ?? null },
       client,
     );
 
@@ -43,23 +56,24 @@ const create = async (passengerId, data) => {
       client,
     );
 
-    // Non-blocking: notify the driver about the new booking
-    if (data.driverId) {
-      setImmediate(async () => {
-        try {
-          const driverProfile = await profileModel.findById(data.driverId);
-          if (driverProfile?.fcm_token) {
-            await push.send(driverProfile.fcm_token, {
-              title: '🎫 New Passenger Booking',
-              body: `${confirmed.pickup_stop_name} → ${confirmed.destination_stop_name}`,
-              data: { type: 'new_booking', bookingId: booking.id },
-            });
-          }
-        } catch (e) {
-          console.error('[booking] driver notify failed:', e.message);
+    // Notify the driver about the new booking: instantly over the socket if
+    // they have the app open, and via push in case they don't.
+    emitToDriver(data.driverId, 'booking:new', confirmed);
+
+    setImmediate(async () => {
+      try {
+        const driverProfile = await profileModel.findById(data.driverId);
+        if (driverProfile?.fcm_token) {
+          await push.send(driverProfile.fcm_token, {
+            title: '🎫 New Passenger Booking',
+            body: `${confirmed.pickup_stop_name} → ${confirmed.destination_stop_name}`,
+            data: { type: 'new_booking', bookingId: booking.id },
+          });
         }
-      });
-    }
+      } catch (e) {
+        console.error('[booking] driver notify failed:', e.message);
+      }
+    });
 
     return {
       ...confirmed,
@@ -108,6 +122,8 @@ const confirm = async (bookingId, { driverId, busId } = {}) => {
       client,
     );
 
+    if (booking.driver_id) emitToDriver(booking.driver_id, 'booking:updated', booking);
+
     return { booking, code: verification };
   });
 };
@@ -115,7 +131,13 @@ const confirm = async (bookingId, { driverId, busId } = {}) => {
 const cancel = async (bookingId, user) => {
   const existing = await bookingModel.findById(bookingId);
   if (!existing) throw ApiError.notFound('Booking not found');
-  if (user.role !== 'admin' && existing.passenger_id !== user.id) throw ApiError.forbidden();
+  if (
+    user.role !== 'admin' &&
+    existing.passenger_id !== user.id &&
+    existing.driver_id !== user.id
+  ) {
+    throw ApiError.forbidden();
+  }
   if (['completed', 'cancelled'].includes(existing.status)) {
     throw ApiError.badRequest(`Cannot cancel a ${existing.status} booking`);
   }
@@ -126,6 +148,7 @@ const cancel = async (bookingId, user) => {
     if (existing.status === 'confirmed' && existing.bus_id) {
       await busModel.adjustSeats(existing.bus_id, 1, client);
     }
+    if (booking.driver_id) emitToDriver(booking.driver_id, 'booking:updated', booking);
     return booking;
   });
 };
@@ -146,6 +169,7 @@ const complete = async (bookingId, user) => {
     if (!booking) throw ApiError.notFound('Booking not found');
     const code = await codeModel.findByBookingId(bookingId);
     if (code && code.status === 'valid') await codeModel.markUsed(code.id, client);
+    if (booking.driver_id) emitToDriver(booking.driver_id, 'booking:updated', booking);
     return booking;
   });
 };
