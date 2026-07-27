@@ -42,14 +42,3 @@ export async function flushQueue(): Promise<void> {
     console.log('[OfflineQueue] Failed to flush queue:', err);
   }
 }
-
-export async function getQueueSize(): Promise<number> {
-  try {
-    const stored = await AsyncStorage.getItem(QUEUE_KEY);
-    if (!stored) return 0;
-    const queue: QueuedLocation[] = JSON.parse(stored);
-    return queue.length;
-  } catch {
-    return 0;
-  }
-}

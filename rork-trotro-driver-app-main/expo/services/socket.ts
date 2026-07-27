@@ -57,10 +57,6 @@ export async function connectSocket(): Promise<Socket> {
   }
 }
 
-export function getSocket(): Socket | null {
-  return socket;
-}
-
 export function disconnectSocket(): void {
   socket?.disconnect();
   socket = null;

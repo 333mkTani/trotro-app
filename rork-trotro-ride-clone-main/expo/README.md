@@ -1,6 +1,6 @@
 # Trotro — Passenger App
 
-React Native (Expo Router) app for passengers using the Trotro ride app in Accra. Lets a rider find nearby bus stops and routes, see live-tracked buses approaching, book a seat, pay a driver or top up their wallet, and set alerts for buses on routes they care about.
+React Native (Expo Router) app for passengers using the Trotro ride app across Ghana. Lets a rider find nearby bus stops and routes, see live-tracked buses approaching, book a seat, pay a driver or top up their wallet, and set alerts for buses on routes they care about.
 
 Talks to the shared [backend](../../backend) over REST + Socket.IO. See the [monorepo root README](../../README.md) for how this app fits alongside the backend and the [driver app](../../rork-trotro-driver-app-main/expo).
 

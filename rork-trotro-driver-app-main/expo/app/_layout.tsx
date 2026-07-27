@@ -2,10 +2,13 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import React, { useEffect } from "react";
+import { View } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { useAuthStore } from "@/store/authStore";
 import { useNotifications } from "@/hooks/useNotifications";
 import { useDriverSocket } from "@/hooks/useDriverSocket";
+import { useConnectivity } from "@/hooks/useConnectivity";
+import { OfflineBanner } from "@/components/OfflineBanner";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -34,7 +37,13 @@ function AppWithNotifications() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   useNotifications(isAuthenticated);
   useDriverSocket(isAuthenticated);
-  return <RootLayoutNav />;
+  const { isConnected } = useConnectivity();
+  return (
+    <View style={{ flex: 1 }}>
+      <OfflineBanner visible={!isConnected} />
+      <RootLayoutNav />
+    </View>
+  );
 }
 
 export default function RootLayout() {

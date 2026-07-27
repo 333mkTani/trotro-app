@@ -16,12 +16,6 @@ const CreateBookingSchema = z.object({
   rideSchedule: z.any().optional(),
 });
 
-const UpdateStatusSchema = z.object({
-  status: z.enum(['pending', 'confirmed', 'completed', 'cancelled', 'expired']),
-  driverId: z.string().uuid().optional(),
-  busId: z.string().uuid().optional(),
-});
-
 const RedeemCodeSchema = z.object({
   code: z.string().min(4).max(16),
 });
@@ -31,4 +25,4 @@ const RateDriverSchema = z.object({
   comment: z.string().max(500).optional(),
 });
 
-module.exports = { CreateBookingSchema, UpdateStatusSchema, RedeemCodeSchema, RateDriverSchema };
+module.exports = { CreateBookingSchema, RedeemCodeSchema, RateDriverSchema };

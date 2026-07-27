@@ -71,14 +71,6 @@ export function unsubscribeFromBus(busId: string): void {
   socket?.emit("unsubscribe:bus", busId);
 }
 
-export function subscribeToRoute(routeId: string): void {
-  socket?.emit("subscribe:route", routeId);
-}
-
-export function unsubscribeFromRoute(routeId: string): void {
-  socket?.emit("unsubscribe:route", routeId);
-}
-
 export type BusLocationEvent = {
   busId: string;
   routeId: string | null;

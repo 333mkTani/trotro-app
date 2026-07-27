@@ -243,10 +243,6 @@ export async function getAvailableRoutes(): Promise<AvailableRoute[]> {
   }));
 }
 
-export async function checkRouteChangeEligibility(): Promise<RouteChangeEligibility> {
-  return { canChange: true, reasons: [] };
-}
-
 export async function changeRoute(routeId: string): Promise<Route> {
   // Persist the route change in the database first
   await api.patch('/drivers/me/route', { routeId });

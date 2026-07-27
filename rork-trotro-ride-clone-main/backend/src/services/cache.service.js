@@ -28,22 +28,6 @@ const del = async (...keys) => {
   return safeCall(() => client.del(keys), 0);
 };
 
-/** Delete every key matching a glob pattern using SCAN (safe in prod). */
-const delByPattern = async (pattern) =>
-  safeCall(async () => {
-    const stream = client.scanStream({ match: pattern, count: 100 });
-    const pipeline = client.pipeline();
-    let count = 0;
-    for await (const keys of stream) {
-      if (keys.length > 0) {
-        pipeline.del(keys);
-        count += keys.length;
-      }
-    }
-    if (count > 0) await pipeline.exec();
-    return count;
-  }, 0);
-
 const wrap = async (key, ttlSeconds, loader) => {
   if (!isReady()) return loader();
   const cached = await get(key);
@@ -60,6 +44,5 @@ module.exports = {
   get,
   set,
   del,
-  delByPattern,
   wrap,
 };

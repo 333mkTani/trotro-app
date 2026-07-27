@@ -95,7 +95,17 @@ export const [LocationProvider, useLocation] = createContextHook(() => {
   // Fetch active buses once on mount
   useEffect(() => {
     api.get('/buses/active')
-      .then(({ data }) => setActiveBuses((data as Record<string, unknown>[]).map(mapActiveBus)))
+      .then(({ data }) => {
+        const seen = new Set<string>();
+        const buses = (data as Record<string, unknown>[])
+          .map(mapActiveBus)
+          .filter((b) => {
+            if (!b.driver_id || seen.has(b.driver_id)) return false;
+            seen.add(b.driver_id);
+            return true;
+          });
+        setActiveBuses(buses);
+      })
       .catch(() => {});
   }, []);
 

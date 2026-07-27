@@ -71,9 +71,3 @@ export async function register(
 export async function logout(): Promise<void> {
   useAuthStore.getState().clearAuth();
 }
-
-export async function refreshToken(): Promise<void> {
-  // Backend issues long-lived tokens (7 days). On 401, clear auth and let
-  // the user log in again rather than attempting a separate refresh call.
-  useAuthStore.getState().clearAuth();
-}

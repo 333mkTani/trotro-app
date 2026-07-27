@@ -12,16 +12,6 @@ const findByPhone = async (phone) => {
   return rows[0] || null;
 };
 
-const insert = async ({ id, phone, fullName, email, role = 'passenger' }) => {
-  const { rows } = await query(
-    `insert into public.profiles (id, phone, full_name, email, role)
-     values ($1, $2, $3, $4, $5)
-     returning ${COLUMNS}`,
-    [id, phone, fullName, email || null, role],
-  );
-  return rows[0];
-};
-
 const update = async (id, patch) => {
   const fields = [];
   const values = [];
@@ -49,4 +39,4 @@ const update = async (id, patch) => {
   return rows[0] || null;
 };
 
-module.exports = { findById, findByPhone, insert, update };
+module.exports = { findById, findByPhone, update };
