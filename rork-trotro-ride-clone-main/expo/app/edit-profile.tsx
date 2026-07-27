@@ -97,7 +97,9 @@ export default function EditProfileScreen() {
       });
       if (!result.canceled && result.assets && result.assets[0]) {
         setAvatarUrl(result.assets[0].uri);
-        if (Platform.OS !== "web") Haptics.selectionAsync();
+        // Already returned above when Platform.OS === "web", so we're
+        // guaranteed to be on a native platform here.
+        Haptics.selectionAsync();
       }
     } catch (e) {
       console.log("pickFromCamera error", e);

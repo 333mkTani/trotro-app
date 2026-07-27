@@ -161,7 +161,7 @@ const make_styles = (Colors: ThemePalette) => StyleSheet.create({
     shadowRadius: 12,
     elevation: 10,
     zIndex: 100,
-    ...(Platform.OS === "web" ? { cursor: "grab" as const } : {}),
+    ...(Platform.OS === "web" ? ({ cursor: "grab" } as unknown as { cursor?: "auto" | "pointer" }) : {}),
   },
   handleContainer: {
     alignItems: "center",
