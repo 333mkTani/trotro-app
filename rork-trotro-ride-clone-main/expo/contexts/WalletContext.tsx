@@ -3,14 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import { WalletTransaction, TransactionType, TransactionStatus, PaymentMethod } from '@/types';
 import { api } from '@/services/api';
-
-const METHOD_LABELS: Record<string, string> = {
-  momo_mtn: 'MTN Mobile Money',
-  momo_vodafone: 'Vodafone Cash',
-  momo_airteltigo: 'AirtelTigo Money',
-  card: 'Debit/Credit Card',
-  bank: 'Bank Transfer',
-};
+import { payWithPaystack } from '@/services/paystack';
 
 // Backend uses 'topup'/'debit'/'credit' — map to frontend TransactionType
 const mapType = (t: string): TransactionType => {
@@ -58,12 +51,12 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
     }: {
       amount: number;
       paymentMethod: PaymentMethod;
-    }): Promise<WalletTransaction> => {
-      const { data } = await api.post('/wallet/topup', {
-        amount,
-        paymentMethod: METHOD_LABELS[paymentMethod] ?? paymentMethod,
-      });
-      return mapTxn(data as Record<string, unknown>);
+    }): Promise<{ success: boolean }> => {
+      const result = await payWithPaystack(amount, paymentMethod);
+      if (!result.success) {
+        throw new Error('Payment was not completed. Please try again.');
+      }
+      return result;
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['wallet'] }),
   });
@@ -78,7 +71,7 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
       driverName: string;
     }): Promise<WalletTransaction> => {
       const { data } = await api.post('/wallet/charge', { amount, description });
-      return mapTxn(data as Record<string, unknown>);
+      return mapTxn((data as { transaction: Record<string, unknown> }).transaction);
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['wallet'] }),
   });

@@ -209,6 +209,7 @@ export default function ScheduleScreen() {
         pickupStopName: pickup.name,
         destinationStopId: dest.id,
         destinationStopName: dest.name,
+        routeId: route.id,
         routeName: route.name,
         rideFare: route.fare,
         desiredArrivalTime: arrivalTime.toISOString(),

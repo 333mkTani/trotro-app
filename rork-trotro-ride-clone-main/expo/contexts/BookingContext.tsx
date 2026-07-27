@@ -94,6 +94,7 @@ export const [BookingProvider, useBookings] = createContextHook(() => {
       pickupStopName,
       destinationStopId,
       destinationStopName,
+      routeId,
       routeName,
       rideFare,
       desiredArrivalTime,
@@ -104,6 +105,7 @@ export const [BookingProvider, useBookings] = createContextHook(() => {
       pickupStopName: string;
       destinationStopId: string;
       destinationStopName: string;
+      routeId: string;
       routeName: string;
       rideFare: number;
       desiredArrivalTime: string;
@@ -118,6 +120,7 @@ export const [BookingProvider, useBookings] = createContextHook(() => {
         destinationStopName,
         desiredArrivalTime,
         bufferMinutes,
+        routeId,
         routeName,
         rideFare,
         rideSchedule,
