@@ -62,4 +62,46 @@ const listTransactions = async (userId, { limit = 50 } = {}) => {
   return rows;
 };
 
-module.exports = { getBalance, ensureWallet, adjustBalance, insertTransaction, listTransactions };
+// Locks the row so a concurrent verify call for the same reference can't
+// double-credit the wallet (see wallet.service.js#verifyTopUp).
+const findTransactionByReferenceForUpdate = async (reference, userId, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
+    `select * from public.wallet_transactions
+      where reference = $1 and user_id = $2
+      for update`,
+    [reference, userId],
+  );
+  return rows[0] || null;
+};
+
+// Webhook path — Paystack doesn't know our internal user_id, only the
+// reference we gave it, so this looks up (and locks) by reference alone.
+const findTransactionByReferenceOnly = async (reference, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
+    `select * from public.wallet_transactions where reference = $1 for update`,
+    [reference],
+  );
+  return rows[0] || null;
+};
+
+const markTransactionStatus = async (id, status, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
+    `update public.wallet_transactions set status = $2 where id = $1 returning *`,
+    [id, status],
+  );
+  return rows[0] || null;
+};
+
+module.exports = {
+  getBalance,
+  ensureWallet,
+  adjustBalance,
+  insertTransaction,
+  listTransactions,
+  findTransactionByReferenceForUpdate,
+  findTransactionByReferenceOnly,
+  markTransactionStatus,
+};

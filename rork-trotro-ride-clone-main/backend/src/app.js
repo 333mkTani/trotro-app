@@ -21,13 +21,20 @@ const codeRoutes = require('./routes/code.routes');
 const alertRoutes = require('./routes/alert.routes');
 const walletRoutes = require('./routes/wallet.routes');
 const ratingRoutes = require('./routes/rating.routes');
+const webhookRoutes = require('./routes/webhook.routes');
 
 const app = express();
 
 app.disable('x-powered-by');
 app.use(helmet());
 app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }));
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({
+  limit: '1mb',
+  // Paystack webhook signatures are computed over the exact raw request
+  // body — stash it here since express.json() would otherwise discard it
+  // after parsing.
+  verify: (req, _res, buf) => { req.rawBody = buf; },
+}));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan(env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
@@ -66,6 +73,7 @@ app.use('/api/codes', codeRoutes);
 app.use('/api/alerts', alertRoutes);
 app.use('/api/wallet', walletRoutes);
 app.use('/api/ratings', ratingRoutes);
+app.use('/api/webhooks', webhookRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

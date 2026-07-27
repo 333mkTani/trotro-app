@@ -11,10 +11,15 @@ const env = {
   SUPABASE_URL: process.env.SUPABASE_URL || '',
   SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
   SUPABASE_JWT_SECRET: process.env.SUPABASE_JWT_SECRET || '',
+  PAYSTACK_SECRET_KEY: process.env.PAYSTACK_SECRET_KEY || '',
 };
 
 if (!env.DATABASE_URL) {
   console.warn('[trotro-api] WARNING: DATABASE_URL is not set');
+}
+
+if (!env.PAYSTACK_SECRET_KEY) {
+  console.warn('[trotro-api] WARNING: PAYSTACK_SECRET_KEY is not set — wallet top-ups will fail');
 }
 
 module.exports = { env };
