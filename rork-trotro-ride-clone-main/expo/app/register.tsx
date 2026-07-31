@@ -14,11 +14,12 @@ export default function RegisterScreen() {
   st = React.useMemo(() => make_st(themeColors), [themeColors]);
 
   const router = useRouter();
-  const { register, registerPending } = useAuth();
+  const { startPhoneVerification } = useAuth();
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
+  const [sending, setSending] = useState(false);
   const scale = useRef(new Animated.Value(1)).current;
 
   const doRegister = async () => {
@@ -27,7 +28,12 @@ export default function RegisterScreen() {
     if (pw !== pw2) { Alert.alert("Mismatch", "Passwords don't match."); return; }
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     Animated.sequence([Animated.timing(scale, { toValue: 0.96, duration: 80, useNativeDriver: true }), Animated.timing(scale, { toValue: 1, duration: 80, useNativeDriver: true })]).start();
-    try { await register({ phone, password: pw, full_name: name, role: 'passenger' }); } catch (e) { const msg = e instanceof Error ? e.message : 'Try again.'; Alert.alert("Signup Failed", msg); }
+    setSending(true);
+    try {
+      await startPhoneVerification(phone, { fullName: name, password: pw, role: 'passenger' });
+      router.push({ pathname: '/otp-verification', params: { phone } });
+    } catch (e) { const msg = e instanceof Error ? e.message : 'Try again.'; Alert.alert("Signup Failed", msg); }
+    finally { setSending(false); }
   };
 
   return (
@@ -44,8 +50,8 @@ export default function RegisterScreen() {
             <View style={st.wrap}><Lock size={18} color={Colors.gray400} /><TextInput style={st.input} placeholder="Confirm password" placeholderTextColor={Colors.gray400} value={pw2} onChangeText={setPw2} secureTextEntry /></View>
           </View>
           <Animated.View style={{ transform: [{ scale }] }}>
-            <TouchableOpacity style={[st.regBtn, registerPending && st.regOff]} onPress={doRegister} activeOpacity={0.8} disabled={registerPending}>
-              {registerPending ? <ActivityIndicator color={Colors.white} size="small" /> : <><Text style={st.regBtnTxt}>Create Account</Text><ChevronRight size={18} color={Colors.white} /></>}
+            <TouchableOpacity style={[st.regBtn, sending && st.regOff]} onPress={doRegister} activeOpacity={0.8} disabled={sending}>
+              {sending ? <ActivityIndicator color={Colors.white} size="small" /> : <><Text style={st.regBtnTxt}>Create Account</Text><ChevronRight size={18} color={Colors.white} /></>}
             </TouchableOpacity>
           </Animated.View>
           <TouchableOpacity style={st.loginLink} onPress={() => router.back()} activeOpacity={0.6}><Text style={st.loginTxt}>Already have an account? <Text style={st.loginBold}>Sign in</Text></Text></TouchableOpacity>

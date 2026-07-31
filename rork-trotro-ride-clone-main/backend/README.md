@@ -87,6 +87,14 @@ Every passenger and driver has a wallet (`GET /api/wallet`, `GET /api/wallet/tra
 
 Set `PAYSTACK_SECRET_KEY` in `.env` (server-side only — never expose it to a client bundle) and register the webhook URL (`https://<your-api-host>/api/webhooks/paystack`) in the Paystack dashboard.
 
+### Phone verification at registration (Firebase Phone Auth)
+
+Registration is verified so the account is only ever created once the phone number is proven to be controlled by the caller. Unlike a server-driven OTP flow, the SMS send + code check happens entirely on-device via the `@react-native-firebase/auth` SDK talking directly to Firebase — the backend never sends or stores a code. It only ever sees the resulting signed ID token:
+
+- `POST /api/auth/register-verified` — body: `{ idToken, fullName, email?, password, role?, busRegistration?, routeId?, totalSeats? }`. The `idToken` comes from the client completing Firebase Phone Auth (`signInWithPhoneNumber` → `confirm(code)` → `getIdToken()`). The backend verifies it via `firebase-admin` (`admin.auth().verifyIdToken`, see `config/firebase.js#getAdmin`), extracts the verified `phone_number` claim, rejects if that phone is already registered, then creates the account via `auth.service.js#createAccount` with `is_verified = true` and returns `{ user, token }` — the same shape `POST /api/auth/register` returns. An invalid or expired token yields `401`.
+
+Requires `FIREBASE_SERVICE_ACCOUNT` (service account JSON, single-line string) in `.env` — the same credential already used for FCM push notifications in `push.service.js`. The legacy `POST /api/auth/register` endpoint still exists (accounts created that way have `is_verified = false`) but neither app's frontend calls it anymore.
+
 ### Real-time bus tracking (Socket.IO)
 
 `src/realtime/io.js` attaches a Socket.IO server to the same `http.Server` as Express (see `server.js`), authenticated via JWT at handshake (`socket.handshake.auth.token`, checked against `JWT_SECRET` and, if configured, `SUPABASE_JWT_SECRET`).

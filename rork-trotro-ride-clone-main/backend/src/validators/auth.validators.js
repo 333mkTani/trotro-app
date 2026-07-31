@@ -12,6 +12,18 @@ const RegisterSchema = z.object({
   totalSeats: z.number().int().min(1).max(100).optional(),
 });
 
+const RegisterVerifiedSchema = z.object({
+  idToken: z.string().min(10),
+  fullName: z.string().min(1).max(120),
+  email: z.string().email().optional(),
+  password: z.string().min(6).max(72),
+  role: z.enum(['passenger', 'driver', 'admin']).optional(),
+  // Driver-only bus details
+  busRegistration: z.string().min(2).max(20).optional(),
+  routeId: z.string().uuid().optional(),
+  totalSeats: z.number().int().min(1).max(100).optional(),
+});
+
 const LoginSchema = z.object({
   phone: z.string().min(6).max(20),
   password: z.string().min(6).max(72),
@@ -22,4 +34,4 @@ const ChangePasswordSchema = z.object({
   newPassword: z.string().min(6).max(72),
 });
 
-module.exports = { RegisterSchema, LoginSchema, ChangePasswordSchema };
+module.exports = { RegisterSchema, RegisterVerifiedSchema, LoginSchema, ChangePasswordSchema };

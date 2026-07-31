@@ -10,10 +10,9 @@ import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMutation } from '@tanstack/react-query';
 import { Phone, Lock, Eye, EyeOff, Bus, User, ArrowLeft, ChevronDown, Hash, Search } from 'lucide-react-native';
-import { register as performRegister } from '@/services/auth';
+import { startPhoneVerification } from '@/services/auth';
 import { useAuthStore } from '@/store/authStore';
-import { startGpsService } from '@/services/gpsService';
-import { usePermissions } from '@/hooks/usePermissions';
+import { usePendingVerificationStore } from '@/store/pendingVerificationStore';
 import api from '@/services/api';
 
 const CITY_CENTERS = [
@@ -64,7 +63,7 @@ export default function RegisterScreen() {
   const [confirmPwVis, setConfirmPwVis] = useState(false);
   const [localError, setLocalError] = useState('');
   const isAuth = useAuthStore((s) => s.isAuthenticated);
-  const { requestLocationPermission } = usePermissions();
+  const setPendingVerification = usePendingVerificationStore((s) => s.set);
   const fadeIn = useRef(new Animated.Value(0)).current;
   const slideUp = useRef(new Animated.Value(30)).current;
 
@@ -102,18 +101,19 @@ export default function RegisterScreen() {
     if (isAuth) router.replace('/(tabs)/dashboard');
   }, [isAuth]);
 
-  const registerMut = useMutation({
-    mutationFn: () => performRegister(
-      ph, pw, fullName,
-      busPlate.trim() || undefined,
-      routeId || undefined,
-      parseInt(totalSeats, 10) || 14,
-    ),
-    onSuccess: async () => {
+  const sendOtpMut = useMutation({
+    mutationFn: async () => {
+      const confirmation = await startPhoneVerification(ph);
+      setPendingVerification(confirmation, {
+        fullName, password: pw,
+        busRegistration: busPlate.trim() || undefined,
+        routeId: routeId || undefined,
+        totalSeats: parseInt(totalSeats, 10) || 14,
+      });
+    },
+    onSuccess: () => {
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      const ok = await requestLocationPermission();
-      if (ok) await startGpsService();
-      router.replace('/(tabs)/dashboard');
+      router.push({ pathname: '/otp-verification', params: { phone: ph } });
     },
     onError: (_err: Error) => {
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
@@ -128,8 +128,8 @@ export default function RegisterScreen() {
     if (pw !== confirmPw) { setLocalError('Passwords do not match.'); return; }
     if (!busPlate.trim()) { setLocalError('Please enter your bus registration plate.'); return; }
     if (!routeId) { setLocalError('Please select the route you operate on.'); return; }
-    registerMut.mutate();
-  }, [fullName, ph, pw, confirmPw, busPlate, routeId, registerMut]);
+    sendOtpMut.mutate();
+  }, [fullName, ph, pw, confirmPw, busPlate, routeId, sendOtpMut]);
 
   const filteredRoutes = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -144,7 +144,7 @@ export default function RegisterScreen() {
 
   const canSubmit = fullName.trim().length > 0 && ph.trim().length > 0
     && pw.length >= 6 && confirmPw.length > 0 && busPlate.trim().length > 0 && !!routeId;
-  const errorMsg = localError || (registerMut.isError ? (registerMut.error?.message ?? 'Registration failed.') : '');
+  const errorMsg = localError || (sendOtpMut.isError ? (sendOtpMut.error?.message ?? 'Registration failed.') : '');
 
   return (
     <View style={s.root}>
@@ -234,9 +234,9 @@ export default function RegisterScreen() {
 
             <Pressable
               style={({ pressed }) => [s.btn, pressed && s.btnP, !canSubmit && s.btnD]}
-              onPress={doRegister} disabled={registerMut.isPending || !canSubmit}
+              onPress={doRegister} disabled={sendOtpMut.isPending || !canSubmit}
             >
-              {registerMut.isPending
+              {sendOtpMut.isPending
                 ? <ActivityIndicator color="#FFF" size="small" />
                 : <Text style={s.btnT}>Create Account</Text>
               }

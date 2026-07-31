@@ -19,6 +19,7 @@ function RootLayoutNav() {
     <Stack screenOptions={{ headerBackTitle: "Back" }}>
       <Stack.Screen name="index" options={{ headerShown: false }} />
       <Stack.Screen name="register" options={{ headerShown: false }} />
+      <Stack.Screen name="otp-verification" options={{ headerShown: false }} />
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="demand-map" options={{ title: "Demand Map", presentation: "modal" }} />
       <Stack.Screen name="pro-subscription" options={{ title: "Trotro Pro", presentation: "modal" }} />

@@ -2,10 +2,25 @@ import createContextHook from '@nkzw/create-context-hook';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState, useEffect, useCallback } from 'react';
+import auth, { FirebaseAuthTypes } from '@react-native-firebase/auth';
 import { User } from '@/types';
 import { api, setAuthToken, clearAuthToken } from '@/services/api';
 
 const AUTH_USER_KEY = 'trotro_auth_profile';
+
+// Ghana numbers only for now: strips spaces/dashes, maps a leading 0 or bare
+// 233 to +233, leaves an already-E.164 number untouched.
+export const toE164Gh = (raw: string): string => {
+  const digits = raw.replace(/[^0-9+]/g, '');
+  if (digits.startsWith('+')) return digits;
+  if (digits.startsWith('233')) return `+${digits}`;
+  if (digits.startsWith('0')) return `+233${digits.slice(1)}`;
+  return `+233${digits}`;
+};
+
+type RegisterVerifiedPayload = { fullName: string; email?: string; password: string; role?: string };
+
+type PendingVerification = { confirmation: FirebaseAuthTypes.ConfirmationResult; payload: RegisterVerifiedPayload };
 
 export const [AuthProvider, useAuth] = createContextHook(() => {
   const [user, setUser] = useState<User | null>(null);
@@ -78,6 +93,35 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     },
   });
 
+  const [pendingVerification, setPendingVerification] = useState<PendingVerification | null>(null);
+
+  // Kicks off Firebase Phone Auth — sends the SMS via Firebase directly (the
+  // backend is never involved in this step). `payload` is the rest of the
+  // registration form, held here until confirmPhoneVerification runs.
+  const startPhoneVerification = useCallback(async (phone: string, payload: RegisterVerifiedPayload) => {
+    const confirmation = await auth().signInWithPhoneNumber(toE164Gh(phone));
+    setPendingVerification({ confirmation, payload });
+  }, []);
+
+  const confirmMutation = useMutation({
+    mutationFn: async (code: string): Promise<User> => {
+      if (!pendingVerification) throw new Error('No verification in progress — start again.');
+      const result = await pendingVerification.confirmation.confirm(code);
+      const idToken = await result?.user.getIdToken();
+      const { data } = await api.post('/auth/register-verified', { idToken, ...pendingVerification.payload });
+      await setAuthToken(data.token);
+      const profileRes = await api.get('/profiles/me');
+      const profile: User = profileRes.data;
+      await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(profile));
+      return profile;
+    },
+    onSuccess: (u: User) => {
+      setUser(u);
+      setPendingVerification(null);
+      queryClient.invalidateQueries({ queryKey: ['auth'] });
+    },
+  });
+
   const updateProfileMutation = useMutation({
     mutationFn: async (updates: Partial<Pick<User, 'full_name' | 'phone' | 'email' | 'avatar_url'>>): Promise<User> => {
       const patch: Record<string, string | undefined> = {};
@@ -110,6 +154,10 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     register: registerMutation.mutateAsync,
     loginPending: loginMutation.isPending,
     registerPending: registerMutation.isPending,
+    pendingVerification,
+    startPhoneVerification,
+    confirmPhoneVerification: confirmMutation.mutateAsync,
+    confirmPhoneVerificationPending: confirmMutation.isPending,
     logout,
     updateProfile: updateProfileMutation.mutateAsync,
     updateProfilePending: updateProfileMutation.isPending,

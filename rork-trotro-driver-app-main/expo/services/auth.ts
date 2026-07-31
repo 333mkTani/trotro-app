@@ -1,5 +1,17 @@
+import auth, { FirebaseAuthTypes } from '@react-native-firebase/auth';
 import { useAuthStore } from '@/store/authStore';
+import { RegisterVerifiedPayload } from '@/store/pendingVerificationStore';
 import api from './api';
+
+// Ghana numbers only for now: strips spaces/dashes, maps a leading 0 or bare
+// 233 to +233, leaves an already-E.164 number untouched.
+export const toE164Gh = (raw: string): string => {
+  const digits = raw.replace(/[^0-9+]/g, '');
+  if (digits.startsWith('+')) return digits;
+  if (digits.startsWith('233')) return `+${digits}`;
+  if (digits.startsWith('0')) return `+233${digits.slice(1)}`;
+  return `+233${digits}`;
+};
 
 interface AuthResponse {
   access_token: string;
@@ -65,6 +77,44 @@ export async function register(
   } catch (error: unknown) {
     if (error instanceof Error) throw error;
     throw new Error('Registration failed. Please try again.');
+  }
+}
+
+// Kicks off Firebase Phone Auth — the SMS is sent by Firebase directly to
+// the device; the backend is never involved in this step.
+export async function startPhoneVerification(phone: string): Promise<FirebaseAuthTypes.ConfirmationResult> {
+  try {
+    return await auth().signInWithPhoneNumber(toE164Gh(phone));
+  } catch (error: unknown) {
+    if (error instanceof Error) throw error;
+    throw new Error('Could not send verification code. Please try again.');
+  }
+}
+
+// Called after confirmation.confirm(code) succeeds and yields a Firebase ID
+// token proving the phone was verified.
+export async function registerVerifiedPhone(idToken: string, payload: RegisterVerifiedPayload): Promise<AuthResponse> {
+  try {
+    const { data } = await api.post('/auth/register-verified', {
+      idToken,
+      fullName: payload.fullName,
+      password: payload.password,
+      role: 'driver',
+      busRegistration: payload.busRegistration,
+      routeId: payload.routeId,
+      totalSeats: payload.totalSeats,
+    });
+    const token: string = data.token;
+    const user = await fetchProfile(token);
+
+    const store = useAuthStore.getState();
+    store.setTokens(token, '');
+    store.setUser(user);
+
+    return { access_token: token, refresh_token: '', user };
+  } catch (error: unknown) {
+    if (error instanceof Error) throw error;
+    throw new Error('Verification failed. Please try again.');
   }
 }
 

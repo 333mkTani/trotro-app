@@ -38,7 +38,7 @@ function RootLayoutNav() {
   useEffect(() => {
     if (isLoading) return;
 
-    const inAuthGroup = segments[0] === "login" || segments[0] === "register";
+    const inAuthGroup = segments[0] === "login" || segments[0] === "register" || segments[0] === "otp-verification";
 
     if (!isAuthenticated && !inAuthGroup) {
       router.replace("/login");
@@ -87,6 +87,7 @@ function RootLayoutNav() {
       <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
       <Stack.Screen name="login" options={{ headerShown: false }} />
       <Stack.Screen name="register" options={{ headerShown: false }} />
+      <Stack.Screen name="otp-verification" options={{ headerShown: false }} />
       <Stack.Screen name="book-bus" options={{ title: "Book a Seat", ...headerOpts }} />
       <Stack.Screen name="tracking" options={{ title: "Live Tracking", ...headerOpts }} />
       <Stack.Screen name="find-route" options={{ title: "Find Route", ...headerOpts }} />

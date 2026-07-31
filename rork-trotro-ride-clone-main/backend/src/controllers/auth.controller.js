@@ -6,6 +6,11 @@ const register = asyncHandler(async (req, res) => {
   res.status(201).json(result);
 });
 
+const registerVerified = asyncHandler(async (req, res) => {
+  const result = await authService.registerWithVerifiedPhone(req.body);
+  res.status(201).json(result);
+});
+
 const login = asyncHandler(async (req, res) => {
   const result = await authService.login(req.body);
   res.json(result);
@@ -20,4 +25,4 @@ const changePassword = asyncHandler(async (req, res) => {
   res.json(result);
 });
 
-module.exports = { register, login, me, changePassword };
+module.exports = { register, registerVerified, login, me, changePassword };
