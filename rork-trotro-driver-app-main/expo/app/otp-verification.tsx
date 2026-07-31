@@ -170,7 +170,7 @@ const s = StyleSheet.create({
   errBox: { backgroundColor: '#FFEBEE', borderRadius: 12, padding: 14, marginBottom: 18, borderLeftWidth: 4, borderLeftColor: '#C62828', width: '100%' },
   errTxt: { fontSize: 14, color: '#C62828', fontWeight: '500' as const, lineHeight: 20 },
   codeRow: { flexDirection: 'row', gap: 8, marginBottom: 28 },
-  cell: { width: 44, height: 54, borderRadius: 12, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#E2E8F0', fontSize: 22, fontWeight: '800' as const, color: '#2D3E40' },
+  cell: { width: 46, height: 54, borderRadius: 12, backgroundColor: '#FFF', borderWidth: 1, borderColor: '#E2E8F0', fontSize: 22, fontWeight: '800' as const, color: '#2D3E40', padding: 0, textAlignVertical: 'center' as const, includeFontPadding: false },
   btn: { height: 54, borderRadius: 14, backgroundColor: '#1565C0', justifyContent: 'center', alignItems: 'center', shadowColor: '#1565C0', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8, elevation: 4, width: '100%' },
   btnP: { opacity: 0.85, transform: [{ scale: 0.98 }] },
   btnD: { opacity: 0.5 },

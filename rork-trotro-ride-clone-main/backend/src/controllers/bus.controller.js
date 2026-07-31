@@ -24,6 +24,11 @@ const nearby = asyncHandler(async (req, res) => {
 });
 
 const listActive = asyncHandler(async (req, res) => {
+  const { stop_id: stopId, route_name: routeName } = req.query;
+  if (stopId) {
+    res.json(await busService.listApproachingStop({ stopId, routeName }));
+    return;
+  }
   res.json(await busService.listActive());
 });
 

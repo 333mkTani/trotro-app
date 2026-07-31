@@ -24,7 +24,7 @@ async function fetchBusesAtStop(stopId: string, routeName?: string): Promise<App
     const params: Record<string, string> = { stop_id: stopId };
     if (routeName) params.route_name = routeName;
     const { data } = await api.get('/buses/active', { params });
-    return (data as Record<string, unknown>[])
+    const buses = (data as Record<string, unknown>[])
       .map((b) => ({
         driver_id: b.driver_id as string,
         bus_registration: b.bus_registration as string,
@@ -36,6 +36,8 @@ async function fetchBusesAtStop(stopId: string, routeName?: string): Promise<App
         lng: b.current_lng ? parseFloat(b.current_lng as string) : 0,
       }))
       .filter((b) => b.seats_available > 0);
+    const byDriver = new Map(buses.map((b) => [b.driver_id, b]));
+    return Array.from(byDriver.values());
   } catch {
     return [];
   }

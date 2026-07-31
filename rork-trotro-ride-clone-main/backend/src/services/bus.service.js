@@ -7,6 +7,7 @@ const { ApiError } = require('../utils/ApiError');
 const { emitToBus, emitToRoute } = require('../realtime/io');
 
 const APPROACH_RADIUS_M = 500;
+const AVG_SPEED_MPS = 6.9; // ~25 km/h average city driving speed, for ETA estimates
 
 function haversineM(lat1, lng1, lat2, lng2) {
   const R = 6371000;
@@ -95,6 +96,19 @@ const nearby = ({ lat, lng, radiusM, routeId, limit }) =>
 
 const listActive = () => busModel.listActive();
 
+/** Active buses approaching a stop, nearest-first, with a real ETA derived from distance. */
+const listApproachingStop = async ({ stopId, routeName }) => {
+  const rows = await busModel.listApproachingStop({ stopId, routeName });
+  return rows.map((b) => {
+    const distanceM = b.distance_m != null ? Number(b.distance_m) : null;
+    return {
+      ...b,
+      distance_m: distanceM != null ? Math.round(distanceM) : null,
+      eta_minutes: distanceM != null ? Math.max(1, Math.round(distanceM / AVG_SPEED_MPS / 60)) : 5,
+    };
+  });
+};
+
 /** Returns the latest GPS position for a driver's bus.
  *  Checks Redis cache first (updated every GPS ping) then falls back to DB. */
 const getDriverLocation = async (driverId) => {
@@ -122,4 +136,7 @@ const getDriverLocation = async (driverId) => {
   };
 };
 
-module.exports = { list, getById, create, updateLocation, nearby, listActive, getDriverLocation };
+module.exports = {
+  list, getById, create, updateLocation, nearby, listActive, getDriverLocation,
+  listApproachingStop,
+};

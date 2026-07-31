@@ -125,7 +125,7 @@ const make_st = (Colors: ThemePalette) => StyleSheet.create({
   card: { backgroundColor: Colors.white, marginHorizontal: 20, borderRadius: 24, padding: 24, alignItems: "center" as const, shadowColor: "#000", shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.12, shadowRadius: 24, elevation: 8 },
   iconWrap: { width: 52, height: 52, borderRadius: 26, backgroundColor: Colors.primaryFaded, alignItems: "center" as const, justifyContent: "center" as const, marginBottom: 20 },
   codeRow: { flexDirection: "row", gap: 8, marginBottom: 24 },
-  cell: { width: 44, height: 52, borderRadius: 12, backgroundColor: Colors.gray50, borderWidth: 2, borderColor: Colors.gray200, fontSize: 22, fontWeight: "800" as const, color: Colors.gray800 },
+  cell: { width: 46, height: 54, borderRadius: 12, backgroundColor: Colors.gray50, borderWidth: 2, borderColor: Colors.gray200, fontSize: 22, fontWeight: "800" as const, color: Colors.gray800, padding: 0, textAlignVertical: "center" as const, includeFontPadding: false },
   verifyBtn: { backgroundColor: Colors.primary, flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 16, borderRadius: 14, width: "100%", gap: 6 },
   verifyOff: { opacity: 0.5 },
   verifyBtnTxt: { fontSize: 16, fontWeight: "700" as const, color: Colors.white },

@@ -100,4 +100,41 @@ const findByDriverId = async (driverId) => {
   return rows[0] || null;
 };
 
-module.exports = { list, findById, insert, updateLocation, adjustSeats, findNearby, listActive, findByDriverId };
+/**
+ * Active buses approaching a specific stop, optionally filtered by route
+ * name, ordered nearest-first via PostGIS KNN. One row per bus (driver_id
+ * is unique here since a driver can only run one active bus at a time).
+ */
+const listApproachingStop = async ({ stopId, routeName, radiusM = 3000, limit = 50 }) => {
+  const params = [stopId, radiusM, limit];
+  let routeFilter = '';
+  if (routeName) {
+    params.push(routeName);
+    routeFilter = `and r.name = $${params.length}`;
+  }
+  const { rows } = await query(
+    `select b.driver_id, b.registration as bus_registration, b.route_id,
+            b.seats_available, b.total_seats, b.current_lat, b.current_lng,
+            r.name as route_name, d.full_name as driver_name,
+            ST_Distance(b.geom, s.geom) as distance_m
+       from public.buses b
+       join public.bus_stops s on s.id = $1
+       left join public.routes r on r.id = b.route_id
+       left join public.drivers d on d.id = b.driver_id
+      where b.status = 'active'
+        and b.seats_available > 0
+        and b.geom is not null
+        and s.geom is not null
+        ${routeFilter}
+        and ST_DWithin(b.geom, s.geom, $2)
+      order by b.geom <-> s.geom
+      limit $3`,
+    params,
+  );
+  return rows;
+};
+
+module.exports = {
+  list, findById, insert, updateLocation, adjustSeats, findNearby, listActive,
+  findByDriverId, listApproachingStop,
+};
