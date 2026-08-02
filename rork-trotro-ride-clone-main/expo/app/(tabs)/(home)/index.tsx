@@ -12,14 +12,13 @@ import {
   PanResponder,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { MapPin, Navigation, Search, Bell, Route, BellRing, ChevronUp, Locate, Bus } from "lucide-react-native";
+import { MapPin, Search, Bell, Route, BellRing, ChevronUp, Locate, Bus } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import MapLibreGL from "@maplibre/maplibre-react-native";
 import * as Location from "expo-location";
 import StaticColors from "@/constants/colors";
 import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
-import { useAuth } from "@/contexts/AuthContext";
 import { useBusAlerts } from "@/contexts/BusAlertContext";
 import { useLocation } from "@/contexts/LocationContext";
 import { ApproachingBus, BusStop } from "@/types";
@@ -38,9 +37,8 @@ export default function HomeScreen() {
 
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { user } = useAuth();
   const { activeAlerts, triggeredAlerts } = useBusAlerts();
-  const { regionStops, activeBuses, regionRoutes, regionName, mapCenter, refreshLocation } = useLocation();
+  const { regionStops, activeBuses, regionRoutes, mapCenter, refreshLocation } = useLocation();
   const [refreshing, setRefreshing] = useState(false);
   const [offline] = useState(false);
   const [selectedStop, setSelectedStop] = useState<string | null>(null);
@@ -270,17 +268,6 @@ export default function HomeScreen() {
     }
   }, [mapCenter]);
 
-  const name = user?.full_name?.split(" ")[0] ?? "Traveller";
-
-  const { greetLabel, greetEmoji } = useMemo(() => {
-    const h = new Date().getHours();
-    if (h < 5) return { greetLabel: "Good night,", greetEmoji: "🌙" };
-    if (h < 12) return { greetLabel: "Good morning,", greetEmoji: "👋" };
-    if (h < 17) return { greetLabel: "Good afternoon,", greetEmoji: "☀️" };
-    if (h < 21) return { greetLabel: "Good evening,", greetEmoji: "🌆" };
-    return { greetLabel: "Good night,", greetEmoji: "🌙" };
-  }, []);
-
   const mapInputMin = Math.min(SNAP_TOP, SNAP_MID);
   const mapInputMax = Math.max(SNAP_TOP, SNAP_MID);
   const mapOpacity = translateY.interpolate({
@@ -380,17 +367,6 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </View>
         </View>
-
-        <TouchableOpacity
-          style={s.searchBar}
-          activeOpacity={0.85}
-          onPress={() => router.push("/find-route")}
-        >
-          <View style={s.searchIconWrap}>
-            <Search size={18} color={Colors.primary} />
-          </View>
-          <Text style={s.searchPH}>Where are you going?</Text>
-        </TouchableOpacity>
       </View>
 
       <Animated.View
@@ -446,17 +422,16 @@ export default function HomeScreen() {
             }
           }}
         >
-          <View style={s.greeting}>
-            <View>
-              <Text style={s.greetLabel}>{greetLabel}</Text>
-              <Text style={s.greetName}>{name} {greetEmoji}</Text>
+          <TouchableOpacity
+            style={s.searchBar}
+            activeOpacity={0.85}
+            onPress={() => router.push("/find-route")}
+          >
+            <View style={s.searchIconWrap}>
+              <Search size={18} color={Colors.primary} />
             </View>
-          </View>
-
-          <View style={s.locChip}>
-            <Navigation size={14} color={Colors.primary} />
-            <Text style={s.locText}>{regionName}</Text>
-          </View>
+            <Text style={s.searchPH}>Where are you going?</Text>
+          </TouchableOpacity>
 
           <View style={s.quickRow}>
             <TouchableOpacity
@@ -659,6 +634,8 @@ const make_s = (Colors: ThemePalette) => StyleSheet.create({
     paddingRight: 18,
     paddingVertical: 8,
     borderRadius: 999,
+    marginHorizontal: 20,
+    marginBottom: 18,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.12,
@@ -742,40 +719,6 @@ const make_s = (Colors: ThemePalette) => StyleSheet.create({
     paddingTop: 4,
   },
 
-  greeting: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    marginBottom: 10,
-  },
-  greetLabel: {
-    fontSize: 13,
-    color: Colors.gray500,
-  },
-  greetName: {
-    fontSize: 22,
-    fontWeight: "800" as const,
-    color: Colors.gray800,
-    marginTop: 1,
-  },
-  locChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginHorizontal: 20,
-    marginBottom: 14,
-    backgroundColor: Colors.primaryFaded,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 10,
-    alignSelf: "flex-start" as const,
-  },
-  locText: {
-    fontSize: 12,
-    fontWeight: "500" as const,
-    color: Colors.primaryDark,
-  },
   quickRow: {
     flexDirection: "row",
     paddingHorizontal: 16,
