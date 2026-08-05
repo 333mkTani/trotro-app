@@ -3,15 +3,23 @@ const { query } = require('../config/db');
 const COLUMNS = `id, registration, driver_id, route_id, total_seats, seats_available,
   current_lat, current_lng, last_ping_at, status, created_at`;
 
+// Only surfaces buses a passenger could actually board: `seats_available > 0`
+// is enforced here so full buses never appear in discovery, matching
+// listActive/listApproachingStop. An admin "all buses" view should query with
+// its own explicit flag rather than reusing this.
 const list = async ({ routeId, status = 'active' } = {}) => {
   if (routeId) {
     const { rows } = await query(
-      `select ${COLUMNS} from public.buses where status = $1 and route_id = $2`,
+      `select ${COLUMNS} from public.buses
+        where status = $1 and route_id = $2 and seats_available > 0`,
       [status, routeId],
     );
     return rows;
   }
-  const { rows } = await query(`select ${COLUMNS} from public.buses where status = $1`, [status]);
+  const { rows } = await query(
+    `select ${COLUMNS} from public.buses where status = $1 and seats_available > 0`,
+    [status],
+  );
   return rows;
 };
 
@@ -71,8 +79,10 @@ const reserveSeat = async (id, client) => {
 };
 
 /**
- * Active buses within `radiusM` metres of a coordinate, optionally filtered
- * by `routeId`. Ordered by distance via PostGIS KNN.
+ * Active buses with at least one free seat within `radiusM` metres of a
+ * coordinate, optionally filtered by `routeId`. Ordered by distance via
+ * PostGIS KNN. Full buses are excluded so discovery never offers a bus a
+ * passenger can't board.
  */
 const findNearby = async ({ lat, lng, radiusM = 2000, routeId, limit = 50 }) => {
   const params = [lng, lat, radiusM, limit];
@@ -86,6 +96,7 @@ const findNearby = async ({ lat, lng, radiusM = 2000, routeId, limit = 50 }) => 
             ST_Distance(geom, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) as distance_m
        from public.buses
       where status = 'active'
+        and seats_available > 0
         and geom is not null
         ${routeFilter}
         and ST_DWithin(geom, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography, $3)
