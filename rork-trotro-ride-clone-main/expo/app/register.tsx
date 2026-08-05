@@ -1,11 +1,11 @@
 import React, { useState, useRef, memo } from "react";
 import { StyleSheet, Text, View, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator, Animated, Alert } from "react-native";
 import { useRouter } from "expo-router";
-import { ArrowLeft, User, Phone, Lock, ChevronRight } from "lucide-react-native";
+import { ArrowLeft, User, Phone, Lock, ChevronRight, Eye, EyeOff } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import StaticColors from "@/constants/colors";
 import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuth, isValidGhPhone } from "@/contexts/AuthContext";
 const Colors = StaticColors;
 
 export default function RegisterScreen() {
@@ -19,11 +19,14 @@ export default function RegisterScreen() {
   const [phone, setPhone] = useState("");
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
+  const [showPw, setShowPw] = useState(false);
+  const [showPw2, setShowPw2] = useState(false);
   const [sending, setSending] = useState(false);
   const scale = useRef(new Animated.Value(1)).current;
 
   const doRegister = async () => {
     if (!name.trim() || !phone.trim() || !pw.trim()) { Alert.alert("Missing Fields", "Fill all fields."); return; }
+    if (!isValidGhPhone(phone)) { Alert.alert("Invalid Phone", "Enter a valid Ghana number, e.g. 024 123 4567."); return; }
     if (pw.length < 8) { Alert.alert("Weak Password", "Min 8 characters."); return; }
     if (pw !== pw2) { Alert.alert("Mismatch", "Passwords don't match."); return; }
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -45,9 +48,9 @@ export default function RegisterScreen() {
 
           <View style={st.inputs}>
             <View style={st.wrap}><User size={18} color={Colors.gray400} /><TextInput style={st.input} placeholder="Full name" placeholderTextColor={Colors.gray400} value={name} onChangeText={setName} /></View>
-            <View style={st.wrap}><Phone size={18} color={Colors.gray400} /><TextInput style={st.input} placeholder="Phone (+233...)" placeholderTextColor={Colors.gray400} value={phone} onChangeText={setPhone} keyboardType="phone-pad" /></View>
-            <View style={st.wrap}><Lock size={18} color={Colors.gray400} /><TextInput style={st.input} placeholder="Password (min 8)" placeholderTextColor={Colors.gray400} value={pw} onChangeText={setPw} secureTextEntry /></View>
-            <View style={st.wrap}><Lock size={18} color={Colors.gray400} /><TextInput style={st.input} placeholder="Confirm password" placeholderTextColor={Colors.gray400} value={pw2} onChangeText={setPw2} secureTextEntry /></View>
+            <View style={st.wrap}><Phone size={18} color={Colors.gray400} /><TextInput style={st.input} placeholder="Phone (+233...)" placeholderTextColor={Colors.gray400} value={phone} onChangeText={setPhone} keyboardType="phone-pad" maxLength={13} /></View>
+            <View style={st.wrap}><Lock size={18} color={Colors.gray400} /><TextInput style={st.input} placeholder="Password (min 8)" placeholderTextColor={Colors.gray400} value={pw} onChangeText={setPw} secureTextEntry={!showPw} /><TouchableOpacity onPress={() => setShowPw((v) => !v)} hitSlop={8} activeOpacity={0.6}>{showPw ? <EyeOff size={18} color={Colors.gray400} /> : <Eye size={18} color={Colors.gray400} />}</TouchableOpacity></View>
+            <View style={st.wrap}><Lock size={18} color={Colors.gray400} /><TextInput style={st.input} placeholder="Confirm password" placeholderTextColor={Colors.gray400} value={pw2} onChangeText={setPw2} secureTextEntry={!showPw2} /><TouchableOpacity onPress={() => setShowPw2((v) => !v)} hitSlop={8} activeOpacity={0.6}>{showPw2 ? <EyeOff size={18} color={Colors.gray400} /> : <Eye size={18} color={Colors.gray400} />}</TouchableOpacity></View>
           </View>
           <Animated.View style={{ transform: [{ scale }] }}>
             <TouchableOpacity style={[st.regBtn, sending && st.regOff]} onPress={doRegister} activeOpacity={0.8} disabled={sending}>

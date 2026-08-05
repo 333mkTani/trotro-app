@@ -1,11 +1,11 @@
 import React, { useState, useRef, memo } from "react";
 import { StyleSheet, Text, View, TextInput, TouchableOpacity, KeyboardAvoidingView, Platform, ScrollView, ActivityIndicator, Animated, Alert } from "react-native";
 import { useRouter } from "expo-router";
-import { Bus, Phone, Lock, ChevronRight } from "lucide-react-native";
+import { Bus, Phone, Lock, ChevronRight, Eye, EyeOff } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import StaticColors from "@/constants/colors";
 import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
-import { useAuth } from "@/contexts/AuthContext";
+import { useAuth, isValidGhPhone } from "@/contexts/AuthContext";
 const Colors = StaticColors;
 
 export default function LoginScreen() {
@@ -17,10 +17,12 @@ export default function LoginScreen() {
   const { login, loginPending } = useAuth();
   const [phone, setPhone] = useState("");
   const [pw, setPw] = useState("");
+  const [showPw, setShowPw] = useState(false);
   const scale = useRef(new Animated.Value(1)).current;
 
   const doLogin = async () => {
     if (!phone.trim() || !pw.trim()) { Alert.alert("Missing Fields", "Enter phone and password."); return; }
+    if (!isValidGhPhone(phone)) { Alert.alert("Invalid Phone", "Enter a valid Ghana number, e.g. 024 123 4567."); return; }
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     Animated.sequence([Animated.timing(scale, { toValue: 0.96, duration: 80, useNativeDriver: true }), Animated.timing(scale, { toValue: 1, duration: 80, useNativeDriver: true })]).start();
     try { await login({ phone, password: pw, role: 'passenger' }); } catch (e) { const msg = e instanceof Error ? e.message : 'Invalid credentials.'; Alert.alert("Login Failed", msg); }
@@ -39,8 +41,8 @@ export default function LoginScreen() {
           <Text style={st.cardSub}>Sign in to continue your journey</Text>
 
           <View style={st.inputs}>
-            <View style={st.inputWrap}><Phone size={18} color={Colors.gray400} /><TextInput style={st.input} placeholder="Phone (+233...)" placeholderTextColor={Colors.gray400} value={phone} onChangeText={setPhone} keyboardType="phone-pad" testID="login-phone" /></View>
-            <View style={st.inputWrap}><Lock size={18} color={Colors.gray400} /><TextInput style={st.input} placeholder="Password" placeholderTextColor={Colors.gray400} value={pw} onChangeText={setPw} secureTextEntry testID="login-pw" /></View>
+            <View style={st.inputWrap}><Phone size={18} color={Colors.gray400} /><TextInput style={st.input} placeholder="Phone (+233...)" placeholderTextColor={Colors.gray400} value={phone} onChangeText={setPhone} keyboardType="phone-pad" maxLength={13} testID="login-phone" /></View>
+            <View style={st.inputWrap}><Lock size={18} color={Colors.gray400} /><TextInput style={st.input} placeholder="Password" placeholderTextColor={Colors.gray400} value={pw} onChangeText={setPw} secureTextEntry={!showPw} testID="login-pw" /><TouchableOpacity onPress={() => setShowPw((v) => !v)} hitSlop={8} activeOpacity={0.6} testID="login-pw-toggle">{showPw ? <EyeOff size={18} color={Colors.gray400} /> : <Eye size={18} color={Colors.gray400} />}</TouchableOpacity></View>
           </View>
           <Animated.View style={{ transform: [{ scale }] }}>
             <TouchableOpacity style={[st.loginBtn, loginPending && st.loginOff]} onPress={doLogin} activeOpacity={0.8} disabled={loginPending} testID="login-btn">

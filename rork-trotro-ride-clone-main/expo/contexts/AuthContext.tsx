@@ -18,6 +18,11 @@ export const toE164Gh = (raw: string): string => {
   return `+233${digits}`;
 };
 
+// A valid Ghana mobile number is +233 followed by 9 national digits (mobile
+// prefixes start with 2 or 5, e.g. 024/054). Checks the normalized form so it
+// accepts 024…, 233…, or +233… input alike.
+export const isValidGhPhone = (raw: string): boolean => /^\+233[25]\d{8}$/.test(toE164Gh(raw));
+
 type RegisterVerifiedPayload = { fullName: string; email?: string; password: string; role?: string };
 
 type PendingVerification = { confirmation: FirebaseAuthTypes.ConfirmationResult; payload: RegisterVerifiedPayload };
