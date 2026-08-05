@@ -112,10 +112,14 @@ export default function TrackingScreen() {
   const p = useLocalSearchParams<TrackingParams>();
   const cameraRef = useRef<React.ComponentRef<typeof MapLibreGL.Camera>>(null);
 
-  const busStartLat = Number(p.lat) || 5.575;
-  const busStartLng = Number(p.lng) || -0.205;
-  const stopLat = Number(p.stopLat) || busStartLat + 0.015;
-  const stopLng = Number(p.stopLng) || busStartLng + 0.01;
+  // Stop coords always come from a real selected bus stop, so they're the reliable anchor.
+  const stopLat = Number(p.stopLat) || 5.575;
+  const stopLng = Number(p.stopLng) || -0.205;
+  // A bus with no live GPS fix yet reports lat/lng as 0 — placing it near the stop
+  // (rather than a fixed Accra fallback) keeps the map sane for trips anywhere in Ghana.
+  const busHasLiveFix = Number(p.lat) !== 0 && Number(p.lng) !== 0;
+  const busStartLat = busHasLiveFix ? Number(p.lat) : stopLat + 0.015;
+  const busStartLng = busHasLiveFix ? Number(p.lng) : stopLng + 0.01;
   const initialEta = Number(p.eta) || 10;
   const seats = Number(p.seats) || 0;
   const stopName = p.stopName || "Bus Stop";

@@ -74,7 +74,7 @@ export default function FindRouteScreen() {
   st = React.useMemo(() => make_st(themeColors), [themeColors]);
 
   const router = useRouter();
-  const params = useLocalSearchParams<{ pinLat?: string; pinLng?: string; pinLabel?: string }>();
+  const params = useLocalSearchParams<{ pinLat?: string; pinLng?: string; pinLabel?: string; pinField?: string }>();
   const { userLat, userLng, nearbyStops, regionStops, regionRoutes, activeBuses, regionName, mapCenter } = useLocation();
   const { user } = useAuth();
   const { bookBus } = useBookings();
@@ -96,11 +96,23 @@ export default function FindRouteScreen() {
   const [geocoding, setGeocoding] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const [activeField, setActiveField] = useState<"pickup" | "destination">("destination");
+  const [pickupOverride, setPickupOverride] = useState<{ lat: number; lng: number; label: string } | null>(null);
+  const [pickupQuery, setPickupQuery] = useState("");
+  const [pickupResults, setPickupResults] = useState<BusStop[]>([]);
+  const [pickupPlaceResults, setPickupPlaceResults] = useState<PlaceResult[]>([]);
+  const [pickupGeocoding, setPickupGeocoding] = useState(false);
+  const pickupSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pickupInputRef = useRef<TextInput>(null);
+
   const fadeIn = useRef(new Animated.Value(0)).current;
   const slideUp = useRef(new Animated.Value(40)).current;
   const resultsFade = useRef(new Animated.Value(0)).current;
   const confirmSlide = useRef(new Animated.Value(SCREEN_W)).current;
   const inputRef = useRef<TextInput>(null);
+
+  const effectiveLat = pickupOverride?.lat ?? currentLat;
+  const effectiveLng = pickupOverride?.lng ?? currentLng;
 
   useEffect(() => {
     Animated.parallel([
@@ -109,15 +121,29 @@ export default function FindRouteScreen() {
     ]).start();
   }, []);
 
+  // Prefer backend UUID stops (nearbyStops) for searching; fall back to regionStops (may include mock)
+  const stopsForSearch = nearbyStops.length > 0 ? nearbyStops.filter(s => s.status === 'active') : regionStops;
+
   useEffect(() => {
-    if (params.pinLat && params.pinLng && !pinProcessed.current) {
+    // Wait for stops to finish loading before deciding there's nothing nearby —
+    // stopsForSearch starts empty until the location/stops fetch resolves.
+    if (params.pinLat && params.pinLng && !pinProcessed.current && stopsForSearch.length > 0) {
       pinProcessed.current = true;
       const lat = parseFloat(params.pinLat);
       const lng = parseFloat(params.pinLng);
       const label = params.pinLabel ?? `${lat.toFixed(4)}, ${lng.toFixed(4)}`;
-      console.log("[FindRoute] Received pin from map:", lat, lng, label);
+      console.log("[FindRoute] Received pin from map:", lat, lng, label, "field:", params.pinField);
 
-      const nearbyStops = findNearbyStops(lat, lng, 10000);
+      if (params.pinField === "pickup") {
+        setPickupOverride({ lat, lng, label });
+        setPickupQuery("");
+        setPickupResults([]);
+        setPickupPlaceResults([]);
+        setActiveField("destination");
+        return;
+      }
+
+      const nearbyStops = findNearbyStops(lat, lng, 10000, stopsForSearch);
       if (nearbyStops.length > 0) {
         const closest = nearbyStops[0];
         setQuery(label);
@@ -127,10 +153,7 @@ export default function FindRouteScreen() {
         Alert.alert("No Stops Nearby", "No bus stops found near the selected location. Try picking a different spot.");
       }
     }
-  }, [params.pinLat, params.pinLng, params.pinLabel]);
-
-  // Prefer backend UUID stops (nearbyStops) for searching; fall back to regionStops (may include mock)
-  const stopsForSearch = nearbyStops.length > 0 ? nearbyStops.filter(s => s.status === 'active') : regionStops;
+  }, [params.pinLat, params.pinLng, params.pinLabel, params.pinField, stopsForSearch]);
 
   const onSearch = useCallback((text: string) => {
     setQuery(text);
@@ -180,13 +203,13 @@ export default function FindRouteScreen() {
 
       await new Promise((r) => setTimeout(r, 800));
 
-      const recs = findRouteRecommendations(currentLat, currentLng, stop.lat, stop.lng, 3000, stopsForSearch.length > 0 ? stopsForSearch : undefined, regionRoutes.length > 0 ? regionRoutes : undefined, activeBuses);
+      const recs = findRouteRecommendations(effectiveLat, effectiveLng, stop.lat, stop.lng, 3000, stopsForSearch.length > 0 ? stopsForSearch : undefined, regionRoutes.length > 0 ? regionRoutes : undefined, activeBuses);
       setRecommendations(recs);
       setLoading(false);
 
       Animated.timing(resultsFade, { toValue: 1, duration: 400, useNativeDriver: true }).start();
     },
-    [resultsFade, activeBuses, currentLat, currentLng, stopsForSearch, regionRoutes],
+    [resultsFade, activeBuses, effectiveLat, effectiveLng, stopsForSearch, regionRoutes],
   );
 
   const onSelectPlace = useCallback(
@@ -202,6 +225,79 @@ export default function FindRouteScreen() {
     },
     [onSelectDestination],
   );
+
+  const onSearchPickup = useCallback((text: string) => {
+    setPickupQuery(text);
+    if (pickupSearchTimer.current) clearTimeout(pickupSearchTimer.current);
+
+    if (text.length < 2) {
+      setPickupResults([]);
+      setPickupPlaceResults([]);
+      setPickupGeocoding(false);
+      return;
+    }
+
+    setPickupResults(searchStops(text, stopsForSearch.length > 0 ? stopsForSearch : undefined));
+
+    setPickupGeocoding(true);
+    pickupSearchTimer.current = setTimeout(async () => {
+      try {
+        const cLat = currentLat;
+        const cLng = currentLng;
+        const d = 0.35;
+        const viewbox = `${cLng - d},${cLat - d},${cLng + d},${cLat + d}`;
+        const url =
+          `https://nominatim.openstreetmap.org/search?` +
+          `q=${encodeURIComponent(text)}&format=json&limit=6&countrycodes=gh` +
+          `&viewbox=${viewbox}&bounded=0`;
+        const res = await fetch(url, { headers: { "User-Agent": "TrotroPassengerApp/1.0" } });
+        const data: PlaceResult[] = await res.json();
+        setPickupPlaceResults(data);
+      } catch {
+        setPickupPlaceResults([]);
+      } finally {
+        setPickupGeocoding(false);
+      }
+    }, 600);
+  }, [stopsForSearch, currentLat, currentLng]);
+
+  const onSelectPickupStop = useCallback((stop: BusStop) => {
+    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    setPickupOverride({ lat: stop.lat, lng: stop.lng, label: stop.name });
+    setPickupQuery("");
+    setPickupResults([]);
+    setPickupPlaceResults([]);
+    setActiveField("destination");
+  }, []);
+
+  const onSelectPickupPlace = useCallback((place: PlaceResult) => {
+    if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    const lat = parseFloat(place.lat);
+    const lng = parseFloat(place.lon);
+    const name = place.name?.trim() || place.display_name.split(",")[0].trim();
+    setPickupOverride({ lat, lng, label: name });
+    setPickupQuery("");
+    setPickupPlaceResults([]);
+    setPickupGeocoding(false);
+    setActiveField("destination");
+  }, []);
+
+  const onUseCurrentLocation = useCallback(() => {
+    if (Platform.OS !== "web") Haptics.selectionAsync();
+    setPickupOverride(null);
+    setPickupQuery("");
+    setPickupResults([]);
+    setPickupPlaceResults([]);
+    setActiveField("destination");
+  }, []);
+
+  const onCancelPickupEdit = useCallback(() => {
+    setActiveField("destination");
+    setPickupQuery("");
+    setPickupResults([]);
+    setPickupPlaceResults([]);
+    setPickupGeocoding(false);
+  }, []);
 
   const onSelectRecommendation = useCallback(
     (rec: RouteRecommendation) => {
@@ -293,6 +389,11 @@ export default function FindRouteScreen() {
   const popularStops = useMemo(
     () => allStops.slice(0, 6),
     [allStops],
+  );
+
+  const nearbyPickupStops = useMemo(
+    () => findNearbyStops(currentLat, currentLng, 5000, stopsForSearch).slice(0, 8),
+    [currentLat, currentLng, stopsForSearch],
   );
 
   if (booked && selected) {
@@ -418,53 +519,113 @@ export default function FindRouteScreen() {
           style={[st.flex, { opacity: fadeIn, transform: [{ translateY: slideUp }] }]}
         >
           <View style={st.searchSection}>
-            <View style={st.locRow}>
-              <View style={st.locDot} />
-              <Text style={st.locLabel}>Your location</Text>
-              <Text style={st.locValue}>{regionName.split(',')[0]}</Text>
+            <View style={st.pillWrap}>
+              <Search size={16} color={Colors.gray400} />
+              {activeField === "pickup" ? (
+                <View style={st.pillTextCol}>
+                  <Text style={st.pillLabel}>From</Text>
+                  <TextInput
+                    ref={pickupInputRef}
+                    style={st.pillInput}
+                    placeholder="Search a bus stop or landmark…"
+                    placeholderTextColor={Colors.gray500}
+                    value={pickupQuery}
+                    onChangeText={onSearchPickup}
+                    autoFocus
+                    returnKeyType="search"
+                    testID="pickup-search"
+                  />
+                </View>
+              ) : (
+                <TouchableOpacity
+                  style={st.pillTextCol}
+                  activeOpacity={0.6}
+                  onPress={() => setActiveField("pickup")}
+                  testID="pickup-location-row"
+                >
+                  <Text style={st.pillLabel}>From</Text>
+                  <Text style={st.pillValue} numberOfLines={1}>
+                    {pickupOverride?.label ?? regionName.split(',')[0]}
+                  </Text>
+                </TouchableOpacity>
+              )}
+              {activeField === "pickup" ? (
+                <>
+                  <TouchableOpacity
+                    onPress={() => {
+                      if (Platform.OS !== "web") Haptics.selectionAsync();
+                      router.push({ pathname: "/pick-destination-map", params: { field: "pickup" } });
+                    }}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    style={st.pillMapBtn}
+                    activeOpacity={0.7}
+                    testID="pick-pickup-on-map-icon"
+                  >
+                    <Map size={16} color={Colors.white} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={onCancelPickupEdit}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    style={st.pillClearBtn}
+                  >
+                    <X size={14} color={Colors.white} />
+                  </TouchableOpacity>
+                </>
+              ) : (
+                pickupOverride && (
+                  <TouchableOpacity
+                    onPress={onUseCurrentLocation}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                    style={st.pillClearBtn}
+                  >
+                    <X size={14} color={Colors.white} />
+                  </TouchableOpacity>
+                )
+              )}
             </View>
-            <View style={st.searchRow}>
-              <View style={st.destDot} />
-              <View style={st.searchInputWrap}>
-                <Search size={16} color={Colors.gray400} />
+            <View style={st.pillWrap}>
+              <Search size={16} color={Colors.gray400} />
+              <View style={st.pillTextCol}>
+                <Text style={st.pillLabel}>To</Text>
                 <TextInput
                   ref={inputRef}
-                  style={st.searchInput}
+                  style={st.pillInput}
                   placeholder="Search a place, landmark or stop…"
-                  placeholderTextColor={Colors.gray400}
+                  placeholderTextColor={Colors.gray500}
                   value={query}
                   onChangeText={onSearch}
+                  onFocus={() => setActiveField("destination")}
                   autoFocus={phase === "search"}
                   returnKeyType="search"
                   testID="destination-search"
                 />
-                {query.length > 0 ? (
-                  <TouchableOpacity
-                    onPress={() => {
-                      onSearch("");
-                      onReset();
-                    }}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  >
-                    <X size={16} color={Colors.gray400} />
-                  </TouchableOpacity>
-                ) : (
-                  <TouchableOpacity
-                    onPress={() => {
-                      if (Platform.OS !== "web") Haptics.selectionAsync();
-                      router.push("/pick-destination-map");
-                    }}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    style={st.mapIconBtn}
-                    activeOpacity={0.7}
-                    testID="pick-on-map-icon"
-                  >
-                    <Map size={16} color={Colors.primary} />
-                  </TouchableOpacity>
-                )}
               </View>
+              {query.length > 0 ? (
+                <TouchableOpacity
+                  onPress={() => {
+                    onSearch("");
+                    onReset();
+                  }}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  style={st.pillClearBtn}
+                >
+                  <X size={14} color={Colors.white} />
+                </TouchableOpacity>
+              ) : (
+                <TouchableOpacity
+                  onPress={() => {
+                    if (Platform.OS !== "web") Haptics.selectionAsync();
+                    router.push({ pathname: "/pick-destination-map", params: { field: "destination" } });
+                  }}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  style={st.pillMapBtn}
+                  activeOpacity={0.7}
+                  testID="pick-on-map-icon"
+                >
+                  <Map size={16} color={Colors.white} />
+                </TouchableOpacity>
+              )}
             </View>
-            <View style={st.connectorLine} />
           </View>
 
           {phase === "search" && (
@@ -474,6 +635,120 @@ export default function FindRouteScreen() {
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
             >
+              {activeField === "pickup" ? (
+                <>
+                  {pickupQuery.length >= 2 ? (
+                    <View>
+                      {pickupResults.length > 0 && (
+                        <View>
+                          <Text style={st.sectionLabel}>BUS STOPS</Text>
+                          {pickupResults.map((stop) => (
+                            <TouchableOpacity
+                              key={stop.id}
+                              style={st.resultItem}
+                              onPress={() => onSelectPickupStop(stop)}
+                              activeOpacity={0.6}
+                            >
+                              <View style={st.resultIcon}>
+                                <MapPin size={16} color={Colors.primary} />
+                              </View>
+                              <View style={st.resultText}>
+                                <Text style={st.resultName}>{stop.name}</Text>
+                                <Text style={st.resultType}>
+                                  {stop.type === "station" ? "Station" : "Bus Stop"}
+                                </Text>
+                              </View>
+                              <ChevronRight size={16} color={Colors.gray300} />
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      )}
+
+                      {pickupGeocoding && (
+                        <View style={st.geocodingRow}>
+                          <ActivityIndicator size="small" color={Colors.primary} />
+                          <Text style={st.geocodingText}>Searching places…</Text>
+                        </View>
+                      )}
+
+                      {pickupPlaceResults.length > 0 && (
+                        <View>
+                          <Text style={st.sectionLabel}>PLACES NEARBY</Text>
+                          {pickupPlaceResults.map((place) => {
+                            const placeName = place.name?.trim() || place.display_name.split(",")[0].trim();
+                            const placeAddr = place.display_name.split(",").slice(1, 3).join(",").trim();
+                            return (
+                              <TouchableOpacity
+                                key={place.place_id}
+                                style={st.resultItem}
+                                onPress={() => onSelectPickupPlace(place)}
+                                activeOpacity={0.6}
+                              >
+                                <View style={[st.resultIcon, { backgroundColor: "#FFF3E0" }]}>
+                                  <Building2 size={16} color={Colors.warning} />
+                                </View>
+                                <View style={st.resultText}>
+                                  <Text style={st.resultName}>{placeName}</Text>
+                                  <Text style={st.resultType} numberOfLines={1}>{placeAddr || "Place"}</Text>
+                                </View>
+                                <View style={st.placeChip}>
+                                  <Text style={st.placeChipTxt}>Find stop</Text>
+                                  <ChevronRight size={13} color={Colors.primary} />
+                                </View>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+                      )}
+
+                      {!pickupGeocoding && pickupResults.length === 0 && pickupPlaceResults.length === 0 && (
+                        <View style={st.emptySearch}>
+                          <AlertTriangle size={28} color={Colors.gray300} />
+                          <Text style={st.emptyText}>No results for "{pickupQuery}"</Text>
+                          <Text style={st.emptyHint}>Try a landmark, neighbourhood, or bus stop name</Text>
+                        </View>
+                      )}
+                    </View>
+                  ) : (
+                    <>
+                      <TouchableOpacity
+                        style={st.currentLocRow}
+                        onPress={onUseCurrentLocation}
+                        activeOpacity={0.7}
+                      >
+                        <View style={st.currentLocIcon}>
+                          <Locate size={16} color={Colors.primary} />
+                        </View>
+                        <Text style={st.currentLocText}>Use my current location</Text>
+                      </TouchableOpacity>
+                      <Text style={st.sectionLabel}>NEARBY BUS STOPS</Text>
+                      {nearbyPickupStops.map((stop) => (
+                        <TouchableOpacity
+                          key={stop.id}
+                          style={st.resultItem}
+                          onPress={() => onSelectPickupStop(stop)}
+                          activeOpacity={0.6}
+                        >
+                          <View style={st.resultIcon}>
+                            <MapPin size={16} color={Colors.primary} />
+                          </View>
+                          <View style={st.resultText}>
+                            <Text style={st.resultName}>{stop.name}</Text>
+                            <Text style={st.resultType}>
+                              {stop.type === "station" ? "Station" : "Bus Stop"}
+                              {stop.distance_m
+                                ? ` · ${stop.distance_m < 1000 ? `${stop.distance_m}m` : `${(stop.distance_m / 1000).toFixed(1)}km`}`
+                                : ""}
+                            </Text>
+                          </View>
+                          <ChevronRight size={16} color={Colors.gray300} />
+                        </TouchableOpacity>
+                      ))}
+                    </>
+                  )}
+                </>
+              ) : (
+              <>
               {query.length >= 2 && (
                 <View>
                   {searchResults.length > 0 && (
@@ -566,38 +841,9 @@ export default function FindRouteScreen() {
                       </TouchableOpacity>
                     ))}
                   </View>
-
-                  <Text style={st.sectionLabel}>ALL BUS STOPS</Text>
-                  {allStops.map((stop) => (
-                    <TouchableOpacity
-                      key={stop.id}
-                      style={st.resultItem}
-                      onPress={() => onSelectDestination(stop)}
-                      activeOpacity={0.6}
-                    >
-                      <View
-                        style={[
-                          st.resultIcon,
-                          stop.type === "station"
-                            ? { backgroundColor: Colors.primaryFaded }
-                            : { backgroundColor: "#E8F5E9" },
-                        ]}
-                      >
-                        <MapPin
-                          size={16}
-                          color={stop.type === "station" ? Colors.primary : Colors.secondary}
-                        />
-                      </View>
-                      <View style={st.resultText}>
-                        <Text style={st.resultName}>{stop.name}</Text>
-                        <Text style={st.resultType}>
-                          {stop.type === "station" ? "Station" : "Bus Stop"}
-                        </Text>
-                      </View>
-                      <ChevronRight size={16} color={Colors.gray300} />
-                    </TouchableOpacity>
-                  ))}
                 </>
+              )}
+              </>
               )}
               <View style={{ height: 40 }} />
             </ScrollView>
@@ -947,13 +1193,14 @@ const make_st = (Colors: ThemePalette) => StyleSheet.create({
 
   searchSection: {
     backgroundColor: Colors.white,
-    paddingHorizontal: 16,
-    paddingTop: 10,
+    paddingHorizontal: 12,
+    paddingTop: 12,
     paddingBottom: 14,
     marginHorizontal: 12,
     marginTop: 12,
     marginBottom: 4,
     borderRadius: 18,
+    gap: 10,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.1,
@@ -961,72 +1208,67 @@ const make_st = (Colors: ThemePalette) => StyleSheet.create({
     elevation: 6,
     zIndex: 10,
   },
-  mapIconBtn: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
+  pillWrap: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 10,
+    backgroundColor: Colors.gray800,
+    borderRadius: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+  },
+  pillTextCol: { flex: 1, minWidth: 0 },
+  pillLabel: {
+    fontSize: 11,
+    fontWeight: "600" as const,
+    color: Colors.gray400,
+    marginBottom: 1,
+  },
+  pillValue: { fontSize: 15, fontWeight: "700" as const, color: Colors.white },
+  pillInput: {
+    fontSize: 15,
+    fontWeight: "700" as const,
+    color: Colors.white,
+    padding: 0,
+    margin: 0,
+  },
+  pillClearBtn: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.15)",
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+  },
+  pillMapBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: Colors.primary,
+    alignItems: "center" as const,
+    justifyContent: "center" as const,
+  },
+  currentLocRow: {
+    flexDirection: "row" as const,
+    alignItems: "center" as const,
+    gap: 12,
+    marginHorizontal: 16,
+    marginBottom: 16,
+    backgroundColor: Colors.white,
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: Colors.gray200,
+  },
+  currentLocIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     backgroundColor: Colors.primaryFaded,
     alignItems: "center" as const,
     justifyContent: "center" as const,
   },
-  locRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 10,
-    paddingLeft: 2,
-    gap: 10,
-  },
-  locDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: Colors.info,
-    borderWidth: 2,
-    borderColor: Colors.infoLight,
-  },
-  locLabel: { fontSize: 12, color: Colors.gray400, width: 90 },
-  locValue: { fontSize: 14, fontWeight: "600" as const, color: Colors.gray700 },
-  connectorLine: {
-    position: "absolute" as const,
-    left: 22,
-    top: 28,
-    width: 2,
-    height: 34,
-    backgroundColor: Colors.gray200,
-    borderRadius: 1,
-  },
-  destDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: Colors.primary,
-    borderWidth: 2,
-    borderColor: Colors.primaryFaded,
-  },
-  searchRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    paddingLeft: 2,
-  },
-  searchInputWrap: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: Colors.gray50,
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: Platform.OS === "web" ? 10 : 0,
-    gap: 8,
-    borderWidth: 1,
-    borderColor: Colors.gray200,
-  },
-  searchInput: {
-    flex: 1,
-    fontSize: 15,
-    color: Colors.gray800,
-    paddingVertical: 11,
-  },
+  currentLocText: { fontSize: 14, fontWeight: "600" as const, color: Colors.gray800 },
 
   searchContent: { paddingTop: 16, paddingBottom: 20 },
   sectionLabel: {

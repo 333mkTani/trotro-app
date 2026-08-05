@@ -12,7 +12,7 @@ import {
   PanResponder,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { MapPin, Search, Bell, Route, BellRing, ChevronUp, Locate, Bus } from "lucide-react-native";
+import { MapPin, Search, Bell, BellRing, ChevronUp, Locate, Bus, Clock } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import MapLibreGL from "@maplibre/maplibre-react-native";
@@ -21,8 +21,8 @@ import StaticColors from "@/constants/colors";
 import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
 import { useBusAlerts } from "@/contexts/BusAlertContext";
 import { useLocation } from "@/contexts/LocationContext";
-import { ApproachingBus, BusStop } from "@/types";
-import StopCard from "@/components/StopCard";
+import { useAuth } from "@/contexts/AuthContext";
+import { useBookings } from "@/contexts/BookingContext";
 import OfflineBanner from "@/components/OfflineBanner";
 const Colors = StaticColors;
 
@@ -38,10 +38,11 @@ export default function HomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { activeAlerts, triggeredAlerts } = useBusAlerts();
-  const { regionStops, activeBuses, regionRoutes, mapCenter, refreshLocation } = useLocation();
+  const { activeBuses, regionStops, mapCenter, refreshLocation } = useLocation();
+  const { user } = useAuth();
+  const { bookings } = useBookings();
   const [refreshing, setRefreshing] = useState(false);
   const [offline] = useState(false);
-  const [selectedStop, setSelectedStop] = useState<string | null>(null);
   const cameraRef = useRef<React.ComponentRef<typeof MapLibreGL.Camera>>(null);
   const scrollRef = useRef<ScrollView>(null);
 
@@ -124,36 +125,6 @@ export default function HomeScreen() {
     })
   ).current;
 
-  const sortedStops = useMemo(() => {
-    const seen = new Set<string>();
-    const unique = regionStops.filter((s) => {
-      if (!s.id) return false;
-      if (seen.has(s.id)) return false;
-      seen.add(s.id);
-      return true;
-    });
-    return [...unique].sort((a, b) => (a.distance_m ?? 0) - (b.distance_m ?? 0));
-  }, [regionStops]);
-
-  // Map each stop ID to the set of route names that serve it, so we can filter
-  // activeBuses per-stop instead of showing all buses at every stop.
-  const stopRouteNames = useMemo(() => {
-    const map = new Map<string, Set<string>>();
-    for (const route of regionRoutes) {
-      for (const stopId of route.stops_sequence) {
-        if (!map.has(stopId)) map.set(stopId, new Set());
-        map.get(stopId)!.add(route.name);
-      }
-    }
-    return map;
-  }, [regionRoutes]);
-
-  const getBusesForStop = useCallback((stopId: string) => {
-    const routeNames = stopRouteNames.get(stopId);
-    if (!routeNames || routeNames.size === 0) return [];
-    return activeBuses.filter((b) => routeNames.has(b.route_name) && b.seats_available > 0);
-  }, [stopRouteNames, activeBuses]);
-
   const doRefresh = useCallback(async () => {
     setRefreshing(true);
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -161,61 +132,7 @@ export default function HomeScreen() {
     setRefreshing(false);
   }, []);
 
-  const onBusPress = useCallback(
-    (b: ApproachingBus, stop: BusStop) => {
-      if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      router.push({
-        pathname: "/tracking",
-        params: {
-          driverId: b.driver_id,
-          driverName: b.driver_name,
-          busReg: b.bus_registration,
-          routeName: b.route_name,
-          seats: String(b.seats_available),
-          eta: String(b.eta_minutes),
-          lat: String(b.lat),
-          lng: String(b.lng),
-          stopLat: String(stop.lat),
-          stopLng: String(stop.lng),
-          stopName: stop.name,
-        },
-      });
-    },
-    [router]
-  );
-
-  const onBookBus = useCallback(
-    (bus: ApproachingBus, stop: BusStop) => {
-      if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-      console.log("[Home] Book bus:", bus.bus_registration, "at", stop.name);
-      router.push({
-        pathname: "/book-bus",
-        params: {
-          driverId: bus.driver_id,
-          driverName: bus.driver_name,
-          busReg: bus.bus_registration,
-          routeName: bus.route_name,
-          seats: String(bus.seats_available),
-          eta: String(bus.eta_minutes),
-          stopId: stop.id,
-          stopName: stop.name,
-        },
-      });
-    },
-    [router]
-  );
-
-  const onStopMarkerPress = useCallback(
-    (stop: BusStop) => {
-      if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-      setSelectedStop(stop.id);
-      snapTo(SNAP_MID);
-    },
-    [snapTo, SNAP_MID]
-  );
-
   const onMapPress = useCallback(() => {
-    setSelectedStop(null);
     if (lastSnap.current < SNAP_MID) {
       snapTo(SNAP_MID);
     }
@@ -276,12 +193,44 @@ export default function HomeScreen() {
     extrapolate: "clamp",
   });
 
-  const filteredStops = useMemo(() => {
-    if (!selectedStop) return sortedStops;
-    const sel = sortedStops.find((s) => s.id === selectedStop);
-    if (sel) return [sel, ...sortedStops.filter((s) => s.id !== selectedStop)];
-    return sortedStops;
-  }, [selectedStop, sortedStops]);
+  const recentDestinations = useMemo(() => {
+    const mine = bookings
+      .filter((b) => b.passenger_id === user?.id || b.passenger_id === "pass-1")
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    const seen = new Set<string>();
+    const unique: typeof mine = [];
+    for (const b of mine) {
+      if (seen.has(b.destination_stop_name)) continue;
+      seen.add(b.destination_stop_name);
+      unique.push(b);
+    }
+    return unique.slice(0, 8);
+  }, [bookings, user?.id]);
+
+  const stopById = useMemo(
+    () => new Map(regionStops.map((stop) => [stop.id, stop])),
+    [regionStops]
+  );
+
+  const onSelectRecentDestination = useCallback(
+    (b: (typeof recentDestinations)[number]) => {
+      if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      const stop = stopById.get(b.destination_stop_id);
+      if (stop) {
+        router.push({
+          pathname: "/find-route",
+          params: {
+            pinLat: String(stop.lat),
+            pinLng: String(stop.lng),
+            pinLabel: stop.name,
+          },
+        });
+      } else {
+        router.push("/find-route");
+      }
+    },
+    [router, stopById]
+  );
 
   return (
     <View style={s.root}>
@@ -306,7 +255,14 @@ export default function HomeScreen() {
               zoomLevel={12}
               animationDuration={0}
             />
-            <MapLibreGL.UserLocation visible />
+            <MapLibreGL.UserLocation visible>
+              <View style={s.userPinOuter}>
+                <View style={s.userPinHead}>
+                  <View style={s.userPinDot} />
+                </View>
+                <View style={s.userPinTail} />
+              </View>
+            </MapLibreGL.UserLocation>
 
             {/* Only active bus markers on the map */}
             {activeBuses
@@ -334,12 +290,11 @@ export default function HomeScreen() {
                   >
                     <View style={s.busMarkerOuter}>
                       <View style={s.busMarkerCard}>
-                        <Bus size={16} color={Colors.white} />
+                        <Bus size={20} color={Colors.black} />
                         <View style={s.busMarkerSeatBadge}>
                           <Text style={s.busMarkerSeatTxt}>{bus.seats_available}</Text>
                         </View>
                       </View>
-                      <View style={s.busMarkerTail} />
                     </View>
                   </TouchableOpacity>
                 </MapLibreGL.MarkerView>
@@ -352,10 +307,6 @@ export default function HomeScreen() {
       <View style={[s.topOverlay, { paddingTop: topInset + 10 }]} pointerEvents="box-none">
         <OfflineBanner isOffline={offline} lastUpdated="2 min ago" />
         <View style={s.topBar} pointerEvents="box-none">
-          <View style={s.floatingLogo}>
-            <View style={s.logoDot} />
-            <Text style={s.logoText}>Trotro</Text>
-          </View>
           <View style={s.topRight}>
             <TouchableOpacity
               style={s.topIconBtn}
@@ -436,16 +387,6 @@ export default function HomeScreen() {
           <View style={s.quickRow}>
             <TouchableOpacity
               style={s.quickBtn}
-              onPress={() => router.push("/find-route")}
-              activeOpacity={0.7}
-            >
-              <View style={[s.quickIc, { backgroundColor: Colors.primaryFaded }]}>
-                <Route size={18} color={Colors.primary} />
-              </View>
-              <Text style={s.quickLbl}>Find{"\n"}Route</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={s.quickBtn}
               onPress={() => router.push("/set-bus-alert")}
               activeOpacity={0.7}
             >
@@ -492,31 +433,37 @@ export default function HomeScreen() {
           )}
 
           <View style={s.secHead}>
-            <Text style={s.secTitle}>
-              {selectedStop ? "Selected Stop" : "Nearby Stops"}
-            </Text>
-            <Text style={s.secCount}>{filteredStops.length} stops</Text>
+            <Text style={s.secTitle}>Recent Destinations</Text>
+            <Text style={s.secCount}>{recentDestinations.length} recent</Text>
           </View>
 
-          {filteredStops.map((stop) => (
-            <StopCard
-              key={stop.id}
-              stop={stop}
-              buses={getBusesForStop(stop.id)}
-              onPress={() => {
-                setSelectedStop(stop.id);
-                if (Platform.OS !== "web") {
-                  cameraRef.current?.setCamera({
-                    centerCoordinate: [stop.lng, stop.lat],
-                    zoomLevel: 14,
-                    animationDuration: 400,
-                  });
-                }
-              }}
-              onBusPress={onBusPress}
-              onBookBus={onBookBus}
-            />
-          ))}
+          {recentDestinations.length === 0 ? (
+            <View style={s.historyEmpty}>
+              <Clock size={28} color={Colors.gray300} />
+              <Text style={s.historyEmptyText}>
+                Your recent destinations will show up here
+              </Text>
+            </View>
+          ) : (
+            recentDestinations.map((b) => (
+              <TouchableOpacity
+                key={b.id}
+                style={s.historyRow}
+                activeOpacity={0.7}
+                onPress={() => onSelectRecentDestination(b)}
+              >
+                <View style={s.historyIconWrap}>
+                  <Clock size={16} color={Colors.gray500} />
+                </View>
+                <View style={s.historyTextWrap}>
+                  <Text style={s.historyDest}>{b.destination_stop_name}</Text>
+                  <Text style={s.historySub}>
+                    {b.route_name ? `via ${b.route_name}` : "Tap to find buses"}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            ))
+          )}
           <View style={{ height: 100 }} />
         </ScrollView>
       </Animated.View>
@@ -567,34 +514,8 @@ const make_s = (Colors: ThemePalette) => StyleSheet.create({
   topBar: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    justifyContent: "flex-end",
     marginBottom: 12,
-  },
-  floatingLogo: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: Colors.white,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    borderRadius: 999,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  logoDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: Colors.primary,
-  },
-  logoText: {
-    fontSize: 20,
-    fontWeight: "800" as const,
-    color: Colors.gray800,
-    letterSpacing: -0.5,
   },
   topRight: {
     flexDirection: "row",
@@ -769,6 +690,53 @@ const make_s = (Colors: ThemePalette) => StyleSheet.create({
     fontSize: 13,
     color: Colors.gray400,
   },
+  historyRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: Colors.white,
+    borderRadius: 16,
+    marginHorizontal: 16,
+    marginBottom: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+  },
+  historyIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: Colors.gray100,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  historyTextWrap: {
+    marginLeft: 10,
+    flex: 1,
+  },
+  historyDest: {
+    fontSize: 16,
+    fontWeight: "700" as const,
+    color: Colors.gray800,
+  },
+  historySub: {
+    fontSize: 12,
+    color: Colors.gray500,
+    marginTop: 1,
+  },
+  historyEmpty: {
+    alignItems: "center",
+    paddingVertical: 32,
+    paddingHorizontal: 40,
+    gap: 8,
+  },
+  historyEmptyText: {
+    fontSize: 13,
+    color: Colors.gray400,
+    textAlign: "center" as const,
+  },
   alertBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -802,6 +770,42 @@ const make_s = (Colors: ThemePalette) => StyleSheet.create({
     height: 10,
     borderRadius: 5,
     backgroundColor: Colors.primary,
+  },
+
+  userPinOuter: {
+    alignItems: "center",
+  },
+  userPinHead: {
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: "#000000",
+    borderWidth: 3,
+    borderColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.3,
+    shadowRadius: 5,
+    elevation: 6,
+  },
+  userPinDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#FFFFFF",
+  },
+  userPinTail: {
+    width: 0,
+    height: 0,
+    borderLeftWidth: 6,
+    borderRightWidth: 6,
+    borderTopWidth: 8,
+    borderLeftColor: "transparent",
+    borderRightColor: "transparent",
+    borderTopColor: "#000000",
+    marginTop: -2,
   },
 
   markerOuter: {
@@ -868,21 +872,21 @@ const make_s = (Colors: ThemePalette) => StyleSheet.create({
     color: Colors.white,
   },
 
-  // Live bus markers — speech-bubble style (green)
+  // Live bus markers — circular badge (orange fill, black ring)
   busMarkerOuter: {
     alignItems: "center",
     paddingTop: 8,
     paddingHorizontal: 8,
   },
   busMarkerCard: {
-    width: 44,
-    height: 40,
-    borderRadius: 10,
+    width: 46,
+    height: 46,
+    borderRadius: 23,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: Colors.success,
-    borderWidth: 2,
-    borderColor: Colors.white,
+    backgroundColor: Colors.primary,
+    borderWidth: 3,
+    borderColor: Colors.black,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 3 },
     shadowOpacity: 0.28,
@@ -893,7 +897,7 @@ const make_s = (Colors: ThemePalette) => StyleSheet.create({
     position: "absolute" as const,
     top: -6,
     right: -6,
-    backgroundColor: Colors.primary,
+    backgroundColor: Colors.success,
     minWidth: 18,
     height: 18,
     borderRadius: 9,
@@ -907,17 +911,6 @@ const make_s = (Colors: ThemePalette) => StyleSheet.create({
     fontSize: 10,
     fontWeight: "800" as const,
     color: Colors.white,
-  },
-  busMarkerTail: {
-    width: 0,
-    height: 0,
-    borderLeftWidth: 7,
-    borderRightWidth: 7,
-    borderTopWidth: 9,
-    borderLeftColor: "transparent",
-    borderRightColor: "transparent",
-    borderTopColor: Colors.success,
-    marginTop: -1,
   },
 });
 

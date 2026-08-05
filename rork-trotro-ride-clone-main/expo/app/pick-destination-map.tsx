@@ -7,7 +7,7 @@ import {
   Platform,
   Dimensions,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import { Stack } from "expo-router";
 import { MapPin, Check, X, Crosshair } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
@@ -34,6 +34,8 @@ export default function PickDestinationMapScreen() {
   s = React.useMemo(() => make_s(themeColors), [themeColors]);
 
   const router = useRouter();
+  const { field } = useLocalSearchParams<{ field?: string }>();
+  const isPickup = field === "pickup";
   const insets = useSafeAreaInsets();
   const { mapCenter, regionStops } = useLocation();
   const cameraRef = useRef<React.ComponentRef<typeof MapLibreGL.Camera>>(null);
@@ -68,9 +70,10 @@ export default function PickDestinationMapScreen() {
         pinLat: String(pin.latitude),
         pinLng: String(pin.longitude),
         pinLabel: nearestStopName ?? `${pin.latitude.toFixed(4)}, ${pin.longitude.toFixed(4)}`,
+        pinField: field ?? "destination",
       },
     });
-  }, [pin, nearestStopName, router]);
+  }, [pin, nearestStopName, router, field]);
 
   const onClearPin = useCallback(() => {
     setPin(null);
@@ -167,7 +170,7 @@ export default function PickDestinationMapScreen() {
             >
               <X size={20} color={Colors.gray700} />
             </TouchableOpacity>
-            <Text style={s.topTitle}>Pick Destination</Text>
+            <Text style={s.topTitle}>{isPickup ? "Pick Boarding Point" : "Pick Destination"}</Text>
             <TouchableOpacity
               style={s.topBtn}
               onPress={recenter}
@@ -215,7 +218,7 @@ export default function PickDestinationMapScreen() {
                 activeOpacity={0.8}
               >
                 <Check size={18} color={Colors.white} />
-                <Text style={s.confirmTxt}>Confirm Destination</Text>
+                <Text style={s.confirmTxt}>{isPickup ? "Confirm Boarding Point" : "Confirm Destination"}</Text>
               </TouchableOpacity>
             </View>
           )}

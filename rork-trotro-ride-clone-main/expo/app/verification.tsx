@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, memo } from "react";
 import { StyleSheet, Text, View, ScrollView, TouchableOpacity, Platform, Animated, Dimensions, Alert } from "react-native";
-import { useLocalSearchParams } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { Shield, Clock, MapPin, ArrowRight, Copy, Navigation, AlertTriangle, QrCode } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import StaticColors from "@/constants/colors";
 import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
+import { useBookings } from "@/contexts/BookingContext";
 import QRCode from "@/components/QRCode";
 const Colors = StaticColors;
 
@@ -18,6 +19,8 @@ export default function VerificationScreen() {
   const Colors = themeColors;
   st = React.useMemo(() => make_st(themeColors), [themeColors]);
 
+  const router = useRouter();
+  const { bookings } = useBookings();
   const p = useLocalSearchParams<VP>();
   const code = p.code || "HK7M3R";
   const until = p.validUntil ? new Date(p.validUntil) : new Date(Date.now() + 86400000);
@@ -30,6 +33,27 @@ export default function VerificationScreen() {
     const tick = () => { const d = until.getTime() - Date.now(); if (d <= 0) { setRemaining("Expired"); return; } setRemaining(`${Math.floor(d / 3600000)}h ${Math.floor((d % 3600000) / 60000)}m remaining`); };
     tick(); const iv = setInterval(tick, 60000); return () => clearInterval(iv);
   }, []);
+
+  const onNavigateToStop = () => {
+    if (Platform.OS !== "web") Haptics.selectionAsync();
+    const booking = bookings.find((b) => b.id === p.bookingId);
+    if (!booking?.pickup_stop_id) {
+      Alert.alert("Stop location unavailable", "We couldn't find this stop's location to show it on the map.");
+      return;
+    }
+    router.push({
+      pathname: "/navigate-to-pickup",
+      params: {
+        stopId: booking.pickup_stop_id,
+        stopName: p.pickupStop || booking.pickup_stop_name || "",
+        bookingId: booking.id,
+        busReg: booking.bus_registration ?? "",
+        driverName: booking.driver_name ?? "",
+        routeName: p.routeName || booking.route_name || "",
+        eta: "0",
+      },
+    });
+  };
 
   return (
     <ScrollView style={st.root} contentContainerStyle={st.inner} showsVerticalScrollIndicator={false}>
@@ -61,7 +85,7 @@ export default function VerificationScreen() {
         <Text style={st.howTitle}>How to board</Text>
         {["Arrive at your pickup stop before the bus", "Show this code to the driver", "Driver verifies and confirms your seat"].map((s, i) => <View key={i} style={st.step}><View style={st.stepN}><Text style={st.stepNTxt}>{i + 1}</Text></View><Text style={st.stepTxt}>{s}</Text></View>)}
       </View>
-      <TouchableOpacity style={st.navBtn} onPress={() => Alert.alert("Navigate", "Opening Google Maps...")} activeOpacity={0.7}><Navigation size={18} color={Colors.white} /><Text style={st.navTxt}>Navigate to Stop</Text></TouchableOpacity>
+      <TouchableOpacity style={st.navBtn} onPress={onNavigateToStop} activeOpacity={0.7}><Navigation size={18} color={Colors.white} /><Text style={st.navTxt}>Navigate to Stop</Text></TouchableOpacity>
       <View style={{ height: 40 }} />
     </ScrollView>
   );

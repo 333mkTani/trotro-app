@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
 } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
+import MapLibreGL from "@maplibre/maplibre-react-native";
 import {
   MapPin,
   Navigation2,
@@ -85,6 +86,7 @@ export default function NavigateToPickupScreen() {
   const slideUp = useRef(new Animated.Value(40)).current;
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const progressAnim = useRef(new Animated.Value(0)).current;
+  const cameraRef = useRef<React.ComponentRef<typeof MapLibreGL.Camera>>(null);
 
   useEffect(() => {
     Animated.parallel([
@@ -196,6 +198,18 @@ export default function NavigateToPickupScreen() {
     return dirs[Math.round(bearing / 45) % 8];
   }, [bearing]);
 
+  const mapCenter = useMemo(() => {
+    if (!stop) return null;
+    if (!userLocation) return { lat: stop.lat, lng: stop.lng, zoom: 15 };
+    const centerLat = (userLocation.lat + stop.lat) / 2;
+    const centerLng = (userLocation.lng + stop.lng) / 2;
+    const latSpan = Math.abs(userLocation.lat - stop.lat);
+    const lngSpan = Math.abs(userLocation.lng - stop.lng);
+    const span = Math.max(latSpan, lngSpan, 0.003);
+    const zoom = Math.min(16, Math.max(12, 14.5 - Math.log2(span / 0.006)));
+    return { lat: centerLat, lng: centerLng, zoom };
+  }, [userLocation, stop]);
+
   const busEta = parseInt(params.eta ?? "0", 10);
 
   if (!stop) {
@@ -235,32 +249,83 @@ export default function NavigateToPickupScreen() {
       >
         <View style={st.mapContainer}>
           <View style={st.mapPlaceholder}>
-            <View style={st.mapGrid}>
-              {Array.from({ length: 6 }).map((_, i) => (
-                <View key={`h-${i}`} style={[st.mapGridLineH, { top: `${(i + 1) * 14}%` }]} />
-              ))}
-              {Array.from({ length: 6 }).map((_, i) => (
-                <View key={`v-${i}`} style={[st.mapGridLineV, { left: `${(i + 1) * 14}%` }]} />
-              ))}
-            </View>
+            {Platform.OS !== "web" && mapCenter ? (
+              <MapLibreGL.MapView
+                style={StyleSheet.absoluteFillObject}
+                mapStyle="https://tiles.openfreemap.org/styles/liberty"
+                logoEnabled={false}
+                attributionEnabled={false}
+              >
+                <MapLibreGL.Camera
+                  ref={cameraRef}
+                  centerCoordinate={[mapCenter.lng, mapCenter.lat]}
+                  zoomLevel={mapCenter.zoom}
+                  animationDuration={500}
+                />
 
-            {userLocation && (
-              <Animated.View style={[st.userPin, { transform: [{ scale: pulseAnim }] }]}>
-                <View style={st.userPinInner}>
-                  <LocateFixed size={16} color={Colors.white} />
+                {userLocation && (
+                  <MapLibreGL.ShapeSource
+                    id="walk-route-line"
+                    shape={{
+                      type: "Feature",
+                      geometry: {
+                        type: "LineString",
+                        coordinates: [
+                          [userLocation.lng, userLocation.lat],
+                          [stop.lng, stop.lat],
+                        ],
+                      },
+                      properties: {},
+                    }}
+                  >
+                    <MapLibreGL.LineLayer
+                      id="walk-route-dash"
+                      style={{ lineColor: Colors.primary, lineWidth: 3, lineDasharray: [2, 1.5] }}
+                    />
+                  </MapLibreGL.ShapeSource>
+                )}
+
+                <MapLibreGL.MarkerView coordinate={[stop.lng, stop.lat]}>
+                  <View style={st.stopPinInner}>
+                    <MapPin size={18} color={Colors.white} />
+                  </View>
+                </MapLibreGL.MarkerView>
+
+                {userLocation && (
+                  <MapLibreGL.MarkerView coordinate={[userLocation.lng, userLocation.lat]}>
+                    <Animated.View style={{ transform: [{ scale: pulseAnim }] }}>
+                      <View style={st.userPinInner}>
+                        <LocateFixed size={16} color={Colors.white} />
+                      </View>
+                    </Animated.View>
+                  </MapLibreGL.MarkerView>
+                )}
+              </MapLibreGL.MapView>
+            ) : (
+              <View style={st.mapGrid}>
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <View key={`h-${i}`} style={[st.mapGridLineH, { top: `${(i + 1) * 14}%` }]} />
+                ))}
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <View key={`v-${i}`} style={[st.mapGridLineV, { left: `${(i + 1) * 14}%` }]} />
+                ))}
+                {userLocation && (
+                  <Animated.View style={[st.userPin, { transform: [{ scale: pulseAnim }] }]}>
+                    <View style={st.userPinInner}>
+                      <LocateFixed size={16} color={Colors.white} />
+                    </View>
+                    <View style={st.userPinRing} />
+                  </Animated.View>
+                )}
+                <View style={st.routeLine} />
+                <View style={st.stopPin}>
+                  <View style={st.stopPinInner}>
+                    <MapPin size={18} color={Colors.white} />
+                  </View>
+                  <View style={st.stopPinShadow} />
                 </View>
-                <View style={st.userPinRing} />
-              </Animated.View>
-            )}
-
-            <View style={st.routeLine} />
-
-            <View style={st.stopPin}>
-              <View style={st.stopPinInner}>
-                <MapPin size={18} color={Colors.white} />
               </View>
-              <View style={st.stopPinShadow} />
-            </View>
+            )}
 
             {locationLoading && (
               <View style={st.mapOverlay}>
