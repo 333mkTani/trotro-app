@@ -1,8 +1,9 @@
-import React, { useState, useCallback } from 'react';
-import { View, Text, StyleSheet, Pressable, ActivityIndicator, ScrollView, Platform } from 'react-native';
+import React, { useState, useCallback, useRef } from 'react';
+import { View, Text, StyleSheet, Pressable, ActivityIndicator, ScrollView, Platform, Modal, Alert } from 'react-native';
 import * as Haptics from 'expo-haptics';
+import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'expo-camera';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { ShieldCheck, CheckCircle, XCircle, ScanLine, RefreshCw } from 'lucide-react-native';
+import { ShieldCheck, CheckCircle, XCircle, ScanLine, RefreshCw, X } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { verifyCode, reportPassengerEvent } from '@/services/driverApi';
 import { CodeInputCells } from '@/components/CodeInputCell';
@@ -42,14 +43,56 @@ export default function TrotroPassengerVerify() {
   const onReset = useCallback(() => { setCode(['', '', '', '', '', '']); setResult(null); vMut.reset(); }, [vMut]);
   const filled = code.every((c) => c.length === 1);
 
+  const [scanning, setScanning] = useState(false);
+  const [permission, requestPermission] = useCameraPermissions();
+  const scanLock = useRef(false);
+
+  const openScanner = useCallback(async () => {
+    if (Platform.OS === 'web') { Alert.alert('Not available', 'QR scanning is only available in the mobile app.'); return; }
+    let granted = permission?.granted ?? false;
+    if (!granted) { const res = await requestPermission(); granted = res.granted; }
+    if (!granted) { Alert.alert('Camera permission needed', 'Enable camera access in Settings to scan boarding QR codes.'); return; }
+    scanLock.current = false;
+    setScanning(true);
+  }, [permission, requestPermission]);
+
+  const onBarcodeScanned = useCallback((res: BarcodeScanningResult) => {
+    if (scanLock.current) return;
+    const digits = (res.data ?? '').replace(/\D/g, '');
+    if (digits.length !== 6) return; // ignore non-boarding QR codes, keep scanning
+    scanLock.current = true;
+    if (Platform.OS !== 'web') Haptics.selectionAsync();
+    setScanning(false);
+    setResult(null);
+    vMut.reset();
+    setCode(digits.split(''));
+    vMut.mutate(digits);
+  }, [vMut]);
+
   return (
     <ScrollView style={vs.c} contentContainerStyle={vs.s} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
       <View style={vs.instrCard}><View style={vs.instrI}><ShieldCheck size={28} color={Colors.primary} /></View><Text style={vs.instrT}>Enter passenger&apos;s 6-digit boarding code</Text><Text style={vs.instrS}>Ask the passenger to show their code screen</Text></View>
       <View style={vs.codeW}><CodeInputCells code={code} onCodeChange={setCode} /></View>
-      <Pressable style={vs.scanBtn} testID="scan-qr"><ScanLine size={18} color={Colors.primary} /><Text style={vs.scanT}>Scan QR Code instead</Text></Pressable>
+      <Pressable style={({ pressed }) => [vs.scanBtn, pressed && { opacity: 0.6 }]} onPress={openScanner} testID="scan-qr"><ScanLine size={18} color={Colors.primary} /><Text style={vs.scanT}>Scan QR Code instead</Text></Pressable>
       {!result && <Pressable style={({ pressed }) => [vs.vBtn, pressed && vs.vBtnP, !filled && vs.vBtnD]} onPress={onVerify} disabled={!filled || vMut.isPending} testID="verify-btn">{vMut.isPending ? <ActivityIndicator color={Colors.white} size="small" /> : <Text style={vs.vBtnT}>Verify Passenger</Text>}</Pressable>}
       {result?.success && <View style={vs.okCard} testID="verify-ok"><CheckCircle size={48} color={Colors.success} /><Text style={vs.okT}>Boarding Confirmed</Text>{result.passenger_name && <Text style={vs.det}>{result.passenger_name}</Text>}{result.route_name && <Text style={vs.route}>{result.route_name}</Text>}{result.confirmed_at && <Text style={vs.time}>Confirmed at {formatTime(result.confirmed_at)}</Text>}<View style={vs.seatUpdate}><RefreshCw size={12} color={Colors.primary} /><Text style={vs.seatUpdateText}>Seat count auto-updated</Text></View><Pressable style={({ pressed }) => [vs.resetBtn, pressed && { opacity: 0.85 }]} onPress={onReset} testID="verify-another"><Text style={vs.resetT}>Verify Another</Text></Pressable></View>}
       {result && !result.success && <View style={vs.failCard} testID="verify-fail"><XCircle size={48} color={Colors.error} /><Text style={vs.failT}>{result.error_code ? ET[result.error_code] ?? 'Failed' : 'Failed'}</Text><Text style={vs.failM}>{result.error_code ? EM[result.error_code] ?? 'Try again.' : 'Try again.'}</Text><Pressable style={({ pressed }) => [vs.retryBtn, pressed && { opacity: 0.85 }]} onPress={onReset} testID="try-again"><Text style={vs.retryT}>Try Again</Text></Pressable></View>}
+
+      <Modal visible={scanning} animationType="slide" onRequestClose={() => setScanning(false)} statusBarTranslucent>
+        <View style={vs.scanModal}>
+          {scanning && (
+            <CameraView style={vs.camera} facing="back" barcodeScannerSettings={{ barcodeTypes: ['qr'] }} onBarcodeScanned={onBarcodeScanned} />
+          )}
+          <View style={vs.scanOverlay} pointerEvents="box-none">
+            <View style={vs.scanHeader}>
+              <Text style={vs.scanTitle}>Scan boarding QR</Text>
+              <Pressable style={vs.scanClose} onPress={() => setScanning(false)} hitSlop={12} testID="scan-close"><X size={24} color={Colors.white} /></Pressable>
+            </View>
+            <View style={vs.scanFrame} />
+            <Text style={vs.scanHint}>Point the camera at the passenger&apos;s QR code</Text>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -72,4 +115,12 @@ const vs = StyleSheet.create({
   retryBtn: { height: 48, borderRadius: 12, backgroundColor: Colors.error, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 28 }, retryT: { fontSize: 15, fontWeight: '600' as const, color: Colors.white },
   seatUpdate: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, backgroundColor: '#EBF4FF', paddingVertical: 6, paddingHorizontal: 12, borderRadius: 8, marginBottom: 16 },
   seatUpdateText: { fontSize: 12, fontWeight: '600' as const, color: Colors.primary },
+  scanModal: { flex: 1, backgroundColor: '#000' },
+  camera: { ...StyleSheet.absoluteFillObject },
+  scanOverlay: { flex: 1, justifyContent: 'center', alignItems: 'center', paddingHorizontal: 24 },
+  scanHeader: { position: 'absolute', top: 0, left: 0, right: 0, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 56, paddingHorizontal: 20, paddingBottom: 16 },
+  scanTitle: { fontSize: 18, fontWeight: '700' as const, color: Colors.white },
+  scanClose: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
+  scanFrame: { width: 240, height: 240, borderRadius: 24, borderWidth: 3, borderColor: Colors.white, backgroundColor: 'transparent' },
+  scanHint: { position: 'absolute', bottom: 80, fontSize: 15, fontWeight: '600' as const, color: Colors.white, textAlign: 'center', backgroundColor: 'rgba(0,0,0,0.5)', paddingVertical: 10, paddingHorizontal: 18, borderRadius: 12, overflow: 'hidden' },
 });

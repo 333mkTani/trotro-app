@@ -34,6 +34,7 @@ import { router } from 'expo-router';
 import Colors from '@/constants/colors';
 import {
   getOverflowRequests,
+  getConfirmedBookings,
   acceptOverflowRequest,
   declineOverflowRequest,
   autoAcceptBooking,
@@ -72,6 +73,7 @@ function RequestCard({
   const isOpen = item.status === 'OPEN';
   const isAccepted = item.status === 'ACCEPTED';
   const isDeclined = item.status === 'DECLINED';
+  const isConfirmed = item.status === 'CONFIRMED';
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(0.95)).current;
 
@@ -83,16 +85,18 @@ function RequestCard({
   }, [fadeAnim, scaleAnim]);
 
   const statusBadge = useMemo(() => {
+    if (isConfirmed) return { bg: '#EBF4FF', text: '#1D4ED8', label: 'Confirmed' };
     if (isAccepted) return { bg: '#E8F5E9', text: '#2E7D32', label: 'Accepted' };
     if (isDeclined) return { bg: '#FFEBEE', text: '#C62828', label: 'Declined' };
     if (rem.text === 'Expired') return { bg: '#F5F5F5', text: '#64748B', label: 'Expired' };
     return null;
-  }, [isAccepted, isDeclined, rem.text]);
+  }, [isConfirmed, isAccepted, isDeclined, rem.text]);
 
   return (
     <Animated.View
       style={[
         rs.card,
+        isConfirmed && rs.cardConfirmed,
         isAccepted && rs.cardAccepted,
         isDeclined && rs.cardDeclined,
         !isStationary && isOpen && rs.cardDriving,
@@ -102,12 +106,16 @@ function RequestCard({
     >
       <View style={rs.cardTop}>
         <View style={rs.stopRow}>
-          <View style={rs.stopIcon}>
+          <View style={[rs.stopIcon, isConfirmed && rs.stopIconPickup]}>
             <MapPin size={16} color={Colors.white} />
           </View>
           <View style={rs.stopInfo}>
-            <Text style={rs.stopName} numberOfLines={1}>{item.stop_name}</Text>
-            {item.passenger_name ? (
+            <Text style={rs.stopName} numberOfLines={1}>
+              {isConfirmed ? (item.passenger_name ?? 'Passenger') : item.stop_name}
+            </Text>
+            {isConfirmed ? (
+              <Text style={rs.passengerName}>Booked a seat on your bus</Text>
+            ) : item.passenger_name ? (
               <Text style={rs.passengerName}>{item.passenger_name}</Text>
             ) : null}
           </View>
@@ -125,6 +133,18 @@ function RequestCard({
           </View>
         )}
       </View>
+
+      {isConfirmed ? (
+        <View style={rs.pickupBanner}>
+          <View style={rs.pickupBannerIcon}>
+            <MapPin size={16} color={Colors.white} />
+          </View>
+          <View style={rs.pickupBannerInfo}>
+            <Text style={rs.pickupBannerLabel}>PICK UP AT</Text>
+            <Text style={rs.pickupBannerValue} numberOfLines={2}>{item.pickup_stop || item.stop_name}</Text>
+          </View>
+        </View>
+      ) : null}
 
       <View style={rs.routeContainer}>
         <View style={rs.routeVisual}>
@@ -149,7 +169,7 @@ function RequestCard({
           <User size={12} color={Colors.primary} />
           <Text style={rs.metaChipTextIndividual}>1 passenger</Text>
         </View>
-        <Text style={rs.metaDist}>{formatDistance(item.distance_km)}</Text>
+        {!isConfirmed ? <Text style={rs.metaDist}>{formatDistance(item.distance_km)}</Text> : null}
         <Text style={rs.metaAgo}>{formatTimeAgo(item.time_posted)}</Text>
       </View>
 
@@ -260,6 +280,14 @@ export default function TrotroOverflowRequests() {
     queryKey: ['overflow'],
     queryFn: getOverflowRequests,
     refetchInterval: 45000,
+  });
+
+  // Bookings already auto-confirmed on this driver's bus — shown as read-only
+  // "Confirmed" cards so the driver sees who's coming and where to pick up.
+  const cQ = useQuery({
+    queryKey: ['confirmed-bookings'],
+    queryFn: getConfirmedBookings,
+    refetchInterval: 30000,
   });
 
   useEffect(() => {
@@ -399,17 +427,17 @@ export default function TrotroOverflowRequests() {
   }, []);
 
   const sortedData = useMemo(() => {
-    if (!oQ.data) return [];
+    const confirmed = cQ.data ?? [];
     const open: OverflowRequest[] = [];
     const accepted: OverflowRequest[] = [];
     const rest: OverflowRequest[] = [];
-    oQ.data.forEach((r) => {
+    (oQ.data ?? []).forEach((r) => {
       if (r.status === 'OPEN') open.push(r);
       else if (r.status === 'ACCEPTED') accepted.push(r);
       else rest.push(r);
     });
-    return [...accepted, ...open, ...rest];
-  }, [oQ.data]);
+    return [...confirmed, ...accepted, ...open, ...rest];
+  }, [oQ.data, cQ.data]);
 
   const renderItem = useCallback(
     ({ item }: { item: OverflowRequest }) => (
@@ -428,6 +456,7 @@ export default function TrotroOverflowRequests() {
 
   const openCount = useMemo(() => sortedData.filter((r) => r.status === 'OPEN').length, [sortedData]);
   const acceptedCount = useMemo(() => sortedData.filter((r) => r.status === 'ACCEPTED').length, [sortedData]);
+  const confirmedCount = useMemo(() => sortedData.filter((r) => r.status === 'CONFIRMED').length, [sortedData]);
 
   const Header = useMemo(
     () => (
@@ -457,6 +486,12 @@ export default function TrotroOverflowRequests() {
                   <Text style={[rs.summaryText, rs.summaryTextGreen]}>{acceptedCount} accepted</Text>
                 </View>
               ) : null}
+              {confirmedCount > 0 ? (
+                <View style={[rs.summaryChip, rs.summaryChipBlue]}>
+                  <CheckCircle size={12} color={Colors.primary} />
+                  <Text style={[rs.summaryText, rs.summaryTextBlue]}>{confirmedCount} confirmed</Text>
+                </View>
+              ) : null}
             </View>
             {openCount > 0 && isStationary ? (
               <View style={rs.alertBanner}>
@@ -471,12 +506,12 @@ export default function TrotroOverflowRequests() {
         ) : null}
       </View>
     ),
-    [sortedData.length, openCount, acceptedCount, isStationary, autoAcceptedBookings.length, availableSeats],
+    [sortedData.length, openCount, acceptedCount, confirmedCount, isStationary, autoAcceptedBookings.length, availableSeats],
   );
 
   const Empty = useMemo(
     () =>
-      oQ.isLoading ? (
+      oQ.isLoading || cQ.isLoading ? (
         <ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: 60 }} />
       ) : (
         <View style={rs.empty}>
@@ -506,8 +541,11 @@ export default function TrotroOverflowRequests() {
         ListEmptyComponent={Empty}
         refreshControl={
           <RefreshControl
-            refreshing={oQ.isRefetching}
-            onRefresh={() => qc.invalidateQueries({ queryKey: ['overflow'] })}
+            refreshing={oQ.isRefetching || cQ.isRefetching}
+            onRefresh={() => {
+              qc.invalidateQueries({ queryKey: ['overflow'] });
+              qc.invalidateQueries({ queryKey: ['confirmed-bookings'] });
+            }}
             tintColor={Colors.primary}
             colors={[Colors.primary]}
           />
@@ -599,6 +637,12 @@ const rs = StyleSheet.create({
   summaryTextGreen: {
     color: Colors.success,
   },
+  summaryChipBlue: {
+    backgroundColor: '#EBF4FF',
+  },
+  summaryTextBlue: {
+    color: Colors.primary,
+  },
 
   alertBanner: {
     flexDirection: 'row',
@@ -644,6 +688,11 @@ const rs = StyleSheet.create({
   cardDeclined: {
     opacity: 0.55,
   },
+  cardConfirmed: {
+    borderColor: '#93C5FD',
+    borderWidth: 1.5,
+    backgroundColor: '#F7FBFF',
+  },
   cardDriving: {
     opacity: 0.7,
     borderColor: '#E2E8F0',
@@ -671,6 +720,9 @@ const rs = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
   },
+  stopIconPickup: {
+    backgroundColor: Colors.primary,
+  },
   stopInfo: { flex: 1 },
   stopName: {
     fontSize: 16,
@@ -694,6 +746,40 @@ const rs = StyleSheet.create({
   statusText: {
     fontSize: 12,
     fontWeight: '700' as const,
+  },
+
+  pickupBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#EBF4FF',
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+  },
+  pickupBannerIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: Colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pickupBannerInfo: { flex: 1 },
+  pickupBannerLabel: {
+    fontSize: 11,
+    fontWeight: '700' as const,
+    color: Colors.primary,
+    letterSpacing: 0.5,
+    marginBottom: 2,
+  },
+  pickupBannerValue: {
+    fontSize: 16,
+    fontWeight: '700' as const,
+    color: Colors.textPrimary,
+    lineHeight: 20,
   },
 
   timer: {

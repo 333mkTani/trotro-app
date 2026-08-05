@@ -112,6 +112,27 @@ export async function getOverflowRequests(): Promise<OverflowRequest[]> {
   }));
 }
 
+// Bookings a passenger placed on this driver's bus that the backend already
+// auto-confirmed (a boarding code was issued). Shown on the Requests screen so
+// the driver knows who to expect and at which stop — no accept/decline needed.
+export async function getConfirmedBookings(): Promise<OverflowRequest[]> {
+  const { data } = await api.get('/bookings', { params: { status: 'confirmed' } });
+  return (data as Record<string, unknown>[]).map((b) => ({
+    id: b.id as string,
+    stop_name: (b.pickup_stop_name as string) ?? '',
+    pickup_stop: (b.pickup_stop_name as string) ?? '',
+    destination_stop: (b.destination_stop_name as string) ?? '',
+    demand_count: 1,
+    distance_km: 0,
+    time_posted: b.created_at as string,
+    expires_at: b.desired_arrival_time as string,
+    lat: 0,
+    lng: 0,
+    status: 'CONFIRMED' as const,
+    passenger_name: (b.passenger_name as string) ?? undefined,
+  }));
+}
+
 export async function acceptOverflowRequest(requestId: string): Promise<void> {
   await api.post(`/bookings/${requestId}/confirm`);
 }

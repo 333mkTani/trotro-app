@@ -39,7 +39,13 @@
       "expo-font",
       "expo-web-browser",
       "expo-notifications",
-      "@react-native-firebase/app"
+      "@react-native-firebase/app",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Trotro Driver to scan passenger boarding QR codes."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

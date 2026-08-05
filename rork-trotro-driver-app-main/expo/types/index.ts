@@ -93,7 +93,7 @@ export interface OverflowRequest {
   expires_at: string;
   lat: number;
   lng: number;
-  status: 'OPEN' | 'ACCEPTED' | 'DECLINED' | 'EXPIRED';
+  status: 'OPEN' | 'ACCEPTED' | 'DECLINED' | 'EXPIRED' | 'CONFIRMED';
   passenger_name?: string;
   destination_stop?: string;
 }
