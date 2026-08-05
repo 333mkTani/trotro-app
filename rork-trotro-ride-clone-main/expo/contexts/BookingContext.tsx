@@ -20,7 +20,9 @@ const mapBooking = (b: Record<string, unknown>): Booking => ({
   completed_at: b.completed_at as string | undefined,
   created_at: b.created_at as string,
   route_name: b.route_name as string | undefined,
-  ride_fare: b.ride_fare as number | undefined,
+  // Postgres `numeric` arrives as a string over JSON — coerce so the value
+  // matches its declared `number` type and `.toFixed()` works downstream.
+  ride_fare: b.ride_fare != null ? Number(b.ride_fare) : undefined,
   ride_payment_method: b.ride_payment_method as RidePaymentMethod | undefined,
   ride_schedule: b.ride_schedule as RideSchedule | undefined,
   verification_code: b.verification_code as string | undefined,

@@ -61,10 +61,10 @@ export default React.memo(function BookingCard({ booking, onPress, onCancel, onN
             <MapPin size={12} color={Colors.gray500} />
             <Text style={styles.detailText} numberOfLines={1}>{booking.buffer_minutes}m buffer</Text>
           </View>
-          {booking.ride_fare != null && (
+          {Number.isFinite(Number(booking.ride_fare)) && (
             <View style={styles.fareBadge}>
               <Banknote size={12} color={Colors.success} />
-              <Text style={styles.fareText} numberOfLines={1}>GH₵{booking.ride_fare.toFixed(2)}</Text>
+              <Text style={styles.fareText} numberOfLines={1}>GH₵{Number(booking.ride_fare).toFixed(2)}</Text>
             </View>
           )}
         </View>
