@@ -41,10 +41,21 @@ const create = async (passengerId, data) => {
       return booking;
     }
 
+    // Reserve the seat now (booking time). The passenger picked a live bus but
+    // only sends the driver id, so resolve that driver's active bus to know
+    // which seat pool to draw from. The reservation is atomic and fails the
+    // whole transaction if the bus filled up between the passenger's live-
+    // availability check and this write.
+    const targetBusId = data.busId ?? (await busModel.findByDriverId(data.driverId))?.id ?? null;
+    if (targetBusId) {
+      const bus = await busModel.reserveSeat(targetBusId, client);
+      if (!bus) throw ApiError.conflict('No seats available on this bus');
+    }
+
     const confirmed = await bookingModel.updateStatus(
       booking.id,
       'confirmed',
-      { driverId: data.driverId, busId: data.busId ?? null },
+      { driverId: data.driverId, busId: targetBusId },
       client,
     );
 
@@ -108,10 +119,8 @@ const confirm = async (bookingId, { driverId, busId } = {}) => {
 
     const targetBusId = booking.bus_id;
     if (targetBusId) {
-      const bus = await busModel.adjustSeats(targetBusId, -1, client);
-      if (!bus || bus.seats_available < 0) {
-        throw ApiError.conflict('No seats available on this bus');
-      }
+      const bus = await busModel.reserveSeat(targetBusId, client);
+      if (!bus) throw ApiError.conflict('No seats available on this bus');
     }
 
     const code = generateBoardingCode(6);
@@ -169,6 +178,13 @@ const complete = async (bookingId, user) => {
     if (!booking) throw ApiError.notFound('Booking not found');
     const code = await codeModel.findByBookingId(bookingId);
     if (code && code.status === 'valid') await codeModel.markUsed(code.id, client);
+    // The passenger has alighted, so free the seat they held. A booking only
+    // ever releases its seat once: 'confirmed' is the sole state that holds a
+    // reservation, and 'completed'/'cancelled' are terminal and mutually
+    // exclusive — so this can't double-restore with cancel().
+    if (existing.status === 'confirmed' && existing.bus_id) {
+      await busModel.adjustSeats(existing.bus_id, 1, client);
+    }
     if (booking.driver_id) emitToDriver(booking.driver_id, 'booking:updated', booking);
     return booking;
   });

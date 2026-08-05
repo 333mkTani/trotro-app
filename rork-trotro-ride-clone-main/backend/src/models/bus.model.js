@@ -53,6 +53,24 @@ const adjustSeats = async (id, delta, client) => {
 };
 
 /**
+ * Atomically reserve one seat. The `seats_available > 0` guard is evaluated
+ * under the row lock the UPDATE takes, so concurrent bookings serialise and
+ * can never oversell. Returns the updated bus, or null when the bus is full
+ * (no row matched) — callers treat null as "no seats available".
+ */
+const reserveSeat = async (id, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
+    `update public.buses
+        set seats_available = seats_available - 1
+      where id = $1 and seats_available > 0
+      returning ${COLUMNS}`,
+    [id],
+  );
+  return rows[0] || null;
+};
+
+/**
  * Active buses within `radiusM` metres of a coordinate, optionally filtered
  * by `routeId`. Ordered by distance via PostGIS KNN.
  */
@@ -135,6 +153,6 @@ const listApproachingStop = async ({ stopId, routeName, radiusM = 3000, limit = 
 };
 
 module.exports = {
-  list, findById, insert, updateLocation, adjustSeats, findNearby, listActive,
+  list, findById, insert, updateLocation, adjustSeats, reserveSeat, findNearby, listActive,
   findByDriverId, listApproachingStop,
 };
