@@ -61,6 +61,7 @@ const getDashboard = async (driverId) => {
     rating_count: parseInt(driver?.rating_count || 0, 10),
     bus_registration: bus?.registration || null,
     is_available: bus?.status === 'active',
+    driving_status: bus?.driving_status || 'STATIONARY',
     available_seats: bus?.seats_available ?? 0,
     total_seats: bus?.total_seats ?? 14,
     assigned_route: bus?.route_name || null,
@@ -80,12 +81,33 @@ const setAvailability = async (driverId, isAvailable) => {
   // entity_status enum: active | paused | deleted
   const newStatus = isAvailable ? 'active' : 'paused';
   const { rows } = await query(
-    `UPDATE buses SET status = $1 WHERE id = $2 RETURNING *`,
+    `UPDATE buses
+        SET status = $1,
+            driving_status = CASE WHEN $1 = 'paused' THEN 'STATIONARY' ELSE driving_status END
+      WHERE id = $2 RETURNING *`,
     [newStatus, bus.id]
   );
   return rows[0];
 };
 
+const setDrivingStatus = async (driverId, drivingStatus) => {
+  if (!['STATIONARY', 'EN_ROUTE'].includes(drivingStatus)) {
+    throw ApiError.badRequest('Driving status must be STATIONARY or EN_ROUTE');
+  }
+  const bus = await getMyBus(driverId);
+  if (!bus) throw ApiError.notFound('No bus assigned to this driver yet');
+  if (bus.status !== 'active' && drivingStatus === 'EN_ROUTE') {
+    throw ApiError.conflict('Driver must be available before going en route');
+  }
+  if (drivingStatus === 'EN_ROUTE' && bus.seats_available <= 0) {
+    throw ApiError.conflict('No seats available');
+  }
+  const { rows } = await query(
+    `UPDATE buses SET driving_status = $1 WHERE id = $2 RETURNING *`,
+    [drivingStatus, bus.id],
+  );
+  return rows[0];
+};
 const updateSeats = async (driverId, { availableSeats, totalSeats }) => {
   const bus = await getMyBus(driverId);
   if (!bus) throw ApiError.notFound('No active bus assigned to this driver');
@@ -131,4 +153,4 @@ const updateRoute = async (driverId, routeId) => {
   return rows[0];
 };
 
-module.exports = { getProfile, getDashboard, setAvailability, updateSeats, updateLocation, updateRoute, getMyBus };
+module.exports = { getProfile, getDashboard, setAvailability, setDrivingStatus, updateSeats, updateLocation, updateRoute, getMyBus };

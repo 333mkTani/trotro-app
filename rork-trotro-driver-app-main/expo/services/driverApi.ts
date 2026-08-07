@@ -14,6 +14,7 @@ export async function getDashboard(): Promise<DriverDashboard> {
     driver_name: data.driver_name ?? '',
     bus_registration: data.bus_registration ?? '',
     is_available: data.is_available ?? false,
+    driving_status: data.driving_status ?? 'STATIONARY',
     available_seats: data.available_seats ?? 0,
     total_seats: data.total_seats ?? 14,
     assigned_route: data.assigned_route
@@ -196,8 +197,8 @@ export async function requestWithdrawal(params: {
 
 // ─── Driving status & seats ──────────────────────────────────────────────────
 
-export async function updateDrivingStatus(_status: DrivingStatus): Promise<void> {
-  return;
+export async function updateDrivingStatus(status: DrivingStatus): Promise<void> {
+  await api.patch('/drivers/me/driving-status', { drivingStatus: status });
 }
 
 export async function autoAcceptBooking(availableSeats: number): Promise<AutoAcceptedBooking | null> {

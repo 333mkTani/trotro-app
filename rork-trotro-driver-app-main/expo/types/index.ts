@@ -27,6 +27,7 @@ export interface DriverDashboard {
   driver_name: string;
   bus_registration: string;
   is_available: boolean;
+  driving_status: DrivingStatus;
   available_seats: number;
   total_seats: number;
   assigned_route: Route | null;

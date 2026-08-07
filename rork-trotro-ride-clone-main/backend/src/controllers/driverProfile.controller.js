@@ -17,6 +17,10 @@ const setAvailability = asyncHandler(async (req, res) => {
   res.json(bus);
 });
 
+const setDrivingStatus = asyncHandler(async (req, res) => {
+  const bus = await svc.setDrivingStatus(req.user.id, req.body.drivingStatus);
+  res.json(bus);
+});
 const updateSeats = asyncHandler(async (req, res) => {
   const { availableSeats, totalSeats } = req.body;
   const bus = await svc.updateSeats(req.user.id, { availableSeats, totalSeats });
@@ -36,4 +40,4 @@ const updateRoute = asyncHandler(async (req, res) => {
   res.json(bus);
 });
 
-module.exports = { getProfile, getDashboard, setAvailability, updateSeats, updateLocation, updateRoute };
+module.exports = { getProfile, getDashboard, setAvailability, setDrivingStatus, updateSeats, updateLocation, updateRoute };

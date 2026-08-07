@@ -147,6 +147,8 @@ create table if not exists public.buses (
   geom               geography(Point, 4326),
   last_ping_at       timestamptz,
   status             entity_status not null default 'active',
+  driving_status     text not null default 'STATIONARY'
+                     check (driving_status in ('STATIONARY', 'EN_ROUTE')),
   created_at         timestamptz not null default now()
 );
 create index if not exists buses_driver_idx on public.buses(driver_id);

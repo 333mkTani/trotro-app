@@ -28,12 +28,16 @@ export default function TrotroDriverDashboard() {
   useEffect(() => {
     if (dashQ.data) {
       const d = dashQ.data;
-      store.setDashboardData({ isAvailable: d.is_available, availableSeats: d.available_seats, totalSeats: d.total_seats, assignedRoute: d.assigned_route, pendingBookingCount: d.pending_booking_count, demandScore: d.demand_score, todaysTrips: d.todays_trips, driverName: d.driver_name, busRegistration: d.bus_registration, schedulingHours: d.scheduling_hours });
+      store.setDashboardData({ isAvailable: d.is_available, drivingStatus: d.driving_status, availableSeats: d.available_seats, totalSeats: d.total_seats, assignedRoute: d.assigned_route, pendingBookingCount: d.pending_booking_count, demandScore: d.demand_score, todaysTrips: d.todays_trips, driverName: d.driver_name, busRegistration: d.bus_registration, schedulingHours: d.scheduling_hours });
     }
   }, [dashQ.data]);
 
   const availMut = useMutation({ mutationFn: toggleAvailability, onSuccess: () => qc.invalidateQueries({ queryKey: ['dashboard'] }), onError: () => Alert.alert('Error', 'Failed to update availability.') });
-  const onToggle = useCallback((v: boolean) => { store.setAvailability(v); availMut.mutate(v); }, [store, availMut]);
+  const onToggle = useCallback((v: boolean) => {
+    store.setAvailability(v);
+    if (!v) store.setDrivingStatus('STATIONARY');
+    availMut.mutate(v);
+  }, [store, availMut]);
 
   const drivingMut = useMutation({
     mutationFn: updateDrivingStatus,

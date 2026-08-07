@@ -1,7 +1,7 @@
 const { query } = require('../config/db');
 
 const COLUMNS = `id, registration, driver_id, route_id, total_seats, seats_available,
-  current_lat, current_lng, last_ping_at, status, created_at`;
+  current_lat, current_lng, last_ping_at, status, driving_status, created_at`;
 
 // Only surfaces buses a passenger could actually board: `seats_available > 0`
 // is enforced here so full buses never appear in discovery, matching
@@ -72,6 +72,22 @@ const reserveSeat = async (id, client) => {
     `update public.buses
         set seats_available = seats_available - 1
       where id = $1 and seats_available > 0
+      returning ${COLUMNS}`,
+    [id],
+  );
+  return rows[0] || null;
+};
+
+/** Reserve a seat only when the bus is eligible for automatic acceptance. */
+const reserveSeatForAutoAccept = async (id, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
+    `update public.buses
+        set seats_available = seats_available - 1
+      where id = $1
+        and status = 'active'
+        and driving_status = 'EN_ROUTE'
+        and seats_available > 0
       returning ${COLUMNS}`,
     [id],
   );
@@ -164,6 +180,6 @@ const listApproachingStop = async ({ stopId, routeName, radiusM = 3000, limit = 
 };
 
 module.exports = {
-  list, findById, insert, updateLocation, adjustSeats, reserveSeat, findNearby, listActive,
+  list, findById, insert, updateLocation, adjustSeats, reserveSeat, reserveSeatForAutoAccept, findNearby, listActive,
   findByDriverId, listApproachingStop,
 };

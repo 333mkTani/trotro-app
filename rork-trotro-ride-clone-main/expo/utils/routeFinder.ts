@@ -62,13 +62,17 @@ export function findRouteRecommendations(
   stops?: BusStop[],
   routes?: Route[],
   activeBuses?: ApproachingBus[],
+  destinationStopId?: string,
 ): RouteRecommendation[] {
   const stopsToSearch = stops ?? [];
   const routesToSearch = routes ?? [];
   const busPool = activeBuses ?? [];
 
   const nearbyPickups = findNearbyStops(userLat, userLng, maxWalkM, stopsToSearch);
-  const nearbyDests = findNearbyStops(destLat, destLng, maxWalkM, stopsToSearch);
+  const nearbyDests = destinationStopId
+    ? findNearbyStops(destLat, destLng, maxWalkM, stopsToSearch)
+        .filter((stop) => stop.id === destinationStopId)
+    : findNearbyStops(destLat, destLng, maxWalkM, stopsToSearch);
 
   if (nearbyPickups.length === 0 || nearbyDests.length === 0) {
     console.log('[RouteFinder] No nearby stops found for pickup or destination');

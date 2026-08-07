@@ -31,8 +31,8 @@ const create = async (passengerId, data) => {
   return withTransaction(async (client) => {
     const booking = await bookingModel.insert({ ...data, passengerId }, client);
 
-    // A specific bus/driver was picked (live availability already checked
-    // passenger-side), so confirm immediately and hand out a boarding code.
+    // A specific bus/driver may have been picked from a passenger-side search.
+    // Treat that result as stale until availability is revalidated here.
     // Without a driver there's nothing to board yet — leave it 'pending'
     // until a driver claims it via POST /bookings/:id/confirm. Drivers
     // currently on the same route are notified live if they're connected.
@@ -41,16 +41,25 @@ const create = async (passengerId, data) => {
       return booking;
     }
 
-    // Reserve the seat now (booking time). The passenger picked a live bus but
-    // only sends the driver id, so resolve that driver's active bus to know
-    // which seat pool to draw from. The reservation is atomic and fails the
-    // whole transaction if the bus filled up between the passenger's live-
-    // availability check and this write.
+    // Resolve the selected bus and enforce operational state on the server.
     const targetBusId = data.busId ?? (await busModel.findByDriverId(data.driverId))?.id ?? null;
-    if (targetBusId) {
-      const bus = await busModel.reserveSeat(targetBusId, client);
-      if (!bus) throw ApiError.conflict('No seats available on this bus');
+    if (!targetBusId) throw ApiError.conflict('Driver has no assigned bus');
+    const targetBus = await busModel.findById(targetBusId);
+    if (!targetBus || targetBus.driver_id !== data.driverId || targetBus.status !== 'active') {
+      throw ApiError.conflict('This driver is currently unavailable');
     }
+
+    // Stationary drivers must decide manually. Keep the booking pending and do
+    // not consume a seat until POST /bookings/:id/confirm succeeds.
+    if (targetBus.driving_status !== 'EN_ROUTE') {
+      emitToDriver(data.driverId, 'booking:new', booking);
+      return booking;
+    }
+
+    // En-route drivers opt into automatic acceptance. The atomic UPDATE also
+    // rechecks status/mode to close the race with availability toggles.
+    const bus = await busModel.reserveSeatForAutoAccept(targetBusId, client);
+    if (!bus) throw ApiError.conflict('This bus is unavailable or has no seats');
 
     const confirmed = await bookingModel.updateStatus(
       booking.id,
@@ -110,18 +119,28 @@ const confirm = async (bookingId, { driverId, busId } = {}) => {
       throw ApiError.badRequest(`Cannot confirm booking in status "${existing.status}"`);
     }
 
+    const effectiveDriverId = driverId ?? existing.driver_id;
+    if (!effectiveDriverId) throw ApiError.badRequest('A driver is required to confirm this booking');
+    if (existing.driver_id && existing.driver_id !== effectiveDriverId) {
+      throw ApiError.forbidden('This booking is assigned to another driver');
+    }
+
+    const driverBus = await busModel.findByDriverId(effectiveDriverId);
+    const targetBusId = busId ?? existing.bus_id ?? driverBus?.id ?? null;
+    const targetBus = targetBusId ? await busModel.findById(targetBusId) : null;
+    if (!targetBus || targetBus.driver_id !== effectiveDriverId || targetBus.status !== 'active') {
+      throw ApiError.conflict('Driver is currently unavailable');
+    }
+
     const booking = await bookingModel.updateStatus(
       bookingId,
       'confirmed',
-      { driverId: driverId ?? existing.driver_id, busId: busId ?? existing.bus_id },
+      { driverId: effectiveDriverId, busId: targetBusId },
       client,
     );
 
-    const targetBusId = booking.bus_id;
-    if (targetBusId) {
-      const bus = await busModel.reserveSeat(targetBusId, client);
-      if (!bus) throw ApiError.conflict('No seats available on this bus');
-    }
+    const bus = await busModel.reserveSeat(targetBusId, client);
+    if (!bus) throw ApiError.conflict('No seats available on this bus');
 
     const code = generateBoardingCode(6);
     const validUntil = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();

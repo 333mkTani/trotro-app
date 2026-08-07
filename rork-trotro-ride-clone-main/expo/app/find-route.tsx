@@ -75,7 +75,19 @@ export default function FindRouteScreen() {
 
   const router = useRouter();
   const params = useLocalSearchParams<{ pinLat?: string; pinLng?: string; pinLabel?: string; pinField?: string }>();
-  const { userLat, userLng, nearbyStops, regionStops, regionRoutes, activeBuses, regionName, mapCenter } = useLocation();
+  const {
+    userLat,
+    userLng,
+    nearbyStops,
+    regionStops,
+    regionRoutes,
+    activeBuses,
+    regionName,
+    mapCenter,
+    locationLoading,
+    locationError,
+    refreshLocation,
+  } = useLocation();
   const { user } = useAuth();
   const { bookBus } = useBookings();
   const [bookedBooking, setBookedBooking] = useState<Booking | null>(null);
@@ -110,9 +122,6 @@ export default function FindRouteScreen() {
   const resultsFade = useRef(new Animated.Value(0)).current;
   const confirmSlide = useRef(new Animated.Value(SCREEN_W)).current;
   const inputRef = useRef<TextInput>(null);
-
-  const effectiveLat = pickupOverride?.lat ?? currentLat;
-  const effectiveLng = pickupOverride?.lng ?? currentLng;
 
   useEffect(() => {
     Animated.parallel([
@@ -194,6 +203,27 @@ export default function FindRouteScreen() {
 
   const onSelectDestination = useCallback(
     async (stop: BusStop) => {
+      const pickupLat = pickupOverride?.lat ?? userLat;
+      const pickupLng = pickupOverride?.lng ?? userLng;
+
+      // Never rank pickup stops from the regional map centre. It is only a map
+      // fallback and may be kilometres away from the passenger's real position.
+      if (pickupLat == null || pickupLng == null) {
+        Alert.alert(
+          locationLoading ? "Getting Your Location" : "Location Required",
+          locationLoading
+            ? "Please wait a moment for your current location, then try again."
+            : locationError ?? "Turn on location access so we can show the nearest pickup stop first.",
+          locationLoading
+            ? [{ text: "OK" }]
+            : [
+                { text: "Cancel", style: "cancel" },
+                { text: "Retry", onPress: () => { void refreshLocation(); } },
+              ],
+        );
+        return;
+      }
+
       if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
       setSelectedDest(stop);
       setQuery(stop.name);
@@ -203,13 +233,35 @@ export default function FindRouteScreen() {
 
       await new Promise((r) => setTimeout(r, 800));
 
-      const recs = findRouteRecommendations(effectiveLat, effectiveLng, stop.lat, stop.lng, 3000, stopsForSearch.length > 0 ? stopsForSearch : undefined, regionRoutes.length > 0 ? regionRoutes : undefined, activeBuses);
+      const exactDestinationId = stop.id.startsWith("place-") ? undefined : stop.id;
+      const recs = findRouteRecommendations(
+        pickupLat,
+        pickupLng,
+        stop.lat,
+        stop.lng,
+        3000,
+        stopsForSearch.length > 0 ? stopsForSearch : undefined,
+        regionRoutes.length > 0 ? regionRoutes : undefined,
+        activeBuses,
+        exactDestinationId,
+      );
       setRecommendations(recs);
       setLoading(false);
 
       Animated.timing(resultsFade, { toValue: 1, duration: 400, useNativeDriver: true }).start();
     },
-    [resultsFade, activeBuses, effectiveLat, effectiveLng, stopsForSearch, regionRoutes],
+    [
+      resultsFade,
+      activeBuses,
+      pickupOverride,
+      userLat,
+      userLng,
+      locationLoading,
+      locationError,
+      refreshLocation,
+      stopsForSearch,
+      regionRoutes,
+    ],
   );
 
   const onSelectPlace = useCallback(
@@ -392,8 +444,10 @@ export default function FindRouteScreen() {
   );
 
   const nearbyPickupStops = useMemo(
-    () => findNearbyStops(currentLat, currentLng, 5000, stopsForSearch).slice(0, 8),
-    [currentLat, currentLng, stopsForSearch],
+    () => userLat == null || userLng == null
+      ? []
+      : findNearbyStops(userLat, userLng, 5000, stopsForSearch).slice(0, 8),
+    [userLat, userLng, stopsForSearch],
   );
 
   if (booked && selected) {

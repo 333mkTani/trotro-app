@@ -121,6 +121,59 @@ describe('findRouteRecommendations', () => {
     );
     expect(result).toEqual([]);
   });
+
+  it('always ranks the nearest eligible pickup first, even when a farther option has a faster bus', () => {
+    const nearRoute: Route = {
+      ...route,
+      id: 'route-near',
+      name: 'Near pickup route',
+      stops_sequence: [stopNear.id, stopDest.id],
+      reverse_stops_sequence: [stopDest.id, stopNear.id],
+    };
+    const farRoute: Route = {
+      ...route,
+      id: 'route-far',
+      name: 'Far pickup route',
+      stops_sequence: [stopFar.id, stopDest.id],
+      reverse_stops_sequence: [stopDest.id, stopFar.id],
+    };
+    const nearRouteBus: ApproachingBus = { ...slowBus, route_name: nearRoute.name };
+    const farRouteBus: ApproachingBus = { ...fastBus, route_name: farRoute.name };
+
+    const result = findRouteRecommendations(
+      USER.lat,
+      USER.lng,
+      DEST.lat,
+      DEST.lng,
+      3000,
+      allStops,
+      [farRoute, nearRoute],
+      [farRouteBus, nearRouteBus],
+    );
+
+    const nearIndex = result.findIndex((rec) => rec.pickupStop.id === stopNear.id);
+    const farIndex = result.findIndex((rec) => rec.pickupStop.id === stopFar.id);
+    expect(nearIndex).toBeGreaterThanOrEqual(0);
+    expect(farIndex).toBeGreaterThanOrEqual(0);
+    expect(nearIndex).toBeLessThan(farIndex);
+  });
+
+  it('uses the exact named destination stop instead of substituting another nearby stop', () => {
+    const result = findRouteRecommendations(
+      USER.lat,
+      USER.lng,
+      DEST.lat,
+      DEST.lng,
+      3000,
+      allStops,
+      [route],
+      [fastBus],
+      stopDest.id,
+    );
+
+    expect(result.length).toBeGreaterThan(0);
+    expect(result.every((rec) => rec.destinationStop.id === stopDest.id)).toBe(true);
+  });
 });
 
 describe('searchStops', () => {
