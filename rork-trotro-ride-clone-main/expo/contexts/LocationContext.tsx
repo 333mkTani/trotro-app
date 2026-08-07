@@ -94,7 +94,12 @@ export const [LocationProvider, useLocation] = createContextHook(() => {
 
   const fetchActiveBuses = useCallback(async () => {
     try {
-      const { data } = await api.get('/buses/active');
+      const { data } = await api.get('/buses/active', {
+        headers: {
+          'Cache-Control': 'no-cache',
+          Pragma: 'no-cache',
+        },
+      });
       const seen = new Set<string>();
       const buses = (data as Record<string, unknown>[])
         .map(mapActiveBus)

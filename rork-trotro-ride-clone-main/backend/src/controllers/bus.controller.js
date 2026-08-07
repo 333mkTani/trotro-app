@@ -24,6 +24,10 @@ const nearby = asyncHandler(async (req, res) => {
 });
 
 const listActive = asyncHandler(async (req, res) => {
+  // Driver availability changes frequently; clients must receive a fresh list
+  // instead of an ETag-driven 304 that leaves stale map markers in memory.
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
+  res.set('Pragma', 'no-cache');
   const { stop_id: stopId, route_name: routeName } = req.query;
   if (stopId) {
     res.json(await busService.listApproachingStop({ stopId, routeName }));
