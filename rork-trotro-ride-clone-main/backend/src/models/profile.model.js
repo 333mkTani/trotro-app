@@ -12,6 +12,17 @@ const findByPhone = async (phone) => {
   return rows[0] || null;
 };
 
+const findByPhoneVariants = async (phones, preferredPhone) => {
+  const { rows } = await query(
+    `select ${COLUMNS}
+       from public.profiles
+      where phone = any($1::text[])
+      order by case when phone = $2 then 0 else 1 end, created_at desc`,
+    [phones, preferredPhone],
+  );
+  return rows;
+};
+
 const update = async (id, patch) => {
   const fields = [];
   const values = [];
@@ -39,4 +50,4 @@ const update = async (id, patch) => {
   return rows[0] || null;
 };
 
-module.exports = { findById, findByPhone, update };
+module.exports = { findById, findByPhone, findByPhoneVariants, update };

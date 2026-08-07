@@ -29,12 +29,15 @@ describe('registerWithVerifiedPhone', () => {
 
   it('creates the account when the Firebase ID token is valid and the phone is new', async () => {
     mockAdmin(jest.fn().mockResolvedValue({ phone_number: '+233555000111' }));
-    profileModel.findByPhone.mockResolvedValue(null);
+    profileModel.findByPhoneVariants.mockResolvedValue([]);
     walletModel.ensureWallet.mockResolvedValue({ balance: '0.00' });
 
     const result = await authService.registerWithVerifiedPhone(basePayload);
 
-    expect(profileModel.findByPhone).toHaveBeenCalledWith('+233555000111');
+    expect(profileModel.findByPhoneVariants).toHaveBeenCalledWith(
+      ['+233555000111', '0555000111', '555000111'],
+      '+233555000111',
+    );
     expect(result).toHaveProperty('user');
     expect(result).toHaveProperty('token');
   });
@@ -53,7 +56,7 @@ describe('registerWithVerifiedPhone', () => {
     await expect(authService.registerWithVerifiedPhone(basePayload)).rejects.toThrow(
       'Phone verification expired or invalid — verify again',
     );
-    expect(profileModel.findByPhone).not.toHaveBeenCalled();
+    expect(profileModel.findByPhoneVariants).not.toHaveBeenCalled();
   });
 
   it('rejects a token with no verified phone number claim', async () => {
@@ -66,7 +69,7 @@ describe('registerWithVerifiedPhone', () => {
 
   it('rejects if the verified phone number is already registered', async () => {
     mockAdmin(jest.fn().mockResolvedValue({ phone_number: '+233555000111' }));
-    profileModel.findByPhone.mockResolvedValue({ id: 'existing-user' });
+    profileModel.findByPhoneVariants.mockResolvedValue([{ id: 'existing-user' }]);
 
     await expect(authService.registerWithVerifiedPhone(basePayload)).rejects.toThrow(
       'Phone already registered',

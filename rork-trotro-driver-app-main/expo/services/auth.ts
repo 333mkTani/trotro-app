@@ -38,7 +38,7 @@ async function fetchProfile(token: string): Promise<AuthResponse['user']> {
 
 export async function login(phone: string, password: string): Promise<AuthResponse> {
   try {
-    const { data } = await api.post('/auth/login', { phone, password });
+    const { data } = await api.post('/auth/login', { phone: toE164Gh(phone), password });
     const token: string = data.token;
     const user = await fetchProfile(token);
 

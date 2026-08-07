@@ -9,6 +9,7 @@ const walletModel = require('../models/wallet.model');
 const driverModel = require('../models/driver.model');
 const { ApiError } = require('../utils/ApiError');
 const { getAdmin } = require('../config/firebase');
+const { toE164Gh, ghPhoneVariants } = require('../utils/phone');
 
 const signToken = (user) =>
   jwt.sign({ sub: user.id, role: user.role }, env.JWT_SECRET, { expiresIn: env.JWT_EXPIRES_IN });
@@ -60,11 +61,12 @@ const createAccount = async ({ phone, fullName, email, passwordHash, role = 'pas
 };
 
 const register = async ({ phone, fullName, email, password, role = 'passenger', busRegistration, routeId, totalSeats = 14 }) => {
-  const existing = await profileModel.findByPhone(phone);
-  if (existing) throw ApiError.conflict('Phone already registered');
+  const normalizedPhone = toE164Gh(phone);
+  const existing = await profileModel.findByPhoneVariants(ghPhoneVariants(phone), normalizedPhone);
+  if (existing.length > 0) throw ApiError.conflict('Phone already registered');
 
   const passwordHash = await bcrypt.hash(password, 10);
-  return createAccount({ phone, fullName, email, passwordHash, role, busRegistration, routeId, totalSeats });
+  return createAccount({ phone: normalizedPhone, fullName, email, passwordHash, role, busRegistration, routeId, totalSeats });
 };
 
 // Registration after Firebase Phone Auth verified the number client-side.
@@ -81,24 +83,27 @@ const registerWithVerifiedPhone = async ({ idToken, fullName, email, password, r
     throw ApiError.unauthorized('Phone verification expired or invalid — verify again');
   }
 
-  const phone = decoded.phone_number;
-  if (!phone) throw ApiError.badRequest('Token has no verified phone number');
+  const verifiedPhone = decoded.phone_number;
+  if (!verifiedPhone) throw ApiError.badRequest('Token has no verified phone number');
+  const phone = toE164Gh(verifiedPhone);
 
-  const existing = await profileModel.findByPhone(phone);
-  if (existing) throw ApiError.conflict('Phone already registered');
+  const existing = await profileModel.findByPhoneVariants(ghPhoneVariants(phone), phone);
+  if (existing.length > 0) throw ApiError.conflict('Phone already registered');
 
   const passwordHash = await bcrypt.hash(password, 10);
   return createAccount({ phone, fullName, email, passwordHash, role, busRegistration, routeId, totalSeats, verified: true });
 };
 
 const login = async ({ phone, password }) => {
-  const profile = await profileModel.findByPhone(phone);
-  if (!profile) throw ApiError.unauthorized('Invalid credentials');
-  const creds = await authModel.findByUserId(profile.id);
-  if (!creds) throw ApiError.unauthorized('Invalid credentials');
-  const ok = await bcrypt.compare(password, creds.password_hash);
-  if (!ok) throw ApiError.unauthorized('Invalid credentials');
-  return { user: profile, token: signToken(profile) };
+  const normalizedPhone = toE164Gh(phone);
+  const profiles = await profileModel.findByPhoneVariants(ghPhoneVariants(phone), normalizedPhone);
+  for (const profile of profiles) {
+    const creds = await authModel.findByUserId(profile.id);
+    if (creds && await bcrypt.compare(password, creds.password_hash)) {
+      return { user: profile, token: signToken(profile) };
+    }
+  }
+  throw ApiError.unauthorized('Invalid credentials');
 };
 
 const changePassword = async (userId, { currentPassword, newPassword }) => {

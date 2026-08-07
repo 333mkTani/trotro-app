@@ -65,7 +65,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
 
   const loginMutation = useMutation({
     mutationFn: async ({ phone, password }: { phone: string; password: string; role?: string }): Promise<User> => {
-      const { data } = await api.post('/auth/login', { phone, password });
+      const { data } = await api.post('/auth/login', { phone: toE164Gh(phone), password });
       await setAuthToken(data.token);
       const profileRes = await api.get('/profiles/me');
       const profile: User = profileRes.data;
