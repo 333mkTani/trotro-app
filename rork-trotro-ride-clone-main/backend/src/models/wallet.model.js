@@ -35,7 +35,7 @@ const insertTransaction = async (data, client) => {
   const { rows } = await runner.query(
     `insert into public.wallet_transactions
        (user_id, booking_id, type, amount, description, status, payment_method, reference)
-     values ($1,$2,$3,$4,$5,coalesce($6,'completed'),$7,$8)
+     values ($1,$2,$3,$4,$5,coalesce($6::transaction_status,'completed'::transaction_status),$7,$8)
      returning *`,
     [
       data.userId,
