@@ -10,6 +10,7 @@ let gpsInterval: ReturnType<typeof setInterval> | null = null;
 let lastPostedLat: number | null = null;
 let lastPostedLng: number | null = null;
 let lastPostedAt = 0;
+let gpsStarting = false;
 const MIN_DISTANCE_M = 50;
 const POST_INTERVAL_MS = 30000;
 const HEARTBEAT_INTERVAL_MS = 60000;
@@ -44,6 +45,8 @@ async function sendLocation(lat: number, lng: number, isOnline: boolean): Promis
 }
 
 export async function startGpsService(): Promise<boolean> {
+  if (locationSubscription || gpsInterval || gpsStarting) return true;
+  gpsStarting = true;
   try {
     const { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') {
@@ -60,6 +63,23 @@ export async function startGpsService(): Promise<boolean> {
 
     console.log('[GPS] Starting GPS service');
 
+    const fetchAndSend = async () => {
+      try {
+        const location = await Location.getCurrentPositionAsync({
+          accuracy: Location.Accuracy.High,
+        });
+        const isOnline = useDriverStore.getState().isOnline;
+        await sendLocation(location.coords.latitude, location.coords.longitude, isOnline);
+      } catch (err) {
+        console.log('[GPS] Heartbeat fetch error:', err);
+      }
+    };
+
+    // Send immediately after session restoration, then keep an independent
+    // heartbeat on every platform so a stationary vehicle remains fresh.
+    await fetchAndSend();
+    gpsInterval = setInterval(() => { void fetchAndSend(); }, HEARTBEAT_INTERVAL_MS);
+
     if (Platform.OS !== 'web') {
       locationSubscription = await Location.watchPositionAsync(
         {
@@ -72,26 +92,15 @@ export async function startGpsService(): Promise<boolean> {
           sendLocation(location.coords.latitude, location.coords.longitude, isOnline);
         }
       );
-    } else {
-      const fetchAndSend = async () => {
-        try {
-          const location = await Location.getCurrentPositionAsync({
-            accuracy: Location.Accuracy.High,
-          });
-          const isOnline = useDriverStore.getState().isOnline;
-          sendLocation(location.coords.latitude, location.coords.longitude, isOnline);
-        } catch (err) {
-          console.log('[GPS] Web fetch error:', err);
-        }
-      };
-      fetchAndSend();
-      gpsInterval = setInterval(fetchAndSend, POST_INTERVAL_MS);
     }
 
     return true;
   } catch (err) {
     console.log('[GPS] Failed to start:', err);
+    stopGpsService();
     return false;
+  } finally {
+    gpsStarting = false;
   }
 }
 

@@ -9,6 +9,7 @@ import { useDriverStore } from '@/store/driverStore';
 import { useAuthStore } from '@/store/authStore';
 import { getDashboard, toggleAvailability, getDemandHeatmap, updateDrivingStatus, updateSeatCount } from '@/services/driverApi';
 import { useSeatSync } from '@/hooks/useSeatSync';
+import { startGpsService } from '@/services/gpsService';
 import { AvailabilityToggle } from '@/components/AvailabilityToggle';
 import { SeatProgressBar } from '@/components/SeatProgressBar';
 import { StatCard } from '@/components/StatCard';
@@ -43,7 +44,14 @@ export default function TrotroDriverDashboard() {
       Alert.alert('Availability Not Updated', error.message || 'Failed to update availability.');
     },
   });
-  const onToggle = useCallback((v: boolean) => {
+  const onToggle = useCallback(async (v: boolean) => {
+    if (v) {
+      const gpsReady = await startGpsService();
+      if (!gpsReady) {
+        Alert.alert('Location Required', 'Enable location access before making your bus available.');
+        return;
+      }
+    }
     availMut.mutate(v);
   }, [availMut]);
 

@@ -113,7 +113,7 @@ const findNearby = async ({ lat, lng, radiusM = 2000, routeId, limit = 50 }) => 
       from public.buses
       where status = 'active'
         and driver_id is not null
-        and last_ping_at > now() - interval '5 minutes'
+        and last_ping_at > now() - interval '10 minutes'
         and seats_available > 0
         and geom is not null
         ${routeFilter}
@@ -136,7 +136,7 @@ const listActive = async () => {
      LEFT JOIN public.drivers d ON d.id = b.driver_id
      WHERE b.status = 'active'
        AND b.driver_id IS NOT NULL
-       AND b.last_ping_at > now() - interval '5 minutes'
+       AND b.last_ping_at > now() - interval '10 minutes'
        AND b.seats_available > 0`,
   );
   return rows;
@@ -173,7 +173,7 @@ const listApproachingStop = async ({ stopId, routeName, radiusM = 3000, limit = 
        left join public.drivers d on d.id = b.driver_id
       where b.status = 'active'
         and b.driver_id is not null
-        and b.last_ping_at > now() - interval '5 minutes'
+        and b.last_ping_at > now() - interval '10 minutes'
         and b.seats_available > 0
         and b.geom is not null
         and s.geom is not null

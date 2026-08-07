@@ -9,6 +9,7 @@ import { useNotifications } from "@/hooks/useNotifications";
 import { useDriverSocket } from "@/hooks/useDriverSocket";
 import { useConnectivity } from "@/hooks/useConnectivity";
 import { OfflineBanner } from "@/components/OfflineBanner";
+import { startGpsService, stopGpsService } from "@/services/gpsService";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -36,9 +37,20 @@ function RootLayoutNav() {
 
 function AppWithNotifications() {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
+  const isAuthLoading = useAuthStore((s) => s.isLoading);
   useNotifications(isAuthenticated);
   useDriverSocket(isAuthenticated);
   const { isConnected } = useConnectivity();
+
+  useEffect(() => {
+    if (isAuthLoading) return;
+    if (isAuthenticated) {
+      void startGpsService();
+    } else {
+      stopGpsService();
+    }
+  }, [isAuthenticated, isAuthLoading]);
+
   return (
     <View style={{ flex: 1 }}>
       <OfflineBanner visible={!isConnected} />
