@@ -255,14 +255,12 @@ export default function HomeScreen() {
               zoomLevel={12}
               animationDuration={0}
             />
-            <MapLibreGL.UserLocation visible>
-              <View style={s.userPinOuter}>
-                <View style={s.userPinHead}>
-                  <View style={s.userPinDot} />
-                </View>
-                <View style={s.userPinTail} />
-              </View>
-            </MapLibreGL.UserLocation>
+            <MapLibreGL.UserLocation
+              visible
+              renderMode="native"
+              androidRenderMode="gps"
+              showsUserHeadingIndicator
+            />
 
             {/* Only active bus markers on the map */}
             {activeBuses
@@ -770,42 +768,6 @@ const make_s = (Colors: ThemePalette) => StyleSheet.create({
     height: 10,
     borderRadius: 5,
     backgroundColor: Colors.primary,
-  },
-
-  userPinOuter: {
-    alignItems: "center",
-  },
-  userPinHead: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: "#000000",
-    borderWidth: 3,
-    borderColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
-    elevation: 6,
-  },
-  userPinDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#FFFFFF",
-  },
-  userPinTail: {
-    width: 0,
-    height: 0,
-    borderLeftWidth: 6,
-    borderRightWidth: 6,
-    borderTopWidth: 8,
-    borderLeftColor: "transparent",
-    borderRightColor: "transparent",
-    borderTopColor: "#000000",
-    marginTop: -2,
   },
 
   markerOuter: {
