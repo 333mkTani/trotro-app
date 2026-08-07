@@ -26,4 +26,7 @@ create table if not exists public.buses (
   created_at         timestamptz not null default now()
 );
 create index if not exists buses_driver_idx on public.buses(driver_id);
+create unique index if not exists buses_one_live_driver_idx
+  on public.buses(driver_id)
+  where driver_id is not null and status <> 'deleted';
 create index if not exists buses_route_idx  on public.buses(route_id);

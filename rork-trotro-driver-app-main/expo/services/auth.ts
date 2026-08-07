@@ -119,5 +119,13 @@ export async function registerVerifiedPhone(idToken: string, payload: RegisterVe
 }
 
 export async function logout(): Promise<void> {
-  useAuthStore.getState().clearAuth();
+  try {
+    await api.patch('/drivers/me/availability', { isAvailable: false });
+  } catch (error) {
+    // A stale-heartbeat cutoff still removes the bus if this best-effort call
+    // cannot complete because the device is offline.
+    console.log('[Auth] Could not mark bus unavailable during logout:', error);
+  } finally {
+    useAuthStore.getState().clearAuth();
+  }
 }

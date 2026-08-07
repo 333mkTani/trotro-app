@@ -9,13 +9,15 @@ let locationSubscription: Location.LocationSubscription | null = null;
 let gpsInterval: ReturnType<typeof setInterval> | null = null;
 let lastPostedLat: number | null = null;
 let lastPostedLng: number | null = null;
+let lastPostedAt = 0;
 const MIN_DISTANCE_M = 50;
 const POST_INTERVAL_MS = 30000;
+const HEARTBEAT_INTERVAL_MS = 60000;
 
 async function sendLocation(lat: number, lng: number, isOnline: boolean): Promise<void> {
   if (lastPostedLat !== null && lastPostedLng !== null) {
     const distKm = haversineDistance(lastPostedLat, lastPostedLng, lat, lng);
-    if (distKm * 1000 < MIN_DISTANCE_M) {
+    if (distKm * 1000 < MIN_DISTANCE_M && Date.now() - lastPostedAt < HEARTBEAT_INTERVAL_MS) {
       console.log('[GPS] Skipping post, moved only', Math.round(distKm * 1000), 'm');
       return;
     }
@@ -33,6 +35,7 @@ async function sendLocation(lat: number, lng: number, isOnline: boolean): Promis
     await postLocation(lat, lng);
     lastPostedLat = lat;
     lastPostedLng = lng;
+    lastPostedAt = Date.now();
     console.log('[GPS] Location posted:', lat.toFixed(6), lng.toFixed(6));
   } catch (err) {
     console.log('[GPS] Post failed, queueing:', err);
@@ -62,7 +65,7 @@ export async function startGpsService(): Promise<boolean> {
         {
           accuracy: Location.Accuracy.High,
           timeInterval: POST_INTERVAL_MS,
-          distanceInterval: MIN_DISTANCE_M,
+          distanceInterval: 0,
         },
         (location) => {
           const isOnline = useDriverStore.getState().isOnline;
@@ -104,4 +107,5 @@ export function stopGpsService(): void {
   }
   lastPostedLat = null;
   lastPostedLng = null;
+  lastPostedAt = 0;
 }

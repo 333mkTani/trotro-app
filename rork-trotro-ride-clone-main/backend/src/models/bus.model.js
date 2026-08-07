@@ -110,8 +110,10 @@ const findNearby = async ({ lat, lng, radiusM = 2000, routeId, limit = 50 }) => 
   const { rows } = await query(
     `select ${COLUMNS},
             ST_Distance(geom, ST_SetSRID(ST_MakePoint($1, $2), 4326)::geography) as distance_m
-       from public.buses
+      from public.buses
       where status = 'active'
+        and driver_id is not null
+        and last_ping_at > now() - interval '5 minutes'
         and seats_available > 0
         and geom is not null
         ${routeFilter}
@@ -132,7 +134,10 @@ const listActive = async () => {
      FROM public.buses b
      LEFT JOIN public.routes r ON r.id = b.route_id
      LEFT JOIN public.drivers d ON d.id = b.driver_id
-     WHERE b.status = 'active' AND b.seats_available > 0`,
+     WHERE b.status = 'active'
+       AND b.driver_id IS NOT NULL
+       AND b.last_ping_at > now() - interval '5 minutes'
+       AND b.seats_available > 0`,
   );
   return rows;
 };
@@ -167,6 +172,8 @@ const listApproachingStop = async ({ stopId, routeName, radiusM = 3000, limit = 
        left join public.routes r on r.id = b.route_id
        left join public.drivers d on d.id = b.driver_id
       where b.status = 'active'
+        and b.driver_id is not null
+        and b.last_ping_at > now() - interval '5 minutes'
         and b.seats_available > 0
         and b.geom is not null
         and s.geom is not null

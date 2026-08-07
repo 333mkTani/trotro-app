@@ -35,17 +35,11 @@ export const AvailabilityToggle = React.memo(function AvailabilityToggle({
   const handleToggle = useCallback(() => {
     if (disabled) return;
     const newValue = !isAvailable;
-    Animated.spring(animValue, {
-      toValue: newValue ? 1 : 0,
-      useNativeDriver: false,
-      tension: 60,
-      friction: 8,
-    }).start();
     if (Platform.OS !== 'web') {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
     onToggle(newValue);
-  }, [isAvailable, onToggle, disabled, animValue]);
+  }, [isAvailable, onToggle, disabled]);
 
   const backgroundColor = animValue.interpolate({
     inputRange: [0, 1],

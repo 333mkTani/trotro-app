@@ -34,17 +34,18 @@ export default function TrotroDriverDashboard() {
 
   const availMut = useMutation({
     mutationFn: toggleAvailability,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['dashboard'] }),
-    onError: (error: Error, attemptedValue: boolean) => {
-      store.setAvailability(!attemptedValue);
+    onSuccess: (_data: void, confirmedValue: boolean) => {
+      store.setAvailability(confirmedValue);
+      if (!confirmedValue) store.setDrivingStatus('STATIONARY');
+      qc.invalidateQueries({ queryKey: ['dashboard'] });
+    },
+    onError: (error: Error) => {
       Alert.alert('Availability Not Updated', error.message || 'Failed to update availability.');
     },
   });
   const onToggle = useCallback((v: boolean) => {
-    store.setAvailability(v);
-    if (!v) store.setDrivingStatus('STATIONARY');
     availMut.mutate(v);
-  }, [store, availMut]);
+  }, [availMut]);
 
   const drivingMut = useMutation({
     mutationFn: updateDrivingStatus,

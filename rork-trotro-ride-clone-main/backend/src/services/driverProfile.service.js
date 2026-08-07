@@ -10,6 +10,7 @@ const getMyBus = async (driverId) => {
      FROM buses b
      LEFT JOIN routes r ON r.id = b.route_id
      WHERE b.driver_id = $1 AND b.status IN ('active', 'paused')
+     ORDER BY b.created_at DESC, b.id DESC
      LIMIT 1`,
     [driverId]
   );
