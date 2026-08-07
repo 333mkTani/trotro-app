@@ -70,6 +70,8 @@ function RootLayoutNav() {
           // User tapped a notification
           if (data?.type === 'bus_approaching' && data?.bookingId) {
             router.push("/ride-notification");
+          } else if (data?.type === 'bus_alert' && data?.alertId) {
+            router.push("/my-alerts");
           }
         },
       );

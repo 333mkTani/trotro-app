@@ -63,14 +63,21 @@ export default function AlertBusesScreen() {
   const onBook = useCallback(
     async (bus: ApproachingBus) => {
       if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-      setBookingBusId(bus.driver_id);
-      await new Promise((r) => setTimeout(r, 1500));
-      setBookingBusId(null);
-      setBookedBus(bus);
-      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Animated.spring(successScale, { toValue: 1, useNativeDriver: true, tension: 60, friction: 8 }).start();
+      router.push({
+        pathname: "/book-bus",
+        params: {
+          driverId: bus.driver_id,
+          driverName: bus.driver_name,
+          busReg: bus.bus_registration,
+          routeName: bus.route_name,
+          seats: String(bus.seats_available),
+          eta: String(bus.eta_minutes),
+          stopId: alert?.stop_id ?? "",
+          stopName: alert?.stop_name ?? "",
+        },
+      });
     },
-    [successScale],
+    [router, alert],
   );
 
   const stopData = useMemo(() => {

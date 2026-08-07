@@ -6,8 +6,11 @@ import { Alert, Platform } from 'react-native';
 import { BusAlert, ApproachingBus, DayOfWeek } from '@/types';
 import { api } from '@/services/api';
 import { useLocation } from '@/contexts/LocationContext';
+import { useAuth } from '@/contexts/AuthContext';
+import { scheduleBusAlertNotifications, cancelBusAlertNotifications } from '@/services/notificationService';
 
 const ALERTS_STORAGE_KEY = 'trotro_bus_alerts';
+const ALERT_NOTIFICATION_IDS_KEY = 'trotro_bus_alert_notification_ids';
 
 const DAY_MAP: Record<number, DayOfWeek> = {
   0: 'Sun',
@@ -35,7 +38,7 @@ async function fetchBusesAtStop(stopId: string, routeName?: string): Promise<App
         lat: b.current_lat ? parseFloat(b.current_lat as string) : 0,
         lng: b.current_lng ? parseFloat(b.current_lng as string) : 0,
       }))
-      .filter((b) => b.seats_available > 0);
+      .filter((b) => !!b.driver_id && b.seats_available > 0);
     const byDriver = new Map(buses.map((b) => [b.driver_id, b]));
     return Array.from(byDriver.values());
   } catch {
@@ -64,20 +67,61 @@ export const [BusAlertProvider, useBusAlerts] = createContextHook(() => {
   const queryClient = useQueryClient();
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const { regionRoutes } = useLocation();
+  const { user } = useAuth();
+
+  const syncScheduledNotifications = useCallback(async (nextAlerts: BusAlert[]) => {
+    if (Platform.OS === 'web') return;
+    const raw = await AsyncStorage.getItem(ALERT_NOTIFICATION_IDS_KEY);
+    const existing = raw ? JSON.parse(raw) as Record<string, string[]> : {};
+    await Promise.allSettled(Object.values(existing).map(cancelBusAlertNotifications));
+    const next: Record<string, string[]> = {};
+    for (const alert of nextAlerts.filter((item) => item.is_active)) {
+      next[alert.id] = await scheduleBusAlertNotifications(alert);
+    }
+    await AsyncStorage.setItem(ALERT_NOTIFICATION_IDS_KEY, JSON.stringify(next));
+  }, []);
 
   const alertsQuery = useQuery({
     queryKey: ['bus-alerts'],
+    enabled: !!user,
     queryFn: async (): Promise<BusAlert[]> => {
-      const stored = await AsyncStorage.getItem(ALERTS_STORAGE_KEY);
-      return stored ? JSON.parse(stored) : [];
+      try {
+        const { data } = await api.get('/alerts');
+        let remote = data as BusAlert[];
+        const stored = await AsyncStorage.getItem(ALERTS_STORAGE_KEY);
+        const local = stored ? JSON.parse(stored) as BusAlert[] : [];
+
+        // One-time upgrade path from the original device-only implementation.
+        if (remote.length === 0 && local.length > 0) {
+          const migrated = await Promise.allSettled(local.map(async (alert) => {
+            const { data: created } = await api.post('/alerts', {
+              routeId: alert.route_id === 'any' ? null : alert.route_id,
+              routeName: alert.route_name,
+              stopId: alert.stop_id,
+              stopName: alert.stop_name,
+              alertTime: alert.alert_time,
+              schedule: alert.schedule,
+              isActive: alert.is_active,
+            });
+            return created as BusAlert;
+          }));
+          remote = migrated.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []);
+        }
+        await AsyncStorage.setItem(ALERTS_STORAGE_KEY, JSON.stringify(remote));
+        return remote;
+      } catch {
+        const stored = await AsyncStorage.getItem(ALERTS_STORAGE_KEY);
+        return stored ? JSON.parse(stored) : [];
+      }
     },
   });
 
   useEffect(() => {
     if (alertsQuery.data) {
       setAlerts(alertsQuery.data);
+      void syncScheduledNotifications(alertsQuery.data);
     }
-  }, [alertsQuery.data]);
+  }, [alertsQuery.data, syncScheduledNotifications]);
 
   const persist = useCallback(async (updated: BusAlert[]) => {
     await AsyncStorage.setItem(ALERTS_STORAGE_KEY, JSON.stringify(updated));
@@ -85,16 +129,20 @@ export const [BusAlertProvider, useBusAlerts] = createContextHook(() => {
 
   const addAlertMutation = useMutation({
     mutationFn: async (alert: Omit<BusAlert, 'id' | 'is_active' | 'triggered' | 'created_at'>) => {
-      const newAlert: BusAlert = {
-        ...alert,
-        id: 'alert-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
-        is_active: true,
-        triggered: false,
-        created_at: new Date().toISOString(),
-      };
+      const { data } = await api.post('/alerts', {
+        routeId: alert.route_id === 'any' ? null : alert.route_id,
+        routeName: alert.route_name,
+        stopId: alert.stop_id,
+        stopName: alert.stop_name,
+        alertTime: alert.alert_time,
+        schedule: alert.schedule,
+        isActive: true,
+      });
+      const newAlert = data as BusAlert;
       const updated = [...alerts, newAlert];
       setAlerts(updated);
       await persist(updated);
+      await syncScheduledNotifications(updated);
       return newAlert;
     },
     onSuccess: () => {
@@ -107,8 +155,10 @@ export const [BusAlertProvider, useBusAlerts] = createContextHook(() => {
       const updated = alerts.map((a) =>
         a.id === alertId ? { ...a, is_active: false } : a,
       );
+      await api.patch(`/alerts/${alertId}`, { isActive: false });
       setAlerts(updated);
       await persist(updated);
+      await syncScheduledNotifications(updated);
       return alertId;
     },
     onSuccess: () => {
@@ -118,9 +168,11 @@ export const [BusAlertProvider, useBusAlerts] = createContextHook(() => {
 
   const deleteAlertMutation = useMutation({
     mutationFn: async (alertId: string) => {
+      await api.delete(`/alerts/${alertId}`);
       const updated = alerts.filter((a) => a.id !== alertId);
       setAlerts(updated);
       await persist(updated);
+      await syncScheduledNotifications(updated);
       return alertId;
     },
     onSuccess: () => {
@@ -158,6 +210,14 @@ export const [BusAlertProvider, useBusAlerts] = createContextHook(() => {
 
       setAlerts(updated);
       await persist(updated);
+      const changed = updated.find((a) => a.id === alertId)!;
+      await api.patch(`/alerts/${alertId}`, {
+        triggered: changed.triggered,
+        isActive: changed.is_active,
+        lastTriggeredDay: changed.last_triggered_day,
+        triggeredBuses: changed.triggered_buses,
+      });
+      await syncScheduledNotifications(updated);
       queryClient.invalidateQueries({ queryKey: ['bus-alerts'] });
 
       return { alert: updated.find((a) => a.id === alertId)!, buses };
@@ -202,7 +262,7 @@ export const [BusAlertProvider, useBusAlerts] = createContextHook(() => {
           const currentMinutes = nowHour * 60 + nowMinute;
           const diff = currentMinutes - scheduledMinutes;
 
-          if (diff >= 0 && diff < 2) {
+          if (diff >= 0) {
             console.log('[BusAlert] Triggering scheduled alert:', alert.id, alert.stop_name, todayDay);
             triggerAlert(alert.id);
           }
@@ -210,7 +270,7 @@ export const [BusAlertProvider, useBusAlerts] = createContextHook(() => {
           if (alert.triggered) continue;
           const alertTime = new Date(alert.alert_time);
           const diffMs = alertTime.getTime() - now.getTime();
-          if (diffMs <= 0 && diffMs > -60000) {
+          if (diffMs <= 0) {
             console.log('[BusAlert] Triggering one-time alert:', alert.id, alert.stop_name);
             triggerAlert(alert.id);
           }
