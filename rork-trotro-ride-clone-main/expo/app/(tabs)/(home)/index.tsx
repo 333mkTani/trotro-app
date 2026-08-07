@@ -172,7 +172,7 @@ export default function HomeScreen() {
 
       cameraRef.current?.setCamera({
         centerCoordinate: [location.coords.longitude, location.coords.latitude],
-        zoomLevel: 15,
+        zoomLevel: 17,
         animationDuration: 500,
       });
     } catch (err) {
@@ -251,9 +251,10 @@ export default function HomeScreen() {
           >
             <MapLibreGL.Camera
               ref={cameraRef}
-              centerCoordinate={[mapCenter.longitude, mapCenter.latitude]}
-              zoomLevel={12}
-              animationDuration={0}
+              defaultSettings={{
+                centerCoordinate: [mapCenter.longitude, mapCenter.latitude],
+                zoomLevel: 12,
+              }}
             />
             <MapLibreGL.UserLocation
               visible
