@@ -513,6 +513,14 @@ export default function TrotroOverflowRequests() {
     () =>
       oQ.isLoading || cQ.isLoading ? (
         <ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: 60 }} />
+      ) : oQ.isError || cQ.isError ? (
+        <View style={rs.empty}>
+          <View style={rs.emptyIcon}>
+            <AlertTriangle size={36} color={Colors.error} />
+          </View>
+          <Text style={rs.emptyTitle}>Could not load requests</Text>
+          <Text style={rs.emptySubtitle}>Pull down to try again.</Text>
+        </View>
       ) : (
         <View style={rs.empty}>
           <View style={rs.emptyIcon}>
@@ -526,7 +534,7 @@ export default function TrotroOverflowRequests() {
           </Text>
         </View>
       ),
-    [oQ.isLoading, isStationary],
+    [oQ.isLoading, cQ.isLoading, oQ.isError, cQ.isError, isStationary],
   );
 
   return (
