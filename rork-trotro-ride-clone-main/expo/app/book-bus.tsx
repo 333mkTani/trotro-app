@@ -159,6 +159,7 @@ export default function BookBusScreen() {
         pickupStopName: params.stopName ?? "",
         destinationStopId: selectedDest.id,
         destinationStopName: selectedDest.name,
+        rideFare: route?.fare ?? 0,
         passengerId: user.id,
       });
 
@@ -176,7 +177,7 @@ export default function BookBusScreen() {
       console.log("[BookBus] Error:", err);
       Alert.alert("Booking Failed", "Something went wrong. Please try again.");
     }
-  }, [selectedDest, user, bookBus, params, successScale]);
+  }, [selectedDest, user, bookBus, params, route?.fare, successScale]);
 
   const handleGoToRides = useCallback(() => {
     router.replace("/(tabs)/rides");

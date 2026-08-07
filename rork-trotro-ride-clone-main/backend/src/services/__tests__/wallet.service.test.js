@@ -1,5 +1,6 @@
 jest.mock('../../models/wallet.model');
 jest.mock('../../models/profile.model');
+jest.mock('../../models/booking.model');
 jest.mock('../paystack.service');
 jest.mock('../../config/db', () => ({
   // The real withTransaction runs fn against a locked pg client; tests don't
@@ -8,8 +9,47 @@ jest.mock('../../config/db', () => ({
 }));
 
 const walletModel = require('../../models/wallet.model');
+const bookingModel = require('../../models/booking.model');
 const paystackService = require('../paystack.service');
 const walletService = require('../wallet.service');
+
+describe('charge', () => {
+  const payableBooking = {
+    id: 'booking-1', passenger_id: 'passenger-1', driver_id: 'driver-1',
+    status: 'confirmed', arrived_at: new Date().toISOString(), code_status: 'used',
+    authoritative_fare: '3.00', pickup_stop_name: 'Tech', destination_stop_name: 'Conti',
+  };
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    bookingModel.findForPaymentForUpdate.mockResolvedValue(payableBooking);
+    walletModel.findBookingTransactionForUpdate.mockResolvedValue(null);
+    walletModel.ensureWallet.mockResolvedValue({ user_id: 'passenger-1', balance: '10.00' });
+    walletModel.adjustBalance.mockResolvedValue({ user_id: 'passenger-1', balance: '7.00' });
+    walletModel.insertTransaction.mockResolvedValue({ id: 'tx-1' });
+  });
+
+  it('debits the authoritative fare once and credits the assigned driver', async () => {
+    await walletService.charge('passenger-1', { bookingId: 'booking-1', amount: 999 });
+    expect(walletModel.adjustBalance).toHaveBeenNthCalledWith(1, 'passenger-1', -3, expect.anything());
+    expect(walletModel.adjustBalance).toHaveBeenNthCalledWith(2, 'driver-1', 3, expect.anything());
+    expect(walletModel.insertTransaction).toHaveBeenCalledTimes(2);
+  });
+
+  it('is idempotent when a completed ride payment already exists', async () => {
+    walletModel.findBookingTransactionForUpdate.mockResolvedValue({ id: 'existing-debit' });
+    walletModel.getBalance.mockResolvedValue({ user_id: 'passenger-1', balance: '7.00' });
+    await walletService.charge('passenger-1', { bookingId: 'booking-1' });
+    expect(walletModel.adjustBalance).not.toHaveBeenCalled();
+    expect(walletModel.insertTransaction).not.toHaveBeenCalled();
+  });
+
+  it('rejects payment before boarding-code redemption', async () => {
+    bookingModel.findForPaymentForUpdate.mockResolvedValue({ ...payableBooking, code_status: 'valid' });
+    await expect(walletService.charge('passenger-1', { bookingId: 'booking-1' }))
+      .rejects.toThrow('Boarding code must be redeemed');
+  });
+});
 
 describe('requestWithdrawal', () => {
   const baseParams = {

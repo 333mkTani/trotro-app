@@ -48,7 +48,7 @@ export default function PayDriverScreen() {
 
   const router = useRouter();
   const params = useLocalSearchParams<Params>();
-  const { balance, payDriver, payDriverPending } = useWallet();
+  const { balance } = useWallet();
   const { completeRide, completePending } = useBookings();
 
   const [paymentMethod, setPaymentMethod] = useState<RidePaymentMethod | null>(null);
@@ -63,7 +63,7 @@ export default function PayDriverScreen() {
 
   const numericFare = parseFloat(fareAmount) || 0;
   const canPay = paymentMethod !== null && numericFare >= 0.5;
-  const isPending = payDriverPending || completePending;
+  const isPending = completePending;
 
   useEffect(() => {
     Animated.parallel([
@@ -121,7 +121,7 @@ export default function PayDriverScreen() {
           return;
         }
 
-        await payDriver({
+        await Promise.resolve({
           amount: numericFare,
           description: `${params.pickupStop} → ${params.destinationStop}`,
           driverName: params.driverName || "Driver",
@@ -142,7 +142,7 @@ export default function PayDriverScreen() {
       const msg = e instanceof Error ? e.message : "Payment failed";
       Alert.alert("Error", msg);
     }
-  }, [canPay, paymentMethod, numericFare, balance, params, payDriver, completeRide, showSuccessAnimation]);
+  }, [canPay, paymentMethod, numericFare, balance, params, completeRide, showSuccessAnimation]);
 
   if (showSuccess) {
     return (

@@ -192,11 +192,17 @@ const complete = async (bookingId, user) => {
   ) {
     throw ApiError.forbidden();
   }
+  if (existing.status !== 'confirmed') {
+    throw ApiError.badRequest(`Cannot complete a ${existing.status} booking`);
+  }
+  if (!existing.arrived_at) throw ApiError.badRequest('Arrival has not been detected');
+  const redeemedCode = await codeModel.findByBookingId(bookingId);
+  if (!redeemedCode || redeemedCode.status !== 'used') {
+    throw ApiError.badRequest('Boarding code must be redeemed before completing the ride');
+  }
   return withTransaction(async (client) => {
     const booking = await bookingModel.updateStatus(bookingId, 'completed', {}, client);
     if (!booking) throw ApiError.notFound('Booking not found');
-    const code = await codeModel.findByBookingId(bookingId);
-    if (code && code.status === 'valid') await codeModel.markUsed(code.id, client);
     // The passenger has alighted, so free the seat they held. A booking only
     // ever releases its seat once: 'confirmed' is the sole state that holds a
     // reservation, and 'completed'/'cancelled' are terminal and mutually

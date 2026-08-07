@@ -69,12 +69,14 @@ export const [BookingProvider, useBookings] = createContextHook(() => {
       pickupStopName,
       destinationStopId,
       destinationStopName,
+      rideFare,
     }: {
       bus: ApproachingBus;
       pickupStopId: string;
       pickupStopName: string;
       destinationStopId: string;
       destinationStopName: string;
+      rideFare: number;
       passengerId: string;
     }): Promise<Booking> => {
       const arrivalTime = new Date(Date.now() + bus.eta_minutes * 60 * 1000).toISOString();
@@ -87,6 +89,7 @@ export const [BookingProvider, useBookings] = createContextHook(() => {
         bufferMinutes: 10,
         driverId: bus.driver_id,
         routeName: bus.route_name,
+        rideFare,
       });
       return mapBooking(data as Record<string, unknown>);
     },
@@ -153,10 +156,10 @@ export const [BookingProvider, useBookings] = createContextHook(() => {
       paymentMethod: RidePaymentMethod;
       fare: number;
     }): Promise<string> => {
-      await api.post(`/bookings/${bookingId}/complete`);
       if (paymentMethod === 'wallet') {
-        await api.post('/wallet/charge', { amount: fare, bookingId });
+        await api.post('/wallet/charge', { bookingId });
       }
+      await api.post(`/bookings/${bookingId}/complete`);
       return bookingId;
     },
     onSuccess: () => {

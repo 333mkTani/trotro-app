@@ -8,6 +8,7 @@ import {
   Animated,
   Platform,
   ActivityIndicator,
+  Alert,
 } from "react-native";
 import { useRouter } from "expo-router";
 import {
@@ -26,6 +27,7 @@ import * as Haptics from "expo-haptics";
 import StaticColors from "@/constants/colors";
 import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
 import { useWallet } from "@/contexts/WalletContext";
+import { useBookings } from "@/contexts/BookingContext";
 import { WalletTransaction } from "@/types";
 const Colors = StaticColors;
 
@@ -103,6 +105,7 @@ export default function WalletScreen() {
 
   const router = useRouter();
   const { balance, recentTransactions, isLoading } = useWallet();
+  const { bookings } = useBookings();
   const balanceAnim = useRef(new Animated.Value(0)).current;
   const cardScale = useRef(new Animated.Value(0.95)).current;
 
@@ -130,8 +133,24 @@ export default function WalletScreen() {
 
   const onPayDriver = useCallback(() => {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    router.push("/pay-driver");
-  }, [router]);
+    const booking = bookings.find((item) => item.status === "confirmed" && !!item.arrived_at);
+    if (!booking) {
+      Alert.alert("No Ride Ready for Payment", "Payment becomes available after you board and the bus reaches your destination.");
+      return;
+    }
+    router.push({
+      pathname: "/pay-driver",
+      params: {
+        bookingId: booking.id,
+        driverName: booking.driver_name ?? "",
+        busReg: booking.bus_registration ?? "",
+        routeName: booking.route_name ?? "",
+        pickupStop: booking.pickup_stop_name,
+        destinationStop: booking.destination_stop_name,
+        suggestedFare: String(booking.ride_fare ?? ""),
+      },
+    });
+  }, [router, bookings]);
 
   const totalSpent = useMemo(() => {
     const now = new Date();

@@ -444,6 +444,7 @@ export default function FindRouteScreen() {
         pickupStopName: selected.pickupStop.name,
         destinationStopId: selected.destinationStop.id,
         destinationStopName: selected.destinationStop.name,
+        rideFare: selected.route.fare,
         passengerId: user.id,
       });
       setBookedBooking(result);

@@ -86,6 +86,17 @@ const findTransactionByReferenceOnly = async (reference, client) => {
   return rows[0] || null;
 };
 
+const findBookingTransactionForUpdate = async (bookingId, userId, type, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
+    `select * from public.wallet_transactions
+      where booking_id = $1 and user_id = $2 and type = $3 and status = 'completed'
+      order by created_at asc limit 1 for update`,
+    [bookingId, userId, type],
+  );
+  return rows[0] || null;
+};
+
 const markTransactionStatus = async (id, status, client) => {
   const runner = client || { query };
   const { rows } = await runner.query(
@@ -103,5 +114,6 @@ module.exports = {
   listTransactions,
   findTransactionByReferenceForUpdate,
   findTransactionByReferenceOnly,
+  findBookingTransactionForUpdate,
   markTransactionStatus,
 };

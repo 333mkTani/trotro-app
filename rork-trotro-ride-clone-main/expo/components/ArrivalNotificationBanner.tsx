@@ -129,7 +129,7 @@ export default function ArrivalNotificationBanner() {
         routeName: arrivedBooking.route_name ?? "",
         pickupStop: arrivedBooking.pickup_stop_name,
         destinationStop: arrivedBooking.destination_stop_name,
-        suggestedFare: "3",
+        suggestedFare: String(arrivedBooking.ride_fare ?? ""),
       },
     });
     hideAndClear();

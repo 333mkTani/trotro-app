@@ -171,6 +171,10 @@ const detectDestinationArrivals = async (driverId, { lat, lng, radiusM = 150 }) 
         AND b.driver_id = $1
         AND b.status = 'confirmed'
         AND b.arrived_at IS NULL
+        AND EXISTS (
+          SELECT 1 FROM public.verification_codes vc
+           WHERE vc.booking_id = b.id AND vc.status = 'used'
+        )
         AND ST_DWithin(
           s.geom::geography,
           ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography,
@@ -197,8 +201,23 @@ const expireStaleConfirmed = async (olderThanHours = 4, client) => {
   return rows;
 };
 
+const findForPaymentForUpdate = async (id, passengerId, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
+    `SELECT b.*, r.fare AS authoritative_fare, vc.status AS code_status
+       FROM public.bookings b
+       JOIN public.buses bus ON bus.id = b.bus_id
+       JOIN public.routes r ON r.id = coalesce(b.route_id, bus.route_id)
+       LEFT JOIN public.verification_codes vc ON vc.booking_id = b.id
+      WHERE b.id = $1 AND b.passenger_id = $2
+      FOR UPDATE OF b`,
+    [id, passengerId],
+  );
+  return rows[0] || null;
+};
+
 module.exports = {
   findById, listForPassenger, listForDriver, insert, updateStatus,
   listConfirmedForDriverUnnotified, markNotified,
-  detectDestinationArrivals, expireStaleConfirmed,
+  detectDestinationArrivals, expireStaleConfirmed, findForPaymentForUpdate,
 };

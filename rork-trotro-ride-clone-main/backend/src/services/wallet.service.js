@@ -2,6 +2,7 @@ const { v4: uuidv4 } = require('uuid');
 const { withTransaction } = require('../config/db');
 const walletModel = require('../models/wallet.model');
 const profileModel = require('../models/profile.model');
+const bookingModel = require('../models/booking.model');
 const paystackService = require('./paystack.service');
 const { ApiError } = require('../utils/ApiError');
 
@@ -92,22 +93,52 @@ const verifyTopUp = async (userId, reference) => {
   });
 };
 
-const charge = async (userId, { amount, bookingId, description, type = 'ride_payment' }) => {
-  if (amount <= 0) throw ApiError.badRequest('Amount must be positive');
+const charge = async (userId, { bookingId }) => {
+  if (!bookingId) throw ApiError.badRequest('Booking is required');
   return withTransaction(async (client) => {
+    const booking = await bookingModel.findForPaymentForUpdate(bookingId, userId, client);
+    if (!booking) throw ApiError.notFound('Booking not found');
+    if (booking.status !== 'confirmed') throw ApiError.badRequest('Only confirmed rides can be paid');
+    if (!booking.arrived_at) throw ApiError.badRequest('Payment is available after arrival is detected');
+    if (booking.code_status !== 'used') throw ApiError.badRequest('Boarding code must be redeemed before payment');
+    if (!booking.driver_id) throw ApiError.badRequest('Booking has no assigned driver');
+
+    const amount = Number(booking.authoritative_fare);
+    if (!Number.isFinite(amount) || amount <= 0) throw ApiError.badRequest('Route fare is not configured');
+
+    const existing = await walletModel.findBookingTransactionForUpdate(
+      bookingId, userId, 'ride_payment', client,
+    );
+    if (existing) {
+      const wallet = await walletModel.getBalance(userId, client);
+      return { wallet, transaction: existing, alreadyProcessed: true };
+    }
+
     const current = await walletModel.ensureWallet(userId, client);
     if (Number(current.balance) < amount) throw ApiError.badRequest('Insufficient balance');
     const wallet = await walletModel.adjustBalance(userId, -amount, client);
     const tx = await walletModel.insertTransaction(
       {
         userId,
-        bookingId: bookingId || null,
-        type,
+        bookingId,
+        type: 'ride_payment',
         amount: -amount,
-        description: description || 'Ride payment',
+        description: `${booking.pickup_stop_name} to ${booking.destination_stop_name}`,
+        reference: `RIDE_${bookingId}_DEBIT`,
       },
       client,
     );
+
+    await walletModel.ensureWallet(booking.driver_id, client);
+    await walletModel.adjustBalance(booking.driver_id, amount, client);
+    await walletModel.insertTransaction({
+      userId: booking.driver_id,
+      bookingId,
+      type: 'driver_payment',
+      amount,
+      description: `Fare received for ${booking.pickup_stop_name} to ${booking.destination_stop_name}`,
+      reference: `RIDE_${bookingId}_CREDIT`,
+    }, client);
     return { wallet, transaction: tx };
   });
 };
