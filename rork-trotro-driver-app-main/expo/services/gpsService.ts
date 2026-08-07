@@ -54,13 +54,6 @@ export async function startGpsService(): Promise<boolean> {
       return false;
     }
 
-    if (Platform.OS !== 'web') {
-      const bgStatus = await Location.requestBackgroundPermissionsAsync();
-      if (bgStatus.status !== 'granted') {
-        console.log('[GPS] Background permission denied (continuing with foreground only)');
-      }
-    }
-
     console.log('[GPS] Starting GPS service');
 
     const fetchAndSend = async () => {
