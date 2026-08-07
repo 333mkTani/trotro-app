@@ -196,6 +196,7 @@ const complete = async (bookingId, user) => {
     throw ApiError.badRequest(`Cannot complete a ${existing.status} booking`);
   }
   if (!existing.arrived_at) throw ApiError.badRequest('Arrival has not been detected');
+  if (!existing.paid_at) throw ApiError.badRequest('Ride must be paid before completion');
   const redeemedCode = await codeModel.findByBookingId(bookingId);
   if (!redeemedCode || redeemedCode.status !== 'used') {
     throw ApiError.badRequest('Boarding code must be redeemed before completing the ride');
@@ -228,8 +229,20 @@ const redeemCode = async (code, driverUser) => {
     throw ApiError.forbidden('Code is not for this driver');
   }
   const used = await codeModel.markUsed(record.id);
-  return { booking, code: used };
+  const boarded = await bookingModel.markBoarded(booking.id);
+  return { booking: boarded, code: used };
 };
+
+const recordCashPayment = async (bookingId, passengerId) => withTransaction(async (client) => {
+  const booking = await bookingModel.findForPaymentForUpdate(bookingId, passengerId, client);
+  if (!booking) throw ApiError.notFound('Booking not found');
+  if (booking.status !== 'confirmed') throw ApiError.badRequest('Only confirmed rides can be paid');
+  if (!booking.boarded_at || booking.code_status !== 'used') {
+    throw ApiError.badRequest('Boarding code must be redeemed before payment');
+  }
+  if (booking.paid_at) return booking;
+  return bookingModel.markPaid(bookingId, 'cash', client);
+});
 
 const rateDriver = async (bookingId, passengerId, { rating, comment }) => {
   return withTransaction(async (client) => {
@@ -263,4 +276,7 @@ const expireStale = async (olderThanHours = 4) => withTransaction(async (client)
   return expired;
 });
 
-module.exports = { listForUser, getById, create, confirm, cancel, complete, redeemCode, rateDriver, expireStale };
+module.exports = {
+  listForUser, getById, create, confirm, cancel, complete, redeemCode,
+  rateDriver, expireStale, recordCashPayment,
+};

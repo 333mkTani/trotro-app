@@ -5,6 +5,7 @@ const COLUMNS = `id, passenger_id, driver_id, bus_id, route_id,
   desired_arrival_time, buffer_minutes, status,
   notification_sent_at, confirmed_at, completed_at, cancelled_at,
   arrival_near_at, arrived_at, expired_at,
+  boarded_at, paid_at,
   route_name, ride_fare, ride_payment_method, ride_schedule,
   created_at, updated_at`;
 
@@ -216,8 +217,30 @@ const findForPaymentForUpdate = async (id, passengerId, client) => {
   return rows[0] || null;
 };
 
+const markBoarded = async (id, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
+    `update public.bookings set boarded_at = coalesce(boarded_at, now())
+      where id = $1 returning ${COLUMNS}`,
+    [id],
+  );
+  return rows[0] || null;
+};
+
+const markPaid = async (id, paymentMethod, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
+    `update public.bookings
+        set paid_at = coalesce(paid_at, now()), ride_payment_method = $2
+      where id = $1 returning ${COLUMNS}`,
+    [id, paymentMethod],
+  );
+  return rows[0] || null;
+};
+
 module.exports = {
   findById, listForPassenger, listForDriver, insert, updateStatus,
   listConfirmedForDriverUnnotified, markNotified,
   detectDestinationArrivals, expireStaleConfirmed, findForPaymentForUpdate,
+  markBoarded, markPaid,
 };

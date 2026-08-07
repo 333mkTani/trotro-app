@@ -99,8 +99,9 @@ const charge = async (userId, { bookingId }) => {
     const booking = await bookingModel.findForPaymentForUpdate(bookingId, userId, client);
     if (!booking) throw ApiError.notFound('Booking not found');
     if (booking.status !== 'confirmed') throw ApiError.badRequest('Only confirmed rides can be paid');
-    if (!booking.arrived_at) throw ApiError.badRequest('Payment is available after arrival is detected');
-    if (booking.code_status !== 'used') throw ApiError.badRequest('Boarding code must be redeemed before payment');
+    if (!booking.boarded_at || booking.code_status !== 'used') {
+      throw ApiError.badRequest('Boarding code must be redeemed before payment');
+    }
     if (!booking.driver_id) throw ApiError.badRequest('Booking has no assigned driver');
 
     const amount = Number(booking.authoritative_fare);
@@ -110,6 +111,7 @@ const charge = async (userId, { bookingId }) => {
       bookingId, userId, 'ride_payment', client,
     );
     if (existing) {
+      if (!booking.paid_at) await bookingModel.markPaid(bookingId, 'wallet', client);
       const wallet = await walletModel.getBalance(userId, client);
       return { wallet, transaction: existing, alreadyProcessed: true };
     }
@@ -139,6 +141,8 @@ const charge = async (userId, { bookingId }) => {
       description: `Fare received for ${booking.pickup_stop_name} to ${booking.destination_stop_name}`,
       reference: `RIDE_${bookingId}_CREDIT`,
     }, client);
+
+    await bookingModel.markPaid(bookingId, 'wallet', client);
     return { wallet, transaction: tx };
   });
 };

@@ -48,8 +48,8 @@ export default function PayDriverScreen() {
 
   const router = useRouter();
   const params = useLocalSearchParams<Params>();
-  const { balance } = useWallet();
-  const { completeRide, completePending } = useBookings();
+  const { balance, payDriver, payDriverPending } = useWallet();
+  const { recordCashPayment, recordCashPaymentPending } = useBookings();
 
   const [paymentMethod, setPaymentMethod] = useState<RidePaymentMethod | null>(null);
   const [fareAmount, setFareAmount] = useState<string>(params.suggestedFare || "");
@@ -63,7 +63,7 @@ export default function PayDriverScreen() {
 
   const numericFare = parseFloat(fareAmount) || 0;
   const canPay = paymentMethod !== null && numericFare >= 0.5;
-  const isPending = completePending;
+  const isPending = payDriverPending || recordCashPaymentPending;
 
   useEffect(() => {
     Animated.parallel([
@@ -91,18 +91,7 @@ export default function PayDriverScreen() {
     ]).start();
     if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     setTimeout(() => {
-      router.replace({
-        pathname: "/rate-driver",
-        params: {
-          bookingId: params.bookingId ?? "",
-          driverName: params.driverName ?? "",
-          busReg: params.busReg ?? "",
-          routeName: params.routeName ?? "",
-          pickupStop: params.pickupStop ?? "",
-          destinationStop: params.destinationStop ?? "",
-          fare: String(numericFare || ""),
-        },
-      });
+      router.replace("/(tabs)/rides");
     }, 1800);
   }, [router, successScale, successOpacity, params, numericFare]);
 
@@ -121,28 +110,25 @@ export default function PayDriverScreen() {
           return;
         }
 
-        await Promise.resolve({
+        await payDriver({
           amount: numericFare,
           description: `${params.pickupStop} → ${params.destinationStop}`,
           driverName: params.driverName || "Driver",
+          bookingId: params.bookingId,
         });
       }
 
-      await completeRide({
-        bookingId: params.bookingId,
-        paymentMethod,
-        fare: numericFare,
-      });
+      if (paymentMethod === "cash") await recordCashPayment(params.bookingId);
 
       const msg = paymentMethod === "wallet"
         ? `GH₵ ${numericFare.toFixed(2)} sent to ${params.driverName || "driver"}`
-        : "Ride completed — please pay the driver in cash";
+        : "Cash payment recorded. Your ride remains active until arrival.";
       showSuccessAnimation(msg);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Payment failed";
       Alert.alert("Error", msg);
     }
-  }, [canPay, paymentMethod, numericFare, balance, params, completeRide, showSuccessAnimation]);
+  }, [canPay, paymentMethod, numericFare, balance, params, payDriver, recordCashPayment, showSuccessAnimation]);
 
   if (showSuccess) {
     return (
@@ -154,13 +140,13 @@ export default function PayDriverScreen() {
           <Check size={48} color={Colors.white} />
         </Animated.View>
         <Animated.Text style={[st.successTitle, { opacity: successOpacity }]}>
-          {paymentMethod === "wallet" ? "Payment Sent!" : "Ride Ended!"}
+          Payment Recorded!
         </Animated.Text>
         <Animated.Text style={[st.successSub, { opacity: successOpacity }]}>
           {successMessage}
         </Animated.Text>
         <Animated.Text style={[st.successNote, { opacity: successOpacity }]}>
-          Seat freed for other passengers
+          Your seat stays reserved until the ride ends
         </Animated.Text>
       </View>
     );

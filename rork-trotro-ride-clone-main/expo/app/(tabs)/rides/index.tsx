@@ -26,7 +26,7 @@ export default function RidesScreen() {
 
   const router = useRouter();
   const { user } = useAuth();
-  const { bookings: allBookings } = useBookings();
+  const { bookings: allBookings, completeRide } = useBookings();
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<BookingStatus | "all">("all");
   const [endingId, setEndingId] = useState<string | null>(null);
@@ -78,32 +78,51 @@ export default function RidesScreen() {
     const booking = allBookings.find((b) => b.id === id);
     if (!booking) return;
 
+    if (!booking.arrived_at) {
+      Alert.alert("Ride Still Active", "You can end the ride after the bus reaches your destination.");
+      return;
+    }
+
+    if (!booking.paid_at) {
+      router.push({
+        pathname: "/pay-driver",
+        params: {
+          bookingId: booking.id,
+          driverName: booking.driver_name ?? "",
+          busReg: booking.bus_registration ?? "",
+          routeName: booking.route_name ?? "",
+          pickupStop: booking.pickup_stop_name,
+          destinationStop: booking.destination_stop_name,
+          suggestedFare: String(booking.ride_fare ?? ""),
+        },
+      });
+      return;
+    }
+
     Alert.alert(
       "End Ride",
       "Have you arrived at your destination?",
       [
         { text: "Not Yet", style: "cancel" },
         {
-          text: "Yes, Pay & End Ride",
+          text: "Yes, End Ride",
           style: "default",
-          onPress: () => {
-            router.push({
-              pathname: "/pay-driver",
-              params: {
+          onPress: async () => {
+            setEndingId(booking.id);
+            try {
+              await completeRide({
                 bookingId: booking.id,
-                driverName: booking.driver_name ?? "",
-                busReg: booking.bus_registration ?? "",
-                routeName: booking.route_name ?? "",
-                pickupStop: booking.pickup_stop_name,
-                destinationStop: booking.destination_stop_name,
-                suggestedFare: String(booking.ride_fare ?? 3),
-              },
-            });
+                paymentMethod: booking.ride_payment_method ?? "cash",
+                fare: booking.ride_fare ?? 0,
+              });
+            } finally {
+              setEndingId(null);
+            }
           },
         },
       ],
     );
-  }, [allBookings, router]);
+  }, [allBookings, router, completeRide]);
 
   const onCancel = useCallback((id: string) => {
     if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);

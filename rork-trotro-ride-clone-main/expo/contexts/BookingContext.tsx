@@ -20,6 +20,8 @@ const mapBooking = (b: Record<string, unknown>): Booking => ({
   arrival_near_at: b.arrival_near_at as string | undefined,
   arrived_at: b.arrived_at as string | undefined,
   expired_at: b.expired_at as string | undefined,
+  boarded_at: b.boarded_at as string | undefined,
+  paid_at: b.paid_at as string | undefined,
   completed_at: b.completed_at as string | undefined,
   created_at: b.created_at as string,
   route_name: b.route_name as string | undefined,
@@ -149,16 +151,13 @@ export const [BookingProvider, useBookings] = createContextHook(() => {
   const completeRideMutation = useMutation({
     mutationFn: async ({
       bookingId,
-      paymentMethod,
-      fare,
+      paymentMethod: _paymentMethod,
+      fare: _fare,
     }: {
       bookingId: string;
       paymentMethod: RidePaymentMethod;
       fare: number;
     }): Promise<string> => {
-      if (paymentMethod === 'wallet') {
-        await api.post('/wallet/charge', { bookingId });
-      }
       await api.post(`/bookings/${bookingId}/complete`);
       return bookingId;
     },
@@ -166,6 +165,14 @@ export const [BookingProvider, useBookings] = createContextHook(() => {
       queryClient.invalidateQueries({ queryKey: ['bookings'] });
       queryClient.invalidateQueries({ queryKey: ['wallet'] });
     },
+  });
+
+  const recordCashPaymentMutation = useMutation({
+    mutationFn: async (bookingId: string): Promise<string> => {
+      await api.post(`/bookings/${bookingId}/pay-cash`);
+      return bookingId;
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['bookings'] }),
   });
 
   return {
@@ -178,6 +185,8 @@ export const [BookingProvider, useBookings] = createContextHook(() => {
     cancelPending: cancelBookingMutation.isPending,
     completeRide: completeRideMutation.mutateAsync,
     completePending: completeRideMutation.isPending,
+    recordCashPayment: recordCashPaymentMutation.mutateAsync,
+    recordCashPaymentPending: recordCashPaymentMutation.isPending,
     isLoading: bookingsQuery.isLoading,
   };
 });

@@ -31,6 +31,10 @@ const complete = asyncHandler(async (req, res) => {
   res.json(await bookingService.complete(req.params.id, req.user));
 });
 
+const recordCashPayment = asyncHandler(async (req, res) => {
+  res.json(await bookingService.recordCashPayment(req.params.id, req.user.id));
+});
+
 const code = asyncHandler(async (req, res) => {
   res.json(await codeService.getForBooking(req.params.id, req.user));
 });
@@ -43,4 +47,4 @@ const rate = asyncHandler(async (req, res) => {
   res.status(201).json(await bookingService.rateDriver(req.params.id, req.user.id, req.body));
 });
 
-module.exports = { list, getById, create, confirm, cancel, complete, code, redeem, rate };
+module.exports = { list, getById, create, confirm, cancel, complete, recordCashPayment, code, redeem, rate };

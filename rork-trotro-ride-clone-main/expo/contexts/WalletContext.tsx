@@ -65,12 +65,14 @@ export const [WalletProvider, useWallet] = createContextHook(() => {
     mutationFn: async ({
       amount,
       description,
+      bookingId,
     }: {
       amount: number;
       description: string;
       driverName: string;
+      bookingId: string;
     }): Promise<WalletTransaction> => {
-      const { data } = await api.post('/wallet/charge', { amount, description });
+      const { data } = await api.post('/wallet/charge', { bookingId });
       return mapTxn((data as { transaction: Record<string, unknown> }).transaction);
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['wallet'] }),

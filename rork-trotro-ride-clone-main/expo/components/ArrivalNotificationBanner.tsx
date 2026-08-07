@@ -26,7 +26,7 @@ export default function ArrivalNotificationBanner() {
   const Colors = themeColors;
   st = React.useMemo(() => make_st(themeColors), [themeColors]);
 
-  const { bookings } = useBookings();
+  const { bookings, completeRide, completePending } = useBookings();
   const { user } = useAuth();
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -116,9 +116,31 @@ export default function ArrivalNotificationBanner() {
     });
   }, [slideAnim]);
 
-  const handleEndRide = useCallback(() => {
+  const handleEndRide = useCallback(async () => {
     if (!arrivedBooking) return;
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+
+    if (arrivedBooking.paid_at) {
+      await completeRide({
+        bookingId: arrivedBooking.id,
+        paymentMethod: arrivedBooking.ride_payment_method ?? 'cash',
+        fare: arrivedBooking.ride_fare ?? 0,
+      });
+      hideAndClear();
+      router.push({
+        pathname: '/rate-driver',
+        params: {
+          bookingId: arrivedBooking.id,
+          driverName: arrivedBooking.driver_name ?? '',
+          busReg: arrivedBooking.bus_registration ?? '',
+          routeName: arrivedBooking.route_name ?? '',
+          pickupStop: arrivedBooking.pickup_stop_name,
+          destinationStop: arrivedBooking.destination_stop_name,
+          fare: String(arrivedBooking.ride_fare ?? ''),
+        },
+      });
+      return;
+    }
 
     router.push({
       pathname: "/pay-driver",
@@ -133,7 +155,7 @@ export default function ArrivalNotificationBanner() {
       },
     });
     hideAndClear();
-  }, [arrivedBooking, router, hideAndClear]);
+  }, [arrivedBooking, router, hideAndClear, completeRide]);
 
   const handleDismiss = useCallback(() => {
     if (!arrivedBooking) return;
@@ -180,10 +202,11 @@ export default function ArrivalNotificationBanner() {
           style={st.endBtn}
           onPress={handleEndRide}
           activeOpacity={0.8}
+          disabled={completePending}
           testID="arrival-end-ride"
         >
           <Wallet size={18} color={Colors.white} />
-          <Text style={st.endBtnText}>Pay Driver & End Ride</Text>
+          <Text style={st.endBtnText}>{arrivedBooking.paid_at ? "End Ride" : "Pay Driver"}</Text>
         </TouchableOpacity>
 
         <Text style={st.reminder}>Tap dismiss to be reminded again in 5 min</Text>

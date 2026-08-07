@@ -133,9 +133,9 @@ export default function WalletScreen() {
 
   const onPayDriver = useCallback(() => {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const booking = bookings.find((item) => item.status === "confirmed" && !!item.arrived_at);
+    const booking = bookings.find((item) => item.status === "confirmed" && !!item.boarded_at && !item.paid_at);
     if (!booking) {
-      Alert.alert("No Ride Ready for Payment", "Payment becomes available after you board and the bus reaches your destination.");
+      Alert.alert("No Ride Ready for Payment", "Payment becomes available after the driver scans your boarding code.");
       return;
     }
     router.push({

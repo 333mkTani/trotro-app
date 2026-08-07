@@ -16,7 +16,7 @@ const walletService = require('../wallet.service');
 describe('charge', () => {
   const payableBooking = {
     id: 'booking-1', passenger_id: 'passenger-1', driver_id: 'driver-1',
-    status: 'confirmed', arrived_at: new Date().toISOString(), code_status: 'used',
+    status: 'confirmed', boarded_at: new Date().toISOString(), code_status: 'used',
     authoritative_fare: '3.00', pickup_stop_name: 'Tech', destination_stop_name: 'Conti',
   };
 

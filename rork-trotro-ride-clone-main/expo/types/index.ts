@@ -82,6 +82,8 @@ export interface Booking {
   arrival_near_at?: string;
   arrived_at?: string;
   expired_at?: string;
+  boarded_at?: string;
+  paid_at?: string;
   confirmed_at?: string;
   completed_at?: string;
   created_at: string;
