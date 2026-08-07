@@ -1,4 +1,4 @@
-import React, { useRef, useCallback } from 'react';
+import React, { useRef, useCallback, useEffect } from 'react';
 import {
   View,
   Text,
@@ -22,6 +22,15 @@ export const AvailabilityToggle = React.memo(function AvailabilityToggle({
   disabled = false,
 }: AvailabilityToggleProps) {
   const animValue = useRef(new Animated.Value(isAvailable ? 1 : 0)).current;
+
+  useEffect(() => {
+    Animated.spring(animValue, {
+      toValue: isAvailable ? 1 : 0,
+      useNativeDriver: false,
+      tension: 60,
+      friction: 8,
+    }).start();
+  }, [animValue, isAvailable]);
 
   const handleToggle = useCallback(() => {
     if (disabled) return;

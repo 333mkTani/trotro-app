@@ -80,12 +80,13 @@ const setAvailability = async (driverId, isAvailable) => {
   if (!bus) throw ApiError.notFound('No bus assigned to this driver yet');
   // entity_status enum: active | paused | deleted
   const newStatus = isAvailable ? 'active' : 'paused';
+  const newDrivingStatus = isAvailable ? bus.driving_status : 'STATIONARY';
   const { rows } = await query(
     `UPDATE buses
         SET status = $1,
-            driving_status = CASE WHEN $1 = 'paused' THEN 'STATIONARY' ELSE driving_status END
-      WHERE id = $2 RETURNING *`,
-    [newStatus, bus.id]
+            driving_status = $2
+      WHERE id = $3 RETURNING *`,
+    [newStatus, newDrivingStatus, bus.id]
   );
   return rows[0];
 };

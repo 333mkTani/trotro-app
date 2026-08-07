@@ -32,7 +32,14 @@ export default function TrotroDriverDashboard() {
     }
   }, [dashQ.data]);
 
-  const availMut = useMutation({ mutationFn: toggleAvailability, onSuccess: () => qc.invalidateQueries({ queryKey: ['dashboard'] }), onError: () => Alert.alert('Error', 'Failed to update availability.') });
+  const availMut = useMutation({
+    mutationFn: toggleAvailability,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['dashboard'] }),
+    onError: (error: Error, attemptedValue: boolean) => {
+      store.setAvailability(!attemptedValue);
+      Alert.alert('Availability Not Updated', error.message || 'Failed to update availability.');
+    },
+  });
   const onToggle = useCallback((v: boolean) => {
     store.setAvailability(v);
     if (!v) store.setDrivingStatus('STATIONARY');
