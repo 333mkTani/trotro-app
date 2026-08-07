@@ -130,8 +130,14 @@ export default function FindRouteScreen() {
     ]).start();
   }, []);
 
-  // Prefer backend UUID stops (nearbyStops) for searching; fall back to regionStops (may include mock)
-  const stopsForSearch = nearbyStops.length > 0 ? nearbyStops.filter(s => s.status === 'active') : regionStops;
+  // Keep this reference stable: route-result synchronization depends on it and
+  // must not retrigger merely because the screen rendered again.
+  const stopsForSearch = useMemo(
+    () => nearbyStops.length > 0
+      ? nearbyStops.filter((stop) => stop.status === 'active')
+      : regionStops,
+    [nearbyStops, regionStops],
+  );
 
   useEffect(() => {
     // Wait for stops to finish loading before deciding there's nothing nearby —
