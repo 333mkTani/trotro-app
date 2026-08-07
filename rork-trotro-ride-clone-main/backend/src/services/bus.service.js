@@ -4,7 +4,7 @@ const cache = require('./cache.service');
 const push = require('./push.service');
 const { publisher, isReady } = require('../config/redis');
 const { ApiError } = require('../utils/ApiError');
-const { emitToBus, emitToRoute } = require('../realtime/io');
+const { emitToBus, emitToRoute, emitToUser } = require('../realtime/io');
 
 const APPROACH_RADIUS_M = 500;
 const AVG_SPEED_MPS = 6.9; // ~25 km/h average city driving speed, for ETA estimates
@@ -80,6 +80,25 @@ const updateLocation = async (id, coords) => {
             await bookingModel.markNotified(b.id);
             console.log(`[bus] notified passenger for booking ${b.id}, dist ${Math.round(dist)}m`);
           }
+        }
+
+        const arrivals = await bookingModel.detectDestinationArrivals(
+          updated.driver_id,
+          { lat: coords.lat, lng: coords.lng },
+        );
+        for (const arrival of arrivals) {
+          const payload = {
+            bookingId: arrival.id,
+            arrivedAt: arrival.arrived_at,
+            destinationStopName: arrival.destination_stop_name,
+          };
+          emitToUser(arrival.passenger_id, 'booking:arrived', payload);
+          await push.send(arrival.passenger_push_token, {
+            title: 'You have arrived',
+            body: `Confirm arrival at ${arrival.destination_stop_name} when you are ready to pay.`,
+            data: { type: 'booking_arrived', ...payload },
+          });
+          console.log(`[bus] destination arrival detected for booking ${arrival.id}`);
         }
       } catch (err) {
         console.error('[bus] proximity notify failed:', err.message);

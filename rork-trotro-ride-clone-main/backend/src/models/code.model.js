@@ -2,8 +2,9 @@ const { query } = require('../config/db');
 
 const COLUMNS = `id, booking_id, code, qr_payload, status, valid_until, used_at, invalidated_at, created_at`;
 
-const findByBookingId = async (bookingId) => {
-  const { rows } = await query(
+const findByBookingId = async (bookingId, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
     `select ${COLUMNS} from public.verification_codes where booking_id = $1`,
     [bookingId],
   );
@@ -41,8 +42,9 @@ const markUsed = async (id, client) => {
   return rows[0] || null;
 };
 
-const invalidate = async (id) => {
-  const { rows } = await query(
+const invalidate = async (id, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
     `update public.verification_codes
         set status = 'invalidated', invalidated_at = now()
       where id = $1

@@ -72,6 +72,8 @@ function RootLayoutNav() {
             router.push("/ride-notification");
           } else if (data?.type === 'bus_alert' && data?.alertId) {
             router.push("/my-alerts");
+          } else if (data?.type === 'booking_arrived' && data?.bookingId) {
+            router.push("/(tabs)/rides");
           }
         },
       );

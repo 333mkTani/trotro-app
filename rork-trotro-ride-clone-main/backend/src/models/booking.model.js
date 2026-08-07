@@ -4,6 +4,7 @@ const COLUMNS = `id, passenger_id, driver_id, bus_id, route_id,
   pickup_stop_id, pickup_stop_name, destination_stop_id, destination_stop_name,
   desired_arrival_time, buffer_minutes, status,
   notification_sent_at, confirmed_at, completed_at, cancelled_at,
+  arrival_near_at, arrived_at, expired_at,
   route_name, ride_fare, ride_payment_method, ride_schedule,
   created_at, updated_at`;
 
@@ -137,4 +138,67 @@ const markNotified = async (id) => {
   );
 };
 
-module.exports = { findById, listForPassenger, listForDriver, insert, updateStatus, listConfirmedForDriverUnnotified, markNotified };
+// Requires two proximity pings at least ten seconds apart. Leaving the radius
+// resets the first observation, so merely passing nearby once is not enough.
+const detectDestinationArrivals = async (driverId, { lat, lng, radiusM = 150 }) => {
+  await query(
+    `UPDATE public.bookings b
+        SET arrival_near_at = NULL
+       FROM public.bus_stops s
+      WHERE b.destination_stop_id = s.id
+        AND b.driver_id = $1
+        AND b.status = 'confirmed'
+        AND b.arrived_at IS NULL
+        AND b.arrival_near_at IS NOT NULL
+        AND NOT ST_DWithin(
+          s.geom::geography,
+          ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography,
+          $4
+        )`,
+    [driverId, lng, lat, radiusM],
+  );
+
+  const { rows } = await query(
+    `UPDATE public.bookings b
+        SET arrived_at = CASE
+              WHEN b.arrival_near_at <= now() - interval '10 seconds' THEN now()
+              ELSE b.arrived_at
+            END,
+            arrival_near_at = coalesce(b.arrival_near_at, now())
+       FROM public.bus_stops s, public.profiles p
+      WHERE b.destination_stop_id = s.id
+        AND p.id = b.passenger_id
+        AND b.driver_id = $1
+        AND b.status = 'confirmed'
+        AND b.arrived_at IS NULL
+        AND ST_DWithin(
+          s.geom::geography,
+          ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography,
+          $4
+        )
+      RETURNING b.id, b.passenger_id, b.destination_stop_name,
+                b.pickup_stop_name, b.route_name, b.arrived_at,
+                p.fcm_token AS passenger_push_token`,
+    [driverId, lng, lat, radiusM],
+  );
+  return rows.filter((row) => row.arrived_at);
+};
+
+const expireStaleConfirmed = async (olderThanHours = 4, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
+    `UPDATE public.bookings
+        SET status = 'expired', expired_at = now()
+      WHERE status = 'confirmed'
+        AND confirmed_at < now() - ($1 * interval '1 hour')
+      RETURNING ${COLUMNS}`,
+    [olderThanHours],
+  );
+  return rows;
+};
+
+module.exports = {
+  findById, listForPassenger, listForDriver, insert, updateStatus,
+  listConfirmedForDriverUnnotified, markNotified,
+  detectDestinationArrivals, expireStaleConfirmed,
+};

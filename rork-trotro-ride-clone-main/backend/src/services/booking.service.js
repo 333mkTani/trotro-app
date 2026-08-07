@@ -8,7 +8,7 @@ const profileModel = require('../models/profile.model');
 const push = require('./push.service');
 const { ApiError } = require('../utils/ApiError');
 const { generateBoardingCode, buildQrPayload } = require('../utils/codes');
-const { emitToDriver, emitToRoute } = require('../realtime/io');
+const { emitToDriver, emitToRoute, emitToUser } = require('../realtime/io');
 
 const listForUser = async (user, { status }) => {
   if (user.role === 'driver') {
@@ -243,4 +243,18 @@ const rateDriver = async (bookingId, passengerId, { rating, comment }) => {
   });
 };
 
-module.exports = { listForUser, getById, create, confirm, cancel, complete, redeemCode, rateDriver };
+// Releases seats held by abandoned confirmed bookings. This never completes a
+// ride and never charges a wallet.
+const expireStale = async (olderThanHours = 4) => withTransaction(async (client) => {
+  const expired = await bookingModel.expireStaleConfirmed(olderThanHours, client);
+  for (const booking of expired) {
+    if (booking.bus_id) await busModel.adjustSeats(booking.bus_id, 1, client);
+    const code = await codeModel.findByBookingId(booking.id, client);
+    if (code && code.status === 'valid') await codeModel.invalidate(code.id, client);
+    if (booking.driver_id) emitToDriver(booking.driver_id, 'booking:updated', booking);
+    emitToUser(booking.passenger_id, 'booking:updated', booking);
+  }
+  return expired;
+});
+
+module.exports = { listForUser, getById, create, confirm, cancel, complete, redeemCode, rateDriver, expireStale };

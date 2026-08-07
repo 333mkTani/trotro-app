@@ -79,6 +79,9 @@ export interface Booking {
   buffer_minutes: BufferMinutes;
   status: BookingStatus;
   notification_sent_at?: string;
+  arrival_near_at?: string;
+  arrived_at?: string;
+  expired_at?: string;
   confirmed_at?: string;
   completed_at?: string;
   created_at: string;

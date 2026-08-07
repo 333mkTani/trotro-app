@@ -15,9 +15,10 @@ import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
 import { useBookings } from "@/contexts/BookingContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Booking } from "@/types";
+import { connectSocket, getSocket } from "@/services/socket";
+import { useQueryClient } from "@tanstack/react-query";
 const Colors = StaticColors;
 
-const CHECK_INTERVAL = 10_000;
 const DISMISS_DURATION = 5 * 60 * 1000;
 
 export default function ArrivalNotificationBanner() {
@@ -28,6 +29,7 @@ export default function ArrivalNotificationBanner() {
   const { bookings } = useBookings();
   const { user } = useAuth();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [arrivedBooking, setArrivedBooking] = useState<Booking | null>(null);
   const [ending, setEnding] = useState(false);
   const [dismissedIds, setDismissedIds] = useState<Record<string, number>>({});
@@ -54,10 +56,7 @@ export default function ArrivalNotificationBanner() {
         !cleanDismissed[b.id]
     );
 
-    const arrived = myConfirmed.find((b) => {
-      const arrivalTime = new Date(b.desired_arrival_time).getTime();
-      return now >= arrivalTime;
-    });
+    const arrived = myConfirmed.find((b) => !!b.arrived_at);
 
     if (arrived && (!arrivedBooking || arrived.id !== arrivedBooking.id)) {
       setArrivedBooking(arrived);
@@ -69,9 +68,19 @@ export default function ArrivalNotificationBanner() {
 
   useEffect(() => {
     checkArrivals();
-    const interval = setInterval(checkArrivals, CHECK_INTERVAL);
-    return () => clearInterval(interval);
   }, [checkArrivals]);
+
+  useEffect(() => {
+    let mounted = true;
+    const onArrived = () => queryClient.invalidateQueries({ queryKey: ['bookings'] });
+    void connectSocket().then(() => {
+      if (mounted) getSocket()?.on('booking:arrived', onArrived);
+    }).catch(() => { /* 15-second booking polling remains the fallback */ });
+    return () => {
+      mounted = false;
+      getSocket()?.off('booking:arrived', onArrived);
+    };
+  }, [queryClient]);
 
   useEffect(() => {
     if (arrivedBooking && !shown.current) {

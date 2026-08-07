@@ -5,6 +5,7 @@ const { env } = require('./config/env');
 const { pool } = require('./config/db');
 const { closeAll: closeRedis } = require('./config/redis');
 const { attach: attachSocketIO } = require('./realtime/io');
+const bookingService = require('./services/booking.service');
 
 const server = http.createServer(app);
 const io = attachSocketIO(server);
@@ -14,7 +15,19 @@ server.listen(env.PORT, () => {
   console.log(`[trotro-api] listening on :${env.PORT} (${env.NODE_ENV})`);
 });
 
+const sweepStaleBookings = async () => {
+  try {
+    const expired = await bookingService.expireStale(4);
+    if (expired.length) console.log(`[booking-sweeper] expired ${expired.length} stale booking(s)`);
+  } catch (err) {
+    console.error('[booking-sweeper] failed:', err.message);
+  }
+};
+const bookingSweepTimer = setInterval(sweepStaleBookings, 10 * 60 * 1000);
+setTimeout(sweepStaleBookings, 15 * 1000);
+
 const shutdown = async (signal) => {
+  clearInterval(bookingSweepTimer);
   console.log(`[trotro-api] received ${signal}, shutting down...`);
   try {
     if (io) await new Promise((resolve) => io.close(() => resolve()));
