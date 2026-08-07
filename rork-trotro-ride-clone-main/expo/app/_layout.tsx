@@ -16,6 +16,10 @@ import MapLibreGL from "@maplibre/maplibre-react-native";
 
 // OpenFreeMap tiles don't need an access token
 MapLibreGL.setAccessToken(null);
+MapLibreGL.Logger.setLogCallback((log) =>
+  log.tag === "Mbgl-HttpRequest" &&
+  log.message.startsWith("Request failed due to a permanent error: Canceled"),
+);
 
 SplashScreen.preventAutoHideAsync();
 
