@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { Platform } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import * as Location from 'expo-location';
 import createContextHook from '@nkzw/create-context-hook';
 import { ApproachingBus, BusStop, Route as RouteType } from '@/types';
@@ -92,22 +92,36 @@ export const [LocationProvider, useLocation] = createContextHook(() => {
       .catch(() => { /* routes stay empty until API responds */ });
   }, [region.id]);
 
-  // Fetch active buses once on mount
-  useEffect(() => {
-    api.get('/buses/active')
-      .then(({ data }) => {
-        const seen = new Set<string>();
-        const buses = (data as Record<string, unknown>[])
-          .map(mapActiveBus)
-          .filter((b) => {
-            if (!b.driver_id || seen.has(b.driver_id)) return false;
-            seen.add(b.driver_id);
-            return true;
-          });
-        setActiveBuses(buses);
-      })
-      .catch(() => {});
+  const fetchActiveBuses = useCallback(async () => {
+    try {
+      const { data } = await api.get('/buses/active');
+      const seen = new Set<string>();
+      const buses = (data as Record<string, unknown>[])
+        .map(mapActiveBus)
+        .filter((b) => {
+          if (!b.driver_id || seen.has(b.driver_id)) return false;
+          seen.add(b.driver_id);
+          return true;
+        });
+      setActiveBuses(buses);
+    } catch {
+      // Keep the last successful list during a temporary network failure.
+    }
   }, []);
+
+  // Availability is operational state, so it must not be cached for the
+  // lifetime of the passenger app. Poll and refresh immediately on resume.
+  useEffect(() => {
+    void fetchActiveBuses();
+    const interval = setInterval(() => { void fetchActiveBuses(); }, 10_000);
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void fetchActiveBuses();
+    });
+    return () => {
+      clearInterval(interval);
+      subscription.remove();
+    };
+  }, [fetchActiveBuses]);
 
   // Fetch nearby stops whenever user location changes
   useEffect(() => {
@@ -200,6 +214,7 @@ export const [LocationProvider, useLocation] = createContextHook(() => {
     nearbyStops,
     regionRoutes,
     activeBuses,
+    refreshActiveBuses: fetchActiveBuses,
     mapCenter,
     locationLoading,
     locationError,

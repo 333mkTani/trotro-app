@@ -278,6 +278,40 @@ export default function FindRouteScreen() {
     [onSelectDestination],
   );
 
+  // Keep an already-open results screen synchronized with driver availability.
+  // Otherwise recommendations retain the bus snapshot from the original search.
+  useEffect(() => {
+    if (phase !== "results" || !selectedDest || loading) return;
+    const pickupLat = pickupOverride?.lat ?? userLat;
+    const pickupLng = pickupOverride?.lng ?? userLng;
+    if (pickupLat == null || pickupLng == null) return;
+
+    const exactDestinationId = selectedDest.id.startsWith("place-")
+      ? undefined
+      : selectedDest.id;
+    setRecommendations(findRouteRecommendations(
+      pickupLat,
+      pickupLng,
+      selectedDest.lat,
+      selectedDest.lng,
+      3000,
+      stopsForSearch.length > 0 ? stopsForSearch : undefined,
+      regionRoutes.length > 0 ? regionRoutes : undefined,
+      activeBuses,
+      exactDestinationId,
+    ));
+  }, [
+    activeBuses,
+    loading,
+    phase,
+    pickupOverride,
+    regionRoutes,
+    selectedDest,
+    stopsForSearch,
+    userLat,
+    userLng,
+  ]);
+
   const onSearchPickup = useCallback((text: string) => {
     setPickupQuery(text);
     if (pickupSearchTimer.current) clearTimeout(pickupSearchTimer.current);
