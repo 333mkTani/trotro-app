@@ -75,6 +75,39 @@ export interface Booking {
   created_at: string;
 }
 
+export type FutureRequestState = 'AWAITING' | 'ACCEPTED';
+
+export interface FutureRideRequest {
+  id: string;
+  serviceDate: string;
+  boardingStart: string;
+  boardingEnd: string;
+  departureStopId: string;
+  departureStation: string;
+  destinationStation: string;
+  availableSeats: number;
+  primaryDeadline: string;
+  finalDeadline: string;
+  status: string;
+  currentState: FutureRequestState;
+}
+
+export interface ScheduledBoardingResult {
+  booking: {
+    id: string;
+    status: string;
+    passenger_id?: string;
+    passenger_name?: string;
+    pickup_stop_name?: string;
+    destination_stop_name?: string;
+  };
+  occurrence?: {
+    id: string;
+    status: string;
+  };
+  occurrenceId?: string;
+}
+
 export interface DemandStop {
   id: string;
   stop_name: string;
@@ -101,10 +134,11 @@ export interface OverflowRequest {
 
 export interface VerificationResult {
   success: boolean;
+  source?: 'IMMEDIATE' | 'SCHEDULED';
   passenger_name?: string;
   route_name?: string;
   confirmed_at?: string;
-  error_code?: 'CODE_NOT_FOUND' | 'CODE_EXPIRED' | 'CODE_ALREADY_USED' | 'BUS_MISMATCH' | 'CODE_INVALIDATED';
+  error_code?: 'CODE_NOT_FOUND' | 'CODE_EXPIRED' | 'CODE_ALREADY_USED' | 'BUS_MISMATCH' | 'CODE_INVALIDATED' | 'BOARDING_NOT_OPEN' | 'WRONG_DRIVER';
 }
 
 export interface QueuedLocation {

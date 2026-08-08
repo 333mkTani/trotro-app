@@ -52,6 +52,14 @@ type TrackingParams = {
   stopName: string;
 };
 
+function validLatitude(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= -90 && value <= 90;
+}
+
+function validLongitude(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= -180 && value <= 180;
+}
+
 function interpolateCoords(
   startLat: number,
   startLng: number,
@@ -113,13 +121,21 @@ export default function TrackingScreen() {
   const cameraRef = useRef<React.ComponentRef<typeof MapLibreGL.Camera>>(null);
 
   // Stop coords always come from a real selected bus stop, so they're the reliable anchor.
-  const stopLat = Number(p.stopLat) || 5.575;
-  const stopLng = Number(p.stopLng) || -0.205;
+  const parsedStopLat = Number(p.stopLat);
+  const parsedStopLng = Number(p.stopLng);
+  const stopLat = validLatitude(parsedStopLat) ? parsedStopLat : 5.575;
+  const stopLng = validLongitude(parsedStopLng) ? parsedStopLng : -0.205;
   // A bus with no live GPS fix yet reports lat/lng as 0 — placing it near the stop
   // (rather than a fixed Accra fallback) keeps the map sane for trips anywhere in Ghana.
-  const busHasLiveFix = Number(p.lat) !== 0 && Number(p.lng) !== 0;
-  const busStartLat = busHasLiveFix ? Number(p.lat) : stopLat + 0.015;
-  const busStartLng = busHasLiveFix ? Number(p.lng) : stopLng + 0.01;
+  const parsedBusLat = Number(p.lat);
+  const parsedBusLng = Number(p.lng);
+  const busHasLiveFix =
+    validLatitude(parsedBusLat) &&
+    validLongitude(parsedBusLng) &&
+    parsedBusLat !== 0 &&
+    parsedBusLng !== 0;
+  const busStartLat = busHasLiveFix ? parsedBusLat : stopLat + 0.015;
+  const busStartLng = busHasLiveFix ? parsedBusLng : stopLng + 0.01;
   const initialEta = Number(p.eta) || 10;
   const seats = Number(p.seats) || 0;
   const stopName = p.stopName || "Bus Stop";
@@ -185,6 +201,7 @@ export default function TrackingScreen() {
   );
 
   const applyRealPosition = useCallback((realLat: number, realLng: number) => {
+    if (!validLatitude(realLat) || !validLongitude(realLng)) return;
     setBusPosition({ lat: realLat, lng: realLng });
 
     const distToStop = haversineMetres(realLat, realLng, stopLat, stopLng);
@@ -267,7 +284,12 @@ export default function TrackingScreen() {
         const realLat = parseFloat(data.lat);
         const realLng = parseFloat(data.lng);
 
-        if (realLat && realLng && realLat !== 0 && realLng !== 0) {
+        if (
+          validLatitude(realLat) &&
+          validLongitude(realLng) &&
+          realLat !== 0 &&
+          realLng !== 0
+        ) {
           applyRealPosition(realLat, realLng);
           return;
         }

@@ -6,6 +6,7 @@
   "type": "commonjs",
   "scripts": {
     "start": "node src/server.js",
+    "worker:schedule": "node src/scheduleWorker.js",
     "dev": "nodemon src/server.js",
     "migrate": "node src/migrate.js",
     "test": "jest"

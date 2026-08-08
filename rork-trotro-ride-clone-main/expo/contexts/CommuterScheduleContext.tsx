@@ -1,6 +1,9 @@
 import createContextHook from '@nkzw/create-context-hook';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/services/api';
+import { useAuth } from '@/contexts/AuthContext';
+import { connectSocket } from '@/services/socket';
 import type {
   CommuterSchedule,
   CommuterScheduleStatus,
@@ -11,6 +14,8 @@ import type {
 
 export const [CommuterScheduleProvider, useCommuterSchedules] = createContextHook(() => {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
+  const [occurrenceRefreshToken, setOccurrenceRefreshToken] = useState(0);
   const queryKey = ['commuter-schedules'] as const;
 
   const schedulesQuery = useQuery({
@@ -42,10 +47,34 @@ export const [CommuterScheduleProvider, useCommuterSchedules] = createContextHoo
     onSuccess: async () => queryClient.invalidateQueries({ queryKey }),
   });
 
-  const getOccurrences = async (id: string): Promise<ScheduleOccurrence[]> => {
+  const getOccurrences = useCallback(async (id: string): Promise<ScheduleOccurrence[]> => {
     const { data } = await api.get(`/commuter-schedules/${id}/occurrences`);
     return data as ScheduleOccurrence[];
-  };
+  }, []);
+
+  const refreshScheduleData = useCallback(async () => {
+    setOccurrenceRefreshToken((token) => token + 1);
+    return schedulesQuery.refetch();
+  }, [schedulesQuery.refetch]);
+
+  useEffect(() => {
+    if (!user) return;
+    let active = true;
+    let cleanup = () => {};
+    const refresh = () => { void refreshScheduleData(); };
+    const events = [
+      'schedule:accepted', 'schedule:driver-withdrawn', 'schedule:unmatched',
+      'schedule:backup-started', 'schedule:backup-stopped', 'schedule:boarding-open',
+      'schedule:boarding-closed', 'schedule:cancelled', 'schedule:expired',
+      'schedule:updated',
+    ];
+    void connectSocket().then((socket) => {
+      if (!active) return;
+      events.forEach((event) => socket.on(event, refresh));
+      cleanup = () => events.forEach((event) => socket.off(event, refresh));
+    }).catch(() => {});
+    return () => { active = false; cleanup(); };
+  }, [user, refreshScheduleData]);
   const cancelOccurrenceMutation = useMutation({
     mutationFn: async (id: string) => {
       const { data } = await api.post(`/commuter-schedules/occurrences/${id}/cancel`);
@@ -70,6 +99,8 @@ export const [CommuterScheduleProvider, useCommuterSchedules] = createContextHoo
     cancelOccurrence: cancelOccurrenceMutation.mutateAsync,
     cancelOccurrencePending: cancelOccurrenceMutation.isPending,
     refreshSchedules: schedulesQuery.refetch,
+    refreshScheduleData,
+    occurrenceRefreshToken,
     schedulesError: schedulesQuery.error,
   };
 });

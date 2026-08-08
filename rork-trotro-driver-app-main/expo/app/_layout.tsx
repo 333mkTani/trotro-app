@@ -31,6 +31,7 @@ function RootLayoutNav() {
       <Stack.Screen name="change-route" options={{ title: "Change Route", presentation: "modal" }} />
       <Stack.Screen name="edit-profile" options={{ title: "Edit Profile", presentation: "modal" }} />
       <Stack.Screen name="change-password" options={{ title: "Change Password", presentation: "modal" }} />
+      <Stack.Screen name="future-requests" options={{ title: "Future Requests" }} />
     </Stack>
   );
 }

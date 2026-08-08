@@ -2,7 +2,8 @@ import React, { useState, useCallback, useMemo, useRef } from 'react';
 import { View, Text, StyleSheet, FlatList, Pressable, Alert, RefreshControl, ActivityIndicator, Platform, Modal, ScrollView, Animated } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Calendar, Clock, Inbox, ChevronUp, ChevronDown, Zap } from 'lucide-react-native';
+import { Calendar, CalendarClock, Clock, Inbox, ChevronUp, ChevronDown, Zap } from 'lucide-react-native';
+import { router, type Href } from 'expo-router';
 import { Route, CircleStop, Lock } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useDriverStore } from '@/store/driverStore';
@@ -151,6 +152,13 @@ export default function TrotroScheduleManager() {
 
   return (
     <View style={ss.c}>
+      <Pressable style={ss.futureBtn} onPress={() => router.push('/future-requests' as Href)}>
+        <CalendarClock size={20} color={Colors.white} />
+        <View style={ss.futureBtnCopy}>
+          <Text style={ss.futureBtnTitle}>Future seat requests</Text>
+          <Text style={ss.futureBtnSub}>Review scheduled passenger requests</Text>
+        </View>
+      </Pressable>
       <View style={ss.card}>
         <View style={ss.cH}><Calendar size={18} color={Colors.primary} /><Text style={ss.cT}>Your Scheduling Window</Text></View>
         <View style={ss.tR}>
@@ -216,6 +224,10 @@ const pk = StyleSheet.create({
 
 const ss = StyleSheet.create({
   c: { flex: 1, backgroundColor: Colors.background },
+  futureBtn: { marginHorizontal: 16, marginTop: 16, marginBottom: 0, padding: 14, borderRadius: 14, backgroundColor: Colors.primary, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  futureBtnCopy: { flex: 1 },
+  futureBtnTitle: { color: Colors.white, fontSize: 15, fontWeight: '700' as const },
+  futureBtnSub: { color: '#DCEBFF', fontSize: 12, marginTop: 2 },
   card: { backgroundColor: Colors.surface, margin: 16, marginBottom: 8, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: Colors.borderLight },
   cH: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 }, cT: { fontSize: 16, fontWeight: '700' as const, color: Colors.textPrimary },
   tR: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 16 },

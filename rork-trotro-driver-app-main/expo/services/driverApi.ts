@@ -2,6 +2,8 @@ import {
   DriverDashboard, Booking, DemandStop, OverflowRequest, VerificationResult,
   WalletBalance, WalletTransaction, AutoAcceptedBooking, DrivingStatus,
   SeatSyncData, SeatEvent, AvailableRoute, RouteChangeEligibility, Route,
+  FutureRideRequest,
+  ScheduledBoardingResult,
 } from '@/types';
 import { useDriverStore } from '@/store/driverStore';
 import api from './api';
@@ -63,6 +65,56 @@ export async function declineBooking(bookingId: string): Promise<void> {
   await api.post(`/bookings/${bookingId}/cancel`);
 }
 
+// Scheduled reservations
+export async function getFutureRequests(): Promise<FutureRideRequest[]> {
+  const { data } = await api.get('/driver-schedules/requests');
+  return (data as Record<string, unknown>[]).map((request) => ({
+    id: request.id as string,
+    serviceDate: request.service_date as string,
+    boardingStart: request.boarding_start_at as string,
+    boardingEnd: request.boarding_end_at as string,
+    departureStopId: request.departure_stop_id as string,
+    departureStation: (request.departure_stop_name as string) ?? 'Departure station',
+    destinationStation: (request.destination_stop_name as string) ?? 'Destination station',
+    availableSeats: Number(request.future_seats_remaining) || 0,
+    primaryDeadline: request.primary_acceptance_deadline as string,
+    finalDeadline: request.final_acceptance_deadline as string,
+    status: (request.status as string) ?? 'pending',
+    currentState: request.status === 'accepted' ? 'ACCEPTED' : 'AWAITING',
+  }));
+}
+
+export async function acceptFutureRequest(id: string): Promise<void> {
+  await api.post(`/driver-schedules/${id}/accept`);
+}
+
+export async function declineFutureRequest(id: string, reason?: string): Promise<void> {
+  await api.post(`/driver-schedules/${id}/decline`, reason ? { reason } : {});
+}
+
+export async function withdrawFutureRequest(id: string, reason?: string): Promise<void> {
+  await api.post(`/driver-schedules/${id}/withdraw`, reason ? { reason } : {});
+}
+
+export async function redeemScheduledBoardingCode(code: string): Promise<ScheduledBoardingResult> {
+  const { data } = await api.post('/driver-schedules/boarding/redeem', { code });
+  return data as ScheduledBoardingResult;
+}
+
+export async function departFutureRequest(id: string): Promise<void> {
+  await api.post(`/driver-schedules/${id}/depart`);
+}
+
+export async function getStopCoordinates(id: string): Promise<{ lat: number; lng: number }> {
+  const { data } = await api.get(`/stops/${id}`);
+  const lat = Number(data.lat);
+  const lng = Number(data.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    throw new Error('The departure station has no valid map coordinates.');
+  }
+  return { lat, lng };
+}
+
 export async function verifyCode(code: string): Promise<VerificationResult> {
   try {
     await api.post('/bookings/redeem', { code });
@@ -74,6 +126,39 @@ export async function verifyCode(code: string): Promise<VerificationResult> {
     if (message.includes('invalidated')) return { success: false, error_code: 'CODE_INVALIDATED' };
     if (message.includes('mismatch')) return { success: false, error_code: 'BUS_MISMATCH' };
     return { success: false, error_code: 'CODE_NOT_FOUND' };
+  }
+}
+
+export async function verifyBoardingCode(code: string): Promise<VerificationResult> {
+  try {
+    const result = await redeemScheduledBoardingCode(code);
+    return {
+      success: true,
+      source: 'SCHEDULED',
+      passenger_name: result.booking.passenger_name,
+      confirmed_at: new Date().toISOString(),
+    };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message.toLowerCase() : '';
+
+    // Only absence is safe to fall back from. Lifecycle and ownership failures
+    // belong to a scheduled code and must be shown without trying another flow.
+    if (message.includes('boarding code not found')) {
+      const ordinary = await verifyCode(code);
+      return { ...ordinary, source: ordinary.success ? 'IMMEDIATE' : ordinary.source };
+    }
+    if (message.includes('expired')) return { success: false, source: 'SCHEDULED', error_code: 'CODE_EXPIRED' };
+    if (message.includes('used')) return { success: false, source: 'SCHEDULED', error_code: 'CODE_ALREADY_USED' };
+    if (message.includes('another driver') || message.includes('assigned driver')) {
+      return { success: false, source: 'SCHEDULED', error_code: 'WRONG_DRIVER' };
+    }
+    if (message.includes('boarding is not open') || message.includes('not active yet')) {
+      return { success: false, source: 'SCHEDULED', error_code: 'BOARDING_NOT_OPEN' };
+    }
+    if (message.includes('cancel') || message.includes('invalidated')) {
+      return { success: false, source: 'SCHEDULED', error_code: 'CODE_INVALIDATED' };
+    }
+    return { success: false, source: 'SCHEDULED', error_code: 'CODE_NOT_FOUND' };
   }
 }
 

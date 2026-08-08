@@ -17,6 +17,10 @@ const env = {
   SCHEDULED_RESERVATIONS_ROLLOUT_PERCENT:
     Math.min(100, Math.max(0, parseInt(process.env.SCHEDULED_RESERVATIONS_ROLLOUT_PERCENT || '0', 10))),
   SCHEDULE_TEST_NOW: process.env.SCHEDULE_TEST_NOW || '',
+  SCHEDULE_WORKER_IN_WEB:
+    String(process.env.SCHEDULE_WORKER_IN_WEB || 'true').toLowerCase() === 'true',
+  SCHEDULE_WORKER_INTERVAL_MS:
+    Math.max(10000, parseInt(process.env.SCHEDULE_WORKER_INTERVAL_MS || '60000', 10)),
   BUS_ALERT_WORKER_INTERVAL_MS:
     Math.max(5000, parseInt(process.env.BUS_ALERT_WORKER_INTERVAL_MS || '30000', 10)),
   BUS_ALERTS_ENABLED:

@@ -9,8 +9,9 @@ import {
   Alert,
   ActivityIndicator,
   Animated,
+  RefreshControl,
 } from "react-native";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import {
   MapPin,
   Timer,
@@ -61,7 +62,7 @@ export default function ScheduleScreen() {
 
   const router = useRouter();
   const { regionStops, regionRoutes } = useLocation();
-  const { schedules, schedulesLoading, schedulesError, createSchedule, createSchedulePending, updateSchedule, setScheduleStatus, scheduleStatusPending, deleteSchedule, deleteSchedulePending, refreshSchedules, getOccurrences, cancelOccurrence, cancelOccurrencePending } = useCommuterSchedules();
+  const { schedules, schedulesLoading, schedulesError, createSchedule, createSchedulePending, updateSchedule, setScheduleStatus, scheduleStatusPending, deleteSchedule, deleteSchedulePending, refreshSchedules, refreshScheduleData, occurrenceRefreshToken, getOccurrences, cancelOccurrence, cancelOccurrencePending } = useCommuterSchedules();
 
   const [pickup, setPickup] = useState<BusStop | null>(null);
   const [dest, setDest] = useState<BusStop | null>(null);
@@ -91,6 +92,7 @@ export default function ScheduleScreen() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [backupMatching, setBackupMatching] = useState(false);
   const [occurrences, setOccurrences] = useState<Record<string, ScheduleOccurrence[]>>({});
+  const [refreshing, setRefreshing] = useState(false);
 
   const fadeIn = useRef(new Animated.Value(0)).current;
   const btnScale = useRef(new Animated.Value(1)).current;
@@ -99,19 +101,56 @@ export default function ScheduleScreen() {
   useEffect(() => {
     Animated.timing(fadeIn, { toValue: 1, duration: 350, useNativeDriver: true }).start();
   }, []);
+  const loadOccurrences = useCallback(async (scheduleList = schedules) => {
+    const entries = await Promise.all(
+      scheduleList.map(async (schedule) => [schedule.id, await getOccurrences(schedule.id)] as const),
+    );
+    setOccurrences(Object.fromEntries(entries));
+  }, [getOccurrences, schedules]);
+
   useEffect(() => {
     let active = true;
     void Promise.all(schedules.map(async (schedule) => [schedule.id, await getOccurrences(schedule.id)] as const))
       .then((entries) => { if (active) setOccurrences(Object.fromEntries(entries)); })
       .catch(() => { if (active) setOccurrences({}); });
     return () => { active = false; };
-  }, [schedules]);
+  }, [schedules, getOccurrences, occurrenceRefreshToken]);
 
-  const occurrenceLabels: Record<ScheduleOccurrence["status"], string> = {
-    pending: "Searching", offered: "Searching / rematching", accepted: "Driver accepted",
-    boarding_open: "Boarding open", boarded: "Boarded", departed: "Departed", completed: "Completed",
-    cancelled: "Cancelled", expired: "Expired", unmatched: "Declined / unmatched",
-  };
+  useFocusEffect(useCallback(() => {
+    void refreshScheduleData();
+  }, [refreshScheduleData]));
+
+  const refreshAll = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const result = await refreshSchedules();
+      await loadOccurrences(result.data ?? schedules);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [loadOccurrences, refreshSchedules, schedules]);
+
+  const occurrenceLabel = useCallback((occurrence: ScheduleOccurrence) => {
+    const schedule = schedules.find((item) => item.id === occurrence.schedule_id);
+    const backupActive = Boolean(
+      schedule?.backup_matching_enabled
+      && ['pending', 'offered'].includes(occurrence.status)
+      && Date.now() >= new Date(occurrence.primary_acceptance_deadline).getTime(),
+    );
+    const labels: Record<ScheduleOccurrence["status"], string> = {
+      pending: backupActive ? "Backup matching" : "Searching — not confirmed",
+      offered: backupActive ? "Backup matching" : "Searching — not confirmed",
+      accepted: "Accepted — seat confirmed",
+      boarding_open: "Boarding open",
+      boarded: "Boarded",
+      departed: "Departed",
+      completed: "Completed",
+      cancelled: "Cancelled",
+      expired: "Expired",
+      unmatched: "Unmatched",
+    };
+    return labels[occurrence.status];
+  }, [schedules]);
 
   const stops = useMemo(() => regionStops, [regionStops]);
   const destStops = useMemo(() => stops.filter((s) => s.id !== pickup?.id), [stops, pickup]);
@@ -246,8 +285,13 @@ export default function ScheduleScreen() {
       setDone(true);
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Animated.spring(successScale, { toValue: 1, useNativeDriver: true, tension: 60, friction: 8 }).start();
-    } catch {
-      Alert.alert("Could not save schedule", "Check your connection and try again. Nothing is confirmed yet.");
+    } catch (error) {
+      Alert.alert(
+        "Could not save schedule",
+        error instanceof Error
+          ? error.message
+          : "Check your connection and try again. Nothing is confirmed yet."
+      );
     }
   }, [pickup, dest, route, sameHour, sameMinute, selectedDays, timeMode, customTimes, createSchedule, updateSchedule, editingId, backupMatching, createSchedulePending, btnScale, successScale]);
 
@@ -262,9 +306,9 @@ export default function ScheduleScreen() {
             <View style={st.successIconWrap}>
               <CalendarDays size={40} color={Colors.white} />
             </View>
-            <Text style={st.successTitle}>Schedule saved</Text>
+            <Text style={st.successTitle}>Search started</Text>
             <Text style={st.successSub}>
-              We are searching for a driver. Your reservation is only confirmed after a driver accepts it.
+              Your recurring schedule was saved, but no seat is confirmed yet. We are searching for a driver.
             </Text>
             <View style={st.successDetails}>
               <View style={st.successRow}>
@@ -302,11 +346,11 @@ export default function ScheduleScreen() {
               style={st.viewRidesBtn}
               onPress={() => {
                 setDone(false);
-                router.push("/(tabs)/rides");
+                void refreshScheduleData();
               }}
               activeOpacity={0.7}
             >
-              <Text style={st.viewRidesTxt}>View My Rides</Text>
+              <Text style={st.viewRidesTxt}>View schedule status</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={st.setAnotherBtn}
@@ -343,10 +387,11 @@ export default function ScheduleScreen() {
           contentContainerStyle={st.scroll}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refreshAll()} tintColor={Colors.primary} colors={[Colors.primary]} />}
         >
           <View style={st.heroCard} accessibilityLiveRegion="polite"><View style={st.heroText}><Text style={st.heroTitle}>My recurring schedules</Text><Text style={st.heroSub}>Accepted occurrences stay unchanged when you edit or pause a schedule.</Text></View></View>
           {schedulesLoading ? <View style={st.infoBar} accessibilityRole="progressbar"><ActivityIndicator color={Colors.primary} /><Text style={st.infoTxt}>Loading your schedules?</Text></View> : schedulesError ? <TouchableOpacity style={st.routeErr} onPress={() => void refreshSchedules()} accessibilityRole="button"><AlertCircle size={14} color={Colors.danger} /><Text style={st.routeErrTxt}>Could not load schedules. Tap to retry.</Text></TouchableOpacity> : schedules.map((schedule) => { const departure = regionStops.find((stop) => stop.id === schedule.departure_stop_id)?.name ?? "Departure station"; const destination = regionStops.find((stop) => stop.id === schedule.destination_stop_id)?.name ?? "Destination"; return <View key={schedule.id} style={st.daysCard} accessible accessibilityLabel={`${schedule.status} schedule from ${departure} to ${destination}`}><View style={st.successRow}><Text style={st.timeModeLbl}>{departure} ? {destination}</Text><Text style={[st.sVal, { color: schedule.status === "active" ? Colors.success : Colors.warning }]}>{schedule.status}</Text></View><Text style={st.daysSub}>{schedule.travel_days.map((day) => day.toUpperCase()).join(", ")} ? {schedule.boarding_start_local.slice(0, 5)}?{schedule.boarding_end_local.slice(0, 5)}</Text><Text style={st.hint}>Next: {nextOccurrence(schedule.travel_days)} ? Ghana time (Africa/Accra)</Text><Text style={st.hint}>Driver acceptance deadline: 8:00 PM the previous day. Searching is not confirmation.</Text><View style={st.presetRow}><TouchableOpacity style={st.presetChip} onPress={() => void setScheduleStatus({ id: schedule.id, status: schedule.status === "active" ? "paused" : "active" })} disabled={scheduleStatusPending}><Text style={st.presetTxt}>{schedule.status === "active" ? "Pause" : "Resume"}</Text></TouchableOpacity><TouchableOpacity style={st.presetChip} onPress={() => beginEdit(schedule)}><Text style={st.presetTxt}>Edit future</Text></TouchableOpacity><TouchableOpacity style={st.presetChip} onPress={() => removeSchedule(schedule.id)} disabled={deleteSchedulePending}><Text style={[st.presetTxt, { color: Colors.danger }]}>Delete</Text></TouchableOpacity></View></View>; })}
-          {Object.values(occurrences).flat().sort((a, b) => a.boarding_start_at.localeCompare(b.boarding_start_at)).slice(0, 5).map((occurrence) => <View key={occurrence.id} style={st.infoBar} accessible accessibilityLabel={`${occurrenceLabels[occurrence.status]} on ${occurrence.service_date}`}><Calendar size={14} color={occurrence.status === "accepted" ? Colors.success : Colors.primary} /><Text style={st.infoTxt}>{occurrenceLabels[occurrence.status]} ? {new Date(occurrence.boarding_start_at).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Africa/Accra" })}{occurrence.bus_registration ? ` ? Bus ${occurrence.bus_registration}` : ""}{occurrence.future_seats_remaining !== undefined ? ` ? ${occurrence.future_seats_remaining} future seats left` : ""}</Text></View>)}
+          {Object.values(occurrences).flat().sort((a, b) => a.boarding_start_at.localeCompare(b.boarding_start_at)).slice(0, 5).map((occurrence) => <View key={occurrence.id} style={st.infoBar} accessible accessibilityLabel={`${occurrenceLabel(occurrence)} on ${occurrence.service_date}`}><Calendar size={14} color={['accepted','boarding_open','boarded','completed'].includes(occurrence.status) ? Colors.success : occurrence.status === 'cancelled' || occurrence.status === 'expired' || occurrence.status === 'unmatched' ? Colors.danger : Colors.primary} /><Text style={st.infoTxt}><Text style={{ fontWeight: '700' }}>{occurrenceLabel(occurrence)}</Text> · {new Date(occurrence.boarding_start_at).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Africa/Accra" })}{occurrence.bus_registration ? ` · Bus ${occurrence.bus_registration}` : ""}{occurrence.future_seats_remaining !== undefined ? ` · ${occurrence.future_seats_remaining} future seats left` : ""}</Text></View>)}
           {Object.values(occurrences).flat().filter((occurrence) => occurrence.boarding_code || ['pending','offered','accepted'].includes(occurrence.status)).slice(0, 5).map((occurrence) => <View key={`action-${occurrence.id}`} style={st.daysCard}>{occurrence.boarding_code && occurrence.code_status === 'active' ? <><Text style={st.label}>BOARDING CODE</Text><Text style={st.timeNum} selectable accessibilityLabel={`Boarding code ${occurrence.boarding_code}`}>{occurrence.boarding_code}</Text><Text style={st.hint}>Active only during the boarding window. Payment unlocks after the driver scans it.</Text></> : null}{['pending','offered','accepted'].includes(occurrence.status) ? <TouchableOpacity style={st.presetChip} disabled={cancelOccurrencePending} onPress={() => Alert.alert('Cancel this occurrence?', 'This releases its future seat. Cancellation closes when boarding opens.', [{ text: 'Keep', style: 'cancel' }, { text: 'Cancel occurrence', style: 'destructive', onPress: async () => { try { await cancelOccurrence(occurrence.id); setOccurrences((current) => ({ ...current, [occurrence.schedule_id]: (current[occurrence.schedule_id] ?? []).map((item) => item.id === occurrence.id ? { ...item, status: 'cancelled' } : item) })); } catch (error) { Alert.alert('Could not cancel', error instanceof Error ? error.message : 'Try again.'); } } }])}><Text style={[st.presetTxt, { color: Colors.danger }]}>Cancel occurrence</Text></TouchableOpacity> : null}</View>)}
           <View style={st.heroCard}>
             <View style={st.heroIcon}>

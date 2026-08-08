@@ -10,7 +10,7 @@ import { BookingProvider } from "@/contexts/BookingContext";
 import { WalletProvider } from "@/contexts/WalletContext";
 import { LocationProvider } from "@/contexts/LocationContext";
 import { ThemeProvider, useTheme } from "@/contexts/ThemeContext";
-import { CommuterScheduleProvider } from "@/contexts/CommuterScheduleContext";
+import { CommuterScheduleProvider, useCommuterSchedules } from "@/contexts/CommuterScheduleContext";
 import { initPassengerNotifications, registerPushToken, addNotificationListeners } from "@/services/notificationService";
 import { resolveNotificationRoute } from "@/utils/notificationDeepLink";
 import Colors from "@/constants/colors";
@@ -34,6 +34,7 @@ function RootLayoutNav() {
   const segments = useSegments();
   const notifInitialized = useRef(false);
   const { refreshAlerts } = useBusAlerts();
+  const { refreshScheduleData } = useCommuterSchedules();
 
   const headerOpts = {
     headerStyle: { backgroundColor: colors.screenBg },
@@ -68,9 +69,11 @@ function RootLayoutNav() {
       cleanup = addNotificationListeners(
         (data) => {
           if (data?.type === 'bus_alert') void refreshAlerts();
+          if (typeof data?.type === 'string' && data.type.startsWith('schedule_')) void refreshScheduleData();
         },
         (data) => {
           if (data?.type === 'bus_alert') void refreshAlerts();
+          if (typeof data?.type === 'string' && data.type.startsWith('schedule_')) void refreshScheduleData();
           const route = resolveNotificationRoute(data);
           if (route) router.push(route as never);
         },

@@ -5,14 +5,14 @@ import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'ex
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ShieldCheck, CheckCircle, XCircle, ScanLine, RefreshCw, X } from 'lucide-react-native';
 import Colors from '@/constants/colors';
-import { verifyCode, reportPassengerEvent } from '@/services/driverApi';
+import { verifyBoardingCode, reportPassengerEvent } from '@/services/driverApi';
 import { CodeInputCells } from '@/components/CodeInputCell';
 import { VerificationResult } from '@/types';
 import { formatTime } from '@/utils/helpers';
 import { useDriverStore } from '@/store/driverStore';
 
-const ET: Record<string, string> = { CODE_NOT_FOUND: 'Code Not Found', CODE_EXPIRED: 'Code Has Expired', CODE_ALREADY_USED: 'Code Already Used', BUS_MISMATCH: 'Wrong Bus', CODE_INVALIDATED: 'Code Cancelled' };
-const EM: Record<string, string> = { CODE_NOT_FOUND: 'Not found in the system.', CODE_EXPIRED: 'This code has expired.', CODE_ALREADY_USED: 'Already used for boarding.', BUS_MISMATCH: 'Issued for a different bus.', CODE_INVALIDATED: 'Cancelled by the passenger.' };
+const ET: Record<string, string> = { CODE_NOT_FOUND: 'Code Not Found', CODE_EXPIRED: 'Code Has Expired', CODE_ALREADY_USED: 'Code Already Used', BUS_MISMATCH: 'Wrong Bus', CODE_INVALIDATED: 'Code Cancelled', BOARDING_NOT_OPEN: 'Boarding Not Open', WRONG_DRIVER: 'Wrong Driver' };
+const EM: Record<string, string> = { CODE_NOT_FOUND: 'Not found in the system.', CODE_EXPIRED: 'This code has expired.', CODE_ALREADY_USED: 'Already used for boarding.', BUS_MISMATCH: 'Issued for a different bus.', CODE_INVALIDATED: 'Cancelled by the passenger.', BOARDING_NOT_OPEN: 'This scheduled boarding window is not open yet.', WRONG_DRIVER: 'This scheduled seat is assigned to another driver.' };
 
 export default function TrotroPassengerVerify() {
   const [code, setCode] = useState<string[]>(['', '', '', '', '', '']);
@@ -20,10 +20,19 @@ export default function TrotroPassengerVerify() {
   const qc = useQueryClient();
   const store = useDriverStore();
   const vMut = useMutation({
-    mutationFn: (c: string) => verifyCode(c),
+    mutationFn: (c: string) => verifyBoardingCode(c),
     onSuccess: async (d: VerificationResult) => {
       setResult(d);
       if (Platform.OS !== 'web') Haptics.notificationAsync(d.success ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Error);
+      if (d.success && d.source === 'SCHEDULED') {
+        await Promise.all([
+          qc.invalidateQueries({ queryKey: ['future-requests'] }),
+          qc.invalidateQueries({ queryKey: ['bookings'] }),
+          qc.invalidateQueries({ queryKey: ['confirmed-bookings'] }),
+          qc.invalidateQueries({ queryKey: ['dashboard'] }),
+          qc.invalidateQueries({ queryKey: ['seat-sync'] }),
+        ]);
+      }
       if (d.success && d.passenger_name) {
         try {
           await reportPassengerEvent('BOARDING', d.passenger_name);

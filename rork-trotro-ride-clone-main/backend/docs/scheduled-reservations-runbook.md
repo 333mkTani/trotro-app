@@ -12,10 +12,24 @@ safe backfill and reconciliation operation.
 
 ## Workers and test clock
 
-Dispatch and boarding lifecycle reconciliation run every minute with a non-overlap guard.
-Notification claims use row locking and `skip locked`. In the test environment only,
+Production uses the `trotro-schedule-worker` Render background worker (`npm run worker:schedule`).
+After the dedicated worker is healthy, set `SCHEDULE_WORKER_IN_WEB=false` on the API so the web
+process does not also schedule cycles. Leave it true during worker setup; the advisory lock makes
+that overlap safe and prevents a processing gap if the new worker is missing configuration.
+The worker needs the same `DATABASE_URL`, rollout values and `FIREBASE_SERVICE_ACCOUNT` as the API.
+Render does not copy `sync: false` secrets onto an existing Blueprint service automatically; verify
+them in the worker's Environment page before enabling the rollout.
+
+Dispatch and boarding lifecycle reconciliation run every minute. A PostgreSQL advisory lock spans
+each complete cycle, so deploy overlap or an accidentally enabled second worker safely skips rather
+than processing concurrently. Notification claims additionally use row locking and `skip locked`.
+In the test environment only,
 `SCHEDULE_TEST_NOW=<ISO timestamp>` freezes the default worker clock for previous-evening,
 boarding-window and expiry scenarios.
+
+For a single paid always-on API without a separate worker, omit the worker service and set
+`SCHEDULE_WORKER_IN_WEB=true`. Never set it to false unless a dedicated worker or scheduled invoker
+is actually running. Free web instances can sleep and are not reliable schedule processors.
 
 ## Retries, tracing and reconciliation
 

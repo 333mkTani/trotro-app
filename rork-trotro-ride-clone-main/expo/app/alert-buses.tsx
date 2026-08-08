@@ -32,6 +32,22 @@ import { ApproachingBus } from "@/types";
 import { api } from "@/services/api";
 const Colors = StaticColors;
 
+function mapActiveBus(b: Record<string, unknown>): ApproachingBus {
+  const lat = Number(b.current_lat);
+  const lng = Number(b.current_lng);
+
+  return {
+    driver_id: b.driver_id as string,
+    bus_registration: b.bus_registration as string,
+    driver_name: (b.driver_name as string) ?? "Driver",
+    seats_available: Number(b.seats_available) || 0,
+    eta_minutes: Number(b.eta_minutes) || 5,
+    route_name: (b.route_name as string) ?? "",
+    lat: Number.isFinite(lat) ? lat : 0,
+    lng: Number.isFinite(lng) ? lng : 0,
+  };
+}
+
 export default function AlertBusesScreen() {
   const { colors: themeColors } = useTheme();
   const Colors = themeColors;
@@ -62,7 +78,12 @@ export default function AlertBusesScreen() {
     const params: Record<string, string> = { stop_id: alert.stop_id };
     if (alert.route_id && alert.route_id !== 'any') params.route_name = alert.route_name;
     void api.get('/buses/active', { params }).then(({ data }) => {
-      if (current) setLiveBuses((data as ApproachingBus[]).filter((bus) => bus.seats_available > 0));
+      if (current) {
+        const buses = (data as Record<string, unknown>[])
+          .map(mapActiveBus)
+          .filter((bus) => Boolean(bus.driver_id) && bus.seats_available > 0);
+        setLiveBuses(buses);
+      }
     }).catch(() => {
       // Keep the server-captured occurrence snapshot when live preview is offline.
     }).finally(() => { if (current) setPreviewLoading(false); });

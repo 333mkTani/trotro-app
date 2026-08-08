@@ -30,6 +30,30 @@ services:
           name: trotro-redis
           property: connectionString
 
+  - type: worker
+    name: trotro-schedule-worker
+    runtime: node
+    region: frankfurt
+    plan: starter
+    rootDir: rork-trotro-ride-clone-main/backend
+    buildCommand: npm install
+    startCommand: npm run worker:schedule
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PGSSL
+        value: "true"
+      - key: SCHEDULE_WORKER_INTERVAL_MS
+        value: "60000"
+      - key: DATABASE_URL
+        sync: false
+      - key: SCHEDULED_RESERVATIONS_ENABLED
+        sync: false
+      - key: SCHEDULED_RESERVATIONS_ROLLOUT_PERCENT
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false
+
   # ── Redis ──────────────────────────────────────────────────────────────────
   - type: redis
     name: trotro-redis

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { Platform, AppState } from 'react-native';
-import { router } from 'expo-router';
+import { router, type Href } from 'expo-router';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   initializeNotifications,
@@ -59,9 +59,15 @@ export function useNotifications(isAuthenticated: boolean) {
 
             if (data?.type === 'new_request' || data?.type === 'batch_request') {
               router.push('/(tabs)/requests');
+            } else if (typeof data?.type === 'string' && data.type.startsWith('schedule_')) {
+              const path = typeof data.occurrenceId === 'string'
+                ? `/future-requests?occurrenceId=${encodeURIComponent(data.occurrenceId)}`
+                : '/future-requests';
+              router.push(path as Href);
             }
 
             qc.invalidateQueries({ queryKey: ['overflow'] });
+            qc.invalidateQueries({ queryKey: ['future-requests'] });
           }
         );
       } catch (e) {

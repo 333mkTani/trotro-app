@@ -6,8 +6,7 @@ const { pool } = require('./config/db');
 const { closeAll: closeRedis } = require('./config/redis');
 const { attach: attachSocketIO } = require('./realtime/io');
 const bookingService = require('./services/booking.service');
-const scheduleDispatchService = require('./services/scheduleDispatch.service');
-const scheduleLifecycleService = require('./services/scheduleLifecycle.service');
+const scheduleWorkerService = require('./services/scheduleWorker.service');
 const busAlertWorkerService = require('./services/busAlertWorker.service');
 
 const server = http.createServer(app);
@@ -29,27 +28,17 @@ const sweepStaleBookings = async () => {
 const bookingSweepTimer = setInterval(sweepStaleBookings, 10 * 60 * 1000);
 setTimeout(sweepStaleBookings, 15 * 1000);
 
-let scheduleCycleRunning = false;
 const runScheduleCycle = async () => {
-  if (scheduleCycleRunning) return;
-  scheduleCycleRunning = true;
   try {
-    const result = await scheduleDispatchService.runCycle();
-    const lifecycle = await scheduleLifecycleService.runCycle();
-    if (lifecycle.opened || lifecycle.noShows) {
-      console.log('[schedule-lifecycle-worker] cycle', lifecycle);
-    }
-    if (result.created || result.reminders || result.expired || result.notifications) {
-      console.log('[schedule-worker] cycle', result);
-    }
+    await scheduleWorkerService.runLockedCycle();
   } catch (err) {
     console.error('[schedule-worker] failed:', err.message);
-  } finally {
-    scheduleCycleRunning = false;
   }
 };
-const scheduleCycleTimer = setInterval(runScheduleCycle, 60 * 1000);
-setTimeout(runScheduleCycle, 20 * 1000);
+const scheduleCycleTimer = env.SCHEDULE_WORKER_IN_WEB
+  ? setInterval(runScheduleCycle, env.SCHEDULE_WORKER_INTERVAL_MS)
+  : null;
+if (env.SCHEDULE_WORKER_IN_WEB) setTimeout(runScheduleCycle, 20 * 1000);
 
 let busAlertCycleRunning = false;
 const runBusAlertCycle = async () => {
@@ -71,7 +60,7 @@ setTimeout(runBusAlertCycle, 25 * 1000);
 
 const shutdown = async (signal) => {
   clearInterval(bookingSweepTimer);
-  clearInterval(scheduleCycleTimer);
+  if (scheduleCycleTimer) clearInterval(scheduleCycleTimer);
   clearInterval(busAlertCycleTimer);
   console.log(`[trotro-api] received ${signal}, shutting down...`);
   try {
