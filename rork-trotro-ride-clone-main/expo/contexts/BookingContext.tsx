@@ -145,7 +145,9 @@ export const [BookingProvider, useBookings] = createContextHook(() => {
       await api.post(`/bookings/${bookingId}/cancel`);
       return bookingId;
     },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['bookings'] }),
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['bookings'] });
+    },
   });
 
   const completeRideMutation = useMutation({

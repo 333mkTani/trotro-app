@@ -17,6 +17,7 @@ export interface User {
   avatar_url?: string;
   role: UserRole;
   fcm_token?: string;
+  bus_alerts_enabled?: boolean;
   created_at: string;
 }
 
@@ -64,6 +65,67 @@ export interface RideSchedule {
   custom_times?: DayTimeEntry[];
   buffer_minutes: BufferMinutes;
 }
+
+export type CommuterScheduleStatus = 'active' | 'paused';
+
+export interface CommuterSchedule {
+  id: string;
+  passenger_id: string;
+  route_id: string;
+  departure_stop_id: string;
+  destination_stop_id: string;
+  travel_days: string[];
+  boarding_start_local: string;
+  boarding_end_local: string;
+  timezone: 'Africa/Accra';
+  primary_deadline_local: string;
+  backup_matching_enabled: boolean;
+  status: CommuterScheduleStatus;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CreateCommuterScheduleInput {
+  routeId: string;
+  departureStopId: string;
+  destinationStopId: string;
+  travelDays: string[];
+  boardingStartLocal: string;
+  boardingEndLocal: string;
+  timezone?: 'Africa/Accra';
+  primaryDeadlineLocal?: string;
+  backupMatchingEnabled: boolean;
+}
+
+export type ScheduleOccurrenceStatus =
+  | 'pending' | 'offered' | 'accepted' | 'boarding_open' | 'boarded'
+  | 'departed' | 'completed' | 'cancelled' | 'expired' | 'unmatched';
+
+export interface ScheduleOccurrence {
+  id: string;
+  schedule_id: string;
+  service_date: string;
+  boarding_start_at: string;
+  boarding_end_at: string;
+  primary_acceptance_deadline: string;
+  final_acceptance_deadline: string;
+  status: ScheduleOccurrenceStatus;
+  assigned_driver_id?: string;
+  assigned_bus_id?: string;
+  driver_name?: string;
+  bus_registration?: string;
+  future_seats_remaining?: number;
+  accepted_at?: string;
+  boarding_code?: string;
+  boarding_qr_payload?: string;
+  code_valid_from?: string;
+  code_valid_until?: string;
+  code_status?: 'active' | 'used' | 'expired' | 'cancelled';
+}
+
+export type UpdateCommuterScheduleInput = Partial<CreateCommuterScheduleInput> & {
+  status?: CommuterScheduleStatus;
+};
 
 export interface Booking {
   id: string;

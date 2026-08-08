@@ -5,12 +5,14 @@ import React, { useEffect, useRef } from "react";
 import { ActivityIndicator, View, StyleSheet, Platform } from "react-native";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
-import { BusAlertProvider } from "@/contexts/BusAlertContext";
+import { BusAlertProvider, useBusAlerts } from "@/contexts/BusAlertContext";
 import { BookingProvider } from "@/contexts/BookingContext";
 import { WalletProvider } from "@/contexts/WalletContext";
 import { LocationProvider } from "@/contexts/LocationContext";
 import { ThemeProvider, useTheme } from "@/contexts/ThemeContext";
+import { CommuterScheduleProvider } from "@/contexts/CommuterScheduleContext";
 import { initPassengerNotifications, registerPushToken, addNotificationListeners } from "@/services/notificationService";
+import { resolveNotificationRoute } from "@/utils/notificationDeepLink";
 import Colors from "@/constants/colors";
 import MapLibreGL from "@maplibre/maplibre-react-native";
 
@@ -31,6 +33,7 @@ function RootLayoutNav() {
   const router = useRouter();
   const segments = useSegments();
   const notifInitialized = useRef(false);
+  const { refreshAlerts } = useBusAlerts();
 
   const headerOpts = {
     headerStyle: { backgroundColor: colors.screenBg },
@@ -63,18 +66,13 @@ function RootLayoutNav() {
       if (token) await registerPushToken(token);
 
       cleanup = addNotificationListeners(
-        (_data) => {
-          // Notification received while app is open — no special handling needed
+        (data) => {
+          if (data?.type === 'bus_alert') void refreshAlerts();
         },
         (data) => {
-          // User tapped a notification
-          if (data?.type === 'bus_approaching' && data?.bookingId) {
-            router.push("/ride-notification");
-          } else if (data?.type === 'bus_alert' && data?.alertId) {
-            router.push("/my-alerts");
-          } else if (data?.type === 'booking_arrived' && data?.bookingId) {
-            router.push("/(tabs)/rides");
-          }
+          if (data?.type === 'bus_alert') void refreshAlerts();
+          const route = resolveNotificationRoute(data);
+          if (route) router.push(route as never);
         },
       );
     })();
@@ -132,9 +130,11 @@ export default function RootLayout() {
             <LocationProvider>
               <BusAlertProvider>
                 <BookingProvider>
-                  <WalletProvider>
-                    <RootLayoutNav />
-                  </WalletProvider>
+                  <CommuterScheduleProvider>
+                    <WalletProvider>
+                      <RootLayoutNav />
+                    </WalletProvider>
+                  </CommuterScheduleProvider>
                 </BookingProvider>
               </BusAlertProvider>
             </LocationProvider>

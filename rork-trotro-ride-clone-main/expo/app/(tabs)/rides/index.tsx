@@ -26,10 +26,11 @@ export default function RidesScreen() {
 
   const router = useRouter();
   const { user } = useAuth();
-  const { bookings: allBookings, completeRide } = useBookings();
+  const { bookings: allBookings, completeRide, cancelBooking } = useBookings();
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<BookingStatus | "all">("all");
   const [endingId, setEndingId] = useState<string | null>(null);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
 
   const bookings = useMemo(() => {
     const mine = allBookings.filter((b) => b.passenger_id === user?.id || b.passenger_id === "pass-1");
@@ -126,8 +127,25 @@ export default function RidesScreen() {
 
   const onCancel = useCallback((id: string) => {
     if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-    Alert.alert("Cancel Ride", "Cancel this scheduled ride?", [{ text: "Keep", style: "cancel" }, { text: "Cancel", style: "destructive", onPress: () => Alert.alert("Cancelled", "Ride cancelled.") }]);
-  }, []);
+    Alert.alert("Cancel Ride", "Cancel this scheduled ride?", [
+      { text: "Keep", style: "cancel" },
+      {
+        text: "Cancel",
+        style: "destructive",
+        onPress: async () => {
+          setCancellingId(id);
+          try {
+            await cancelBooking(id);
+            Alert.alert("Cancelled", "Ride cancelled successfully.");
+          } catch (error) {
+            Alert.alert("Cancellation Failed", error instanceof Error ? error.message : "Could not cancel this ride.");
+          } finally {
+            setCancellingId(null);
+          }
+        },
+      },
+    ]);
+  }, [cancelBooking]);
 
   return (
     <View style={st.root}>
@@ -141,7 +159,7 @@ export default function RidesScreen() {
           <View style={st.empty}><Filter size={48} color={Colors.gray300} /><Text style={st.emptyTitle}>No rides found</Text><Text style={st.emptySub}>{filter === "all" ? "Schedule your first ride!" : `No ${filter} rides.`}</Text>
             {filter === "all" && <TouchableOpacity style={st.schedBtn} onPress={() => router.push("/(tabs)/schedule")} activeOpacity={0.7}><Text style={st.schedTxt}>Schedule a Ride</Text></TouchableOpacity>}
           </View>
-        ) : bookings.map((b) => <BookingCard key={b.id} booking={b} onPress={() => onBookingPress(b.id)} onCancel={() => onCancel(b.id)} onNavigate={b.status === "confirmed" ? () => onNavigate(b) : undefined} onEndRide={b.status === "confirmed" ? () => onEndRide(b.id) : undefined} endingRide={endingId === b.id} />)}
+        ) : bookings.map((b) => <BookingCard key={b.id} booking={b} onPress={() => onBookingPress(b.id)} onCancel={() => onCancel(b.id)} onNavigate={b.status === "confirmed" ? () => onNavigate(b) : undefined} onEndRide={b.status === "confirmed" ? () => onEndRide(b.id) : undefined} endingRide={endingId === b.id} cancellingRide={cancellingId === b.id} />)}
         <View style={{ height: 20 }} />
       </ScrollView>
     </View>

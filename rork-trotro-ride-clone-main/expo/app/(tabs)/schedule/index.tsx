@@ -28,16 +28,15 @@ import * as Haptics from "expo-haptics";
 import StaticColors from "@/constants/colors";
 import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
 import { useLocation } from "@/contexts/LocationContext";
-import { useBookings } from "@/contexts/BookingContext";
-import { useAuth } from "@/contexts/AuthContext";
+import { useCommuterSchedules } from "@/contexts/CommuterScheduleContext";
 import {
   BusStop,
   BufferMinutes,
   DayOfWeek,
   ScheduleTimeMode,
   DayTimeEntry,
-  RideSchedule,
   Route as RouteType,
+  ScheduleOccurrence,
 } from "@/types";
 const Colors = StaticColors;
 
@@ -62,8 +61,7 @@ export default function ScheduleScreen() {
 
   const router = useRouter();
   const { regionStops, regionRoutes } = useLocation();
-  const { scheduleRide, scheduleRidePending } = useBookings();
-  const { user } = useAuth();
+  const { schedules, schedulesLoading, schedulesError, createSchedule, createSchedulePending, updateSchedule, setScheduleStatus, scheduleStatusPending, deleteSchedule, deleteSchedulePending, refreshSchedules, getOccurrences, cancelOccurrence, cancelOccurrencePending } = useCommuterSchedules();
 
   const [pickup, setPickup] = useState<BusStop | null>(null);
   const [dest, setDest] = useState<BusStop | null>(null);
@@ -90,6 +88,9 @@ export default function ScheduleScreen() {
   const [showSameHourPicker, setShowSameHourPicker] = useState(false);
   const [showSameMinPicker, setShowSameMinPicker] = useState(false);
   const [done, setDone] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [backupMatching, setBackupMatching] = useState(false);
+  const [occurrences, setOccurrences] = useState<Record<string, ScheduleOccurrence[]>>({});
 
   const fadeIn = useRef(new Animated.Value(0)).current;
   const btnScale = useRef(new Animated.Value(1)).current;
@@ -98,6 +99,19 @@ export default function ScheduleScreen() {
   useEffect(() => {
     Animated.timing(fadeIn, { toValue: 1, duration: 350, useNativeDriver: true }).start();
   }, []);
+  useEffect(() => {
+    let active = true;
+    void Promise.all(schedules.map(async (schedule) => [schedule.id, await getOccurrences(schedule.id)] as const))
+      .then((entries) => { if (active) setOccurrences(Object.fromEntries(entries)); })
+      .catch(() => { if (active) setOccurrences({}); });
+    return () => { active = false; };
+  }, [schedules]);
+
+  const occurrenceLabels: Record<ScheduleOccurrence["status"], string> = {
+    pending: "Searching", offered: "Searching / rematching", accepted: "Driver accepted",
+    boarding_open: "Boarding open", boarded: "Boarded", departed: "Departed", completed: "Completed",
+    cancelled: "Cancelled", expired: "Expired", unmatched: "Declined / unmatched",
+  };
 
   const stops = useMemo(() => regionStops, [regionStops]);
   const destStops = useMemo(() => stops.filter((s) => s.id !== pickup?.id), [stops, pickup]);
@@ -167,8 +181,42 @@ export default function ScheduleScreen() {
     return selectedDays.join(", ");
   }, [selectedDays]);
 
+  const nextOccurrence = useCallback((days: string[]) => {
+    const indexes: Record<string, number> = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
+    const now = new Date();
+    const candidates = days.map((day) => {
+      const date = new Date(now);
+      let delta = (indexes[day] - now.getDay() + 7) % 7;
+      if (delta === 0) delta = 7;
+      date.setDate(now.getDate() + delta);
+      return date;
+    });
+    return candidates.sort((a, b) => a.getTime() - b.getTime())[0]?.toLocaleDateString(undefined,
+      { weekday: "long", month: "short", day: "numeric" }) ?? "Not scheduled";
+  }, []);
+
+  const beginEdit = useCallback((schedule: typeof schedules[number]) => {
+    const departure = regionStops.find((stop) => stop.id === schedule.departure_stop_id);
+    const destination = regionStops.find((stop) => stop.id === schedule.destination_stop_id);
+    if (!departure || !destination) {
+      Alert.alert("Cannot edit yet", "Refresh your location data and try again.");
+      return;
+    }
+    const [hour, minute] = schedule.boarding_start_local.slice(0, 5).split(":").map(Number);
+    setPickup(departure); setDest(destination);
+    setSelectedDays(schedule.travel_days.map((day) => `${day[0].toUpperCase()}${day.slice(1)}` as DayOfWeek));
+    setSameHour(hour); setSameMinute(minute); setTimeMode("same");
+    setBackupMatching(schedule.backup_matching_enabled); setEditingId(schedule.id);
+  }, [regionStops, schedules]);
+
+  const removeSchedule = useCallback((id: string) => Alert.alert("Delete recurring schedule?",
+    "Future unaccepted occurrences will stop. Already accepted occurrences remain unchanged.", [
+      { text: "Keep", style: "cancel" },
+      { text: "Delete", style: "destructive", onPress: () => void deleteSchedule(id) },
+    ]), [deleteSchedule]);
+
   const submit = useCallback(async () => {
-    if (!pickup || !dest || !route || scheduleRidePending) return;
+    if (!pickup || !dest || !route || createSchedulePending) return;
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     Animated.sequence([
@@ -176,54 +224,32 @@ export default function ScheduleScreen() {
       Animated.timing(btnScale, { toValue: 1, duration: 80, useNativeDriver: true }),
     ]).start();
 
-    const rideSchedule: RideSchedule = {
-      days: selectedDays,
-      time_mode: timeMode,
-      buffer_minutes: buffer,
-    };
-
-    if (timeMode === "same") {
-      rideSchedule.same_hour = sameHour;
-      rideSchedule.same_minute = sameMinute;
-    } else {
-      rideSchedule.custom_times = customTimes.filter((t) => selectedDays.includes(t.day));
-    }
-
-    const now = new Date();
-    const arrivalTime = new Date();
-    if (timeMode === "same") {
-      arrivalTime.setHours(sameHour, sameMinute, 0, 0);
-    } else {
-      const firstDay = customTimes.find((t) => selectedDays.includes(t.day));
-      if (firstDay) {
-        arrivalTime.setHours(firstDay.hour, firstDay.minute, 0, 0);
-      }
-    }
-    if (arrivalTime.getTime() <= now.getTime()) {
-      arrivalTime.setDate(arrivalTime.getDate() + 1);
-    }
-
     try {
-      await scheduleRide({
-        pickupStopId: pickup.id,
-        pickupStopName: pickup.name,
-        destinationStopId: dest.id,
-        destinationStopName: dest.name,
-        routeId: route.id,
-        routeName: route.name,
-        rideFare: route.fare,
-        desiredArrivalTime: arrivalTime.toISOString(),
-        bufferMinutes: buffer,
-        passengerId: user?.id ?? "pass-1",
-        rideSchedule,
+      const groups = new Map<string, string[]>();
+      selectedDays.forEach((day) => {
+        const custom = customTimes.find((entry) => entry.day === day);
+        const hour = timeMode === "same" ? sameHour : custom?.hour ?? sameHour;
+        const minute = timeMode === "same" ? sameMinute : custom?.minute ?? sameMinute;
+        const key = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
+        groups.set(key, [...(groups.get(key) ?? []), day.toLowerCase()]);
       });
+      await Promise.all([...groups].map(([start, travelDays]) => {
+        const [hour, minute] = start.split(":").map(Number);
+        const endMinutes = hour * 60 + minute + 20;
+        const end = `${String(Math.floor(endMinutes / 60) % 24).padStart(2, "0")}:${String(endMinutes % 60).padStart(2, "0")}`;
+        const input = { routeId: route.id, departureStopId: pickup.id, destinationStopId: dest.id,
+          travelDays, boardingStartLocal: start, boardingEndLocal: end, timezone: "Africa/Accra",
+          primaryDeadlineLocal: "20:00", backupMatchingEnabled: backupMatching } as const;
+        return editingId ? updateSchedule({ id: editingId, patch: input }) : createSchedule(input);
+      }));
+      setEditingId(null);
       setDone(true);
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Animated.spring(successScale, { toValue: 1, useNativeDriver: true, tension: 60, friction: 8 }).start();
     } catch {
-      Alert.alert("Error", "Failed to schedule ride. Please try again.");
+      Alert.alert("Could not save schedule", "Check your connection and try again. Nothing is confirmed yet.");
     }
-  }, [pickup, dest, route, sameHour, sameMinute, selectedDays, timeMode, customTimes, buffer, scheduleRide, scheduleRidePending, btnScale, successScale, user]);
+  }, [pickup, dest, route, sameHour, sameMinute, selectedDays, timeMode, customTimes, createSchedule, updateSchedule, editingId, backupMatching, createSchedulePending, btnScale, successScale]);
 
   if (done) {
     const timeLabel =
@@ -236,9 +262,9 @@ export default function ScheduleScreen() {
             <View style={st.successIconWrap}>
               <CalendarDays size={40} color={Colors.white} />
             </View>
-            <Text style={st.successTitle}>Ride Scheduled!</Text>
+            <Text style={st.successTitle}>Schedule saved</Text>
             <Text style={st.successSub}>
-              We'll notify you about buses on your scheduled days.
+              We are searching for a driver. Your reservation is only confirmed after a driver accepts it.
             </Text>
             <View style={st.successDetails}>
               <View style={st.successRow}>
@@ -246,7 +272,7 @@ export default function ScheduleScreen() {
                 <Text style={st.sVal} numberOfLines={2}>{route?.name}</Text>
               </View>
               <View style={st.successRow}>
-                <Text style={st.sLabel}>Pickup</Text>
+                <Text style={st.sLabel}>Departure station</Text>
                 <Text style={st.sVal} numberOfLines={2}>{pickup?.name}</Text>
               </View>
               <View style={st.successRow}>
@@ -269,7 +295,7 @@ export default function ScheduleScreen() {
             <View style={st.warningBox}>
               <AlertTriangle size={14} color={Colors.warning} />
               <Text style={st.warningTxt}>
-                Buses will not wait at the stop. Please be at the stop before the bus arrives.
+                Travel to the departure station for boarding. Times use Ghana time (Africa/Accra); driver acceptance closes at 8:00 PM the previous day.
               </Text>
             </View>
             <TouchableOpacity
@@ -318,14 +344,18 @@ export default function ScheduleScreen() {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
+          <View style={st.heroCard} accessibilityLiveRegion="polite"><View style={st.heroText}><Text style={st.heroTitle}>My recurring schedules</Text><Text style={st.heroSub}>Accepted occurrences stay unchanged when you edit or pause a schedule.</Text></View></View>
+          {schedulesLoading ? <View style={st.infoBar} accessibilityRole="progressbar"><ActivityIndicator color={Colors.primary} /><Text style={st.infoTxt}>Loading your schedules?</Text></View> : schedulesError ? <TouchableOpacity style={st.routeErr} onPress={() => void refreshSchedules()} accessibilityRole="button"><AlertCircle size={14} color={Colors.danger} /><Text style={st.routeErrTxt}>Could not load schedules. Tap to retry.</Text></TouchableOpacity> : schedules.map((schedule) => { const departure = regionStops.find((stop) => stop.id === schedule.departure_stop_id)?.name ?? "Departure station"; const destination = regionStops.find((stop) => stop.id === schedule.destination_stop_id)?.name ?? "Destination"; return <View key={schedule.id} style={st.daysCard} accessible accessibilityLabel={`${schedule.status} schedule from ${departure} to ${destination}`}><View style={st.successRow}><Text style={st.timeModeLbl}>{departure} ? {destination}</Text><Text style={[st.sVal, { color: schedule.status === "active" ? Colors.success : Colors.warning }]}>{schedule.status}</Text></View><Text style={st.daysSub}>{schedule.travel_days.map((day) => day.toUpperCase()).join(", ")} ? {schedule.boarding_start_local.slice(0, 5)}?{schedule.boarding_end_local.slice(0, 5)}</Text><Text style={st.hint}>Next: {nextOccurrence(schedule.travel_days)} ? Ghana time (Africa/Accra)</Text><Text style={st.hint}>Driver acceptance deadline: 8:00 PM the previous day. Searching is not confirmation.</Text><View style={st.presetRow}><TouchableOpacity style={st.presetChip} onPress={() => void setScheduleStatus({ id: schedule.id, status: schedule.status === "active" ? "paused" : "active" })} disabled={scheduleStatusPending}><Text style={st.presetTxt}>{schedule.status === "active" ? "Pause" : "Resume"}</Text></TouchableOpacity><TouchableOpacity style={st.presetChip} onPress={() => beginEdit(schedule)}><Text style={st.presetTxt}>Edit future</Text></TouchableOpacity><TouchableOpacity style={st.presetChip} onPress={() => removeSchedule(schedule.id)} disabled={deleteSchedulePending}><Text style={[st.presetTxt, { color: Colors.danger }]}>Delete</Text></TouchableOpacity></View></View>; })}
+          {Object.values(occurrences).flat().sort((a, b) => a.boarding_start_at.localeCompare(b.boarding_start_at)).slice(0, 5).map((occurrence) => <View key={occurrence.id} style={st.infoBar} accessible accessibilityLabel={`${occurrenceLabels[occurrence.status]} on ${occurrence.service_date}`}><Calendar size={14} color={occurrence.status === "accepted" ? Colors.success : Colors.primary} /><Text style={st.infoTxt}>{occurrenceLabels[occurrence.status]} ? {new Date(occurrence.boarding_start_at).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Africa/Accra" })}{occurrence.bus_registration ? ` ? Bus ${occurrence.bus_registration}` : ""}{occurrence.future_seats_remaining !== undefined ? ` ? ${occurrence.future_seats_remaining} future seats left` : ""}</Text></View>)}
+          {Object.values(occurrences).flat().filter((occurrence) => occurrence.boarding_code || ['pending','offered','accepted'].includes(occurrence.status)).slice(0, 5).map((occurrence) => <View key={`action-${occurrence.id}`} style={st.daysCard}>{occurrence.boarding_code && occurrence.code_status === 'active' ? <><Text style={st.label}>BOARDING CODE</Text><Text style={st.timeNum} selectable accessibilityLabel={`Boarding code ${occurrence.boarding_code}`}>{occurrence.boarding_code}</Text><Text style={st.hint}>Active only during the boarding window. Payment unlocks after the driver scans it.</Text></> : null}{['pending','offered','accepted'].includes(occurrence.status) ? <TouchableOpacity style={st.presetChip} disabled={cancelOccurrencePending} onPress={() => Alert.alert('Cancel this occurrence?', 'This releases its future seat. Cancellation closes when boarding opens.', [{ text: 'Keep', style: 'cancel' }, { text: 'Cancel occurrence', style: 'destructive', onPress: async () => { try { await cancelOccurrence(occurrence.id); setOccurrences((current) => ({ ...current, [occurrence.schedule_id]: (current[occurrence.schedule_id] ?? []).map((item) => item.id === occurrence.id ? { ...item, status: 'cancelled' } : item) })); } catch (error) { Alert.alert('Could not cancel', error instanceof Error ? error.message : 'Try again.'); } } }])}><Text style={[st.presetTxt, { color: Colors.danger }]}>Cancel occurrence</Text></TouchableOpacity> : null}</View>)}
           <View style={st.heroCard}>
             <View style={st.heroIcon}>
               <CalendarDays size={24} color={Colors.primary} />
             </View>
             <View style={st.heroText}>
-              <Text style={st.heroTitle}>Schedule Your Ride</Text>
+              <Text style={st.heroTitle}>Recurring station reservation</Text>
               <Text style={st.heroSub}>
-                Set a weekly schedule and get notified when buses are approaching your stop.
+                Choose when you will travel to a station. We will search for a driver for each occurrence.
               </Text>
             </View>
           </View>
@@ -337,8 +367,8 @@ export default function ScheduleScreen() {
             </Text>
           </View>
 
-          {/* PICKUP STOP */}
-          <Text style={st.label}>PICKUP STOP</Text>
+          {/* DEPARTURE STATION */}
+          <Text style={st.label}>DEPARTURE / BOARDING STATION</Text>
           <TouchableOpacity
             style={st.picker}
             onPress={() => {
@@ -350,7 +380,7 @@ export default function ScheduleScreen() {
           >
             <MapPin size={18} color={Colors.primary} />
             <Text style={pickup ? st.pickerVal : st.pickerPH} numberOfLines={1}>
-              {pickup?.name ?? "Select pickup stop"}
+              {pickup?.name ?? "Select departure station"}
             </Text>
             <ChevronDown size={18} color={Colors.gray400} />
           </TouchableOpacity>
@@ -743,6 +773,14 @@ export default function ScheduleScreen() {
             </View>
           )}
 
+          <Text style={st.label}>OVERNIGHT BACKUP MATCHING</Text>
+          <TouchableOpacity style={[st.timeModeOption, backupMatching && st.timeModeOptionOn]}
+            onPress={() => setBackupMatching((value) => !value)} accessibilityRole="checkbox"
+            accessibilityState={{ checked: backupMatching }}>
+            <View style={[st.timeModeRadio, backupMatching && st.timeModeRadioOn]}>{backupMatching && <View style={st.timeModeRadioDot} />}</View>
+            <View style={st.timeModeContent}><Text style={st.timeModeLbl}>Keep searching overnight</Text>
+              <Text style={st.timeModeDesc}>Try backup drivers until the final acceptance deadline.</Text></View>
+          </TouchableOpacity>
           {/* BUFFER TIME */}
           <Text style={st.label}>BUFFER TIME</Text>
           <View style={st.bufRow}>
@@ -761,29 +799,29 @@ export default function ScheduleScreen() {
               </TouchableOpacity>
             ))}
           </View>
-          <Text style={st.hint}>We'll notify you {buffer} minutes before arrival.</Text>
+          <Text style={st.hint}>Reminder preference: {buffer} minutes before your boarding window.</Text>
 
           <View style={st.noWaitBanner}>
             <AlertTriangle size={13} color={Colors.danger} />
             <Text style={st.noWaitTxt}>
-              Buses will not wait for passengers at the stop upon arrival. Please be at the stop before the bus arrives.
+              Saving starts a search; it does not confirm a seat. Travel to the departure station only after checking the occurrence status.
             </Text>
           </View>
 
           <Animated.View style={{ transform: [{ scale: btnScale }] }}>
             <TouchableOpacity
-              style={[st.submitBtn, (!isValid || scheduleRidePending) && st.submitOff]}
+              style={[st.submitBtn, (!isValid || createSchedulePending) && st.submitOff]}
               onPress={submit}
               activeOpacity={0.8}
-              disabled={!isValid || scheduleRidePending}
+              disabled={!isValid || createSchedulePending}
               testID="schedule-ride-btn"
             >
-              {scheduleRidePending ? (
+              {createSchedulePending ? (
                 <ActivityIndicator color={Colors.white} size="small" />
               ) : (
                 <>
                   <CalendarDays size={18} color={Colors.white} />
-                  <Text style={st.submitTxt}>Schedule Ride</Text>
+                  <Text style={st.submitTxt}>Save schedule and search</Text>
                 </>
               )}
             </TouchableOpacity>

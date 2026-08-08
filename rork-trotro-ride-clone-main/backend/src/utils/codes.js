@@ -18,8 +18,10 @@ const generateBoardingCode = (length = 6) => {
  * Build the QR payload string for a booking.
  * @param {{ bookingId: string, code: string, validUntil: string }} input
  */
-const buildQrPayload = ({ bookingId, code, validUntil }) => {
-  return JSON.stringify({ v: 1, b: bookingId, c: code, exp: validUntil });
+const buildQrPayload = ({ bookingId, occurrenceId, code, validUntil }) => {
+  return occurrenceId
+    ? JSON.stringify({ v: 2, o: occurrenceId, c: code, exp: validUntil })
+    : JSON.stringify({ v: 1, b: bookingId, c: code, exp: validUntil });
 };
 
 module.exports = { generateBoardingCode, buildQrPayload };

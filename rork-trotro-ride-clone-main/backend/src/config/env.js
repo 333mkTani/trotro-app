@@ -12,6 +12,17 @@ const env = {
   SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
   SUPABASE_JWT_SECRET: process.env.SUPABASE_JWT_SECRET || '',
   PAYSTACK_SECRET_KEY: process.env.PAYSTACK_SECRET_KEY || '',
+  SCHEDULED_RESERVATIONS_ENABLED:
+    String(process.env.SCHEDULED_RESERVATIONS_ENABLED || 'false').toLowerCase() === 'true',
+  SCHEDULED_RESERVATIONS_ROLLOUT_PERCENT:
+    Math.min(100, Math.max(0, parseInt(process.env.SCHEDULED_RESERVATIONS_ROLLOUT_PERCENT || '0', 10))),
+  SCHEDULE_TEST_NOW: process.env.SCHEDULE_TEST_NOW || '',
+  BUS_ALERT_WORKER_INTERVAL_MS:
+    Math.max(5000, parseInt(process.env.BUS_ALERT_WORKER_INTERVAL_MS || '30000', 10)),
+  BUS_ALERTS_ENABLED:
+    String(process.env.BUS_ALERTS_ENABLED || 'true').toLowerCase() === 'true',
+  BUS_ALERTS_ROLLOUT_PERCENT:
+    Math.min(100, Math.max(0, parseInt(process.env.BUS_ALERTS_ROLLOUT_PERCENT || '100', 10))),
 };
 
 if (!env.DATABASE_URL) {

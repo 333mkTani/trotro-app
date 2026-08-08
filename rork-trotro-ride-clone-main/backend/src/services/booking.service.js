@@ -5,6 +5,7 @@ const busModel = require('../models/bus.model');
 const ratingModel = require('../models/rating.model');
 const driverModel = require('../models/driver.model');
 const profileModel = require('../models/profile.model');
+const scheduleLifecycleModel = require('../models/scheduleLifecycle.model');
 const push = require('./push.service');
 const { ApiError } = require('../utils/ApiError');
 const { generateBoardingCode, buildQrPayload } = require('../utils/codes');
@@ -169,6 +170,9 @@ const cancel = async (bookingId, user) => {
   if (['completed', 'cancelled'].includes(existing.status)) {
     throw ApiError.badRequest(`Cannot cancel a ${existing.status} booking`);
   }
+  if (existing.source_occurrence_id && existing.boarded_at) {
+    throw ApiError.badRequest('A scheduled ride cannot be cancelled after boarding');
+  }
   return withTransaction(async (client) => {
     const booking = await bookingModel.updateStatus(bookingId, 'cancelled', {}, client);
     const code = await codeModel.findByBookingId(bookingId);
@@ -193,6 +197,7 @@ const complete = async (bookingId, user) => {
     throw ApiError.forbidden();
   }
   if (existing.status !== 'confirmed') {
+  if (existing.status === 'completed') return existing;
     throw ApiError.badRequest(`Cannot complete a ${existing.status} booking`);
   }
   if (!existing.arrived_at) throw ApiError.badRequest('Arrival has not been detected');
@@ -203,6 +208,9 @@ const complete = async (bookingId, user) => {
   }
   return withTransaction(async (client) => {
     const booking = await bookingModel.updateStatus(bookingId, 'completed', {}, client);
+    if (existing.source_occurrence_id) {
+      await scheduleLifecycleModel.markCompleted(existing.source_occurrence_id, client);
+    }
     if (!booking) throw ApiError.notFound('Booking not found');
     // The passenger has alighted, so free the seat they held. A booking only
     // ever releases its seat once: 'confirmed' is the sole state that holds a

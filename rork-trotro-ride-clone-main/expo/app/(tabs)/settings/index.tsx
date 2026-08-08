@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { StyleSheet, Text, View, ScrollView, TouchableOpacity, Switch, Alert, Platform, Modal, Pressable, Image } from "react-native";
 import { useRouter } from "expo-router";
 import {
@@ -29,6 +29,8 @@ import * as Haptics from "expo-haptics";
 import StaticColors from "@/constants/colors";
 import { useTheme, type ThemePalette, type ThemeMode } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { hydrateBusAlertsEnabled, setBusAlertsEnabled } from "@/services/busAlertPreferences";
+import { initPassengerNotifications, registerPushToken } from "@/services/notificationService";
 const Colors = StaticColors;
 
 const BUFFER_OPTIONS = [5, 10, 15, 20, 30] as const;
@@ -56,6 +58,26 @@ export default function SettingsScreen() {
   const [biometricLock, setBiometricLock] = useState<boolean>(false);
   const [bufferTime, setBufferTime] = useState<number>(10);
   const [showBuffer, setShowBuffer] = useState<boolean>(false);
+
+  useEffect(() => {
+    void hydrateBusAlertsEnabled().then(setBusAlerts);
+  }, []);
+
+  const toggleBusAlerts = useCallback(async (enabled: boolean) => {
+    const previous = busAlerts;
+    setBusAlerts(enabled);
+    try {
+      if (enabled && Platform.OS !== 'web') {
+        const token = await initPassengerNotifications();
+        if (!token) throw new Error('Notification permission is required to receive bus alerts. Enable it in device settings.');
+        await registerPushToken(token);
+      }
+      await setBusAlertsEnabled(enabled);
+    } catch (error) {
+      setBusAlerts(previous);
+      Alert.alert('Bus alerts not updated', error instanceof Error ? error.message : 'Please try again.');
+    }
+  }, [busAlerts]);
 
   const locationPermission: "granted" | "denied" = useCurrentLocation ? "granted" : "denied";
 
@@ -156,7 +178,7 @@ export default function SettingsScreen() {
               <Text style={st.rowSub} numberOfLines={1}>Get notified when buses approach</Text>
             </View>
           </View>
-          <Switch value={busAlerts} onValueChange={setBusAlerts} trackColor={{ false: Colors.gray200, true: Colors.primaryLight }} thumbColor={busAlerts ? Colors.primary : Colors.gray400} />
+          <Switch testID="bus-alerts-switch" value={busAlerts} onValueChange={(value) => { void toggleBusAlerts(value); }} trackColor={{ false: Colors.gray200, true: Colors.primaryLight }} thumbColor={busAlerts ? Colors.primary : Colors.gray400} />
         </View>
       </View>
 

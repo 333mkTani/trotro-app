@@ -6,7 +6,7 @@ const COLUMNS = `id, passenger_id, driver_id, bus_id, route_id,
   notification_sent_at, confirmed_at, completed_at, cancelled_at,
   arrival_near_at, arrived_at, expired_at,
   boarded_at, paid_at,
-  route_name, ride_fare, ride_payment_method, ride_schedule,
+  route_name, ride_fare, ride_payment_method, ride_schedule, source_occurrence_id,
   created_at, updated_at`;
 
 const findById = async (id, client) => {
@@ -69,9 +69,9 @@ const insert = async (data, client) => {
        passenger_id, driver_id, bus_id, route_id,
        pickup_stop_id, pickup_stop_name, destination_stop_id, destination_stop_name,
        desired_arrival_time, buffer_minutes, status,
-       route_name, ride_fare, ride_payment_method, ride_schedule
+       route_name, ride_fare, ride_payment_method, ride_schedule, source_occurrence_id
      ) values (
-       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15
+       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16
      ) returning ${COLUMNS}`,
     [
       data.passengerId,
@@ -89,6 +89,7 @@ const insert = async (data, client) => {
       data.rideFare || null,
       data.ridePaymentMethod || null,
       data.rideSchedule ? JSON.stringify(data.rideSchedule) : null,
+      data.sourceOccurrenceId || null,
     ],
   );
   return rows[0];

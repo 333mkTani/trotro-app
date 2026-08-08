@@ -29,6 +29,7 @@ import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
 import { useBusAlerts } from "@/contexts/BusAlertContext";
 import { useLocation } from "@/contexts/LocationContext";
 import { ApproachingBus } from "@/types";
+import { api } from "@/services/api";
 const Colors = StaticColors;
 
 export default function AlertBusesScreen() {
@@ -38,7 +39,7 @@ export default function AlertBusesScreen() {
 
   const router = useRouter();
   const { alertId } = useLocalSearchParams<{ alertId: string }>();
-  const { alerts } = useBusAlerts();
+  const { alerts, isLoading } = useBusAlerts();
   const { regionStops } = useLocation();
 
   const alert = useMemo(
@@ -46,10 +47,27 @@ export default function AlertBusesScreen() {
     [alerts, alertId],
   );
 
-  const buses = useMemo(
+  const capturedBuses = useMemo(
     () => alert?.triggered_buses?.filter((b) => b.seats_available > 0) ?? [],
     [alert],
   );
+  const [liveBuses, setLiveBuses] = useState<ApproachingBus[] | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(true);
+  const buses = liveBuses ?? capturedBuses;
+
+  useEffect(() => {
+    if (!alert) return;
+    let current = true;
+    setPreviewLoading(true);
+    const params: Record<string, string> = { stop_id: alert.stop_id };
+    if (alert.route_id && alert.route_id !== 'any') params.route_name = alert.route_name;
+    void api.get('/buses/active', { params }).then(({ data }) => {
+      if (current) setLiveBuses((data as ApproachingBus[]).filter((bus) => bus.seats_available > 0));
+    }).catch(() => {
+      // Keep the server-captured occurrence snapshot when live preview is offline.
+    }).finally(() => { if (current) setPreviewLoading(false); });
+    return () => { current = false; };
+  }, [alert?.id, alert?.stop_id, alert?.route_id, alert?.route_name]);
 
   const [bookingBusId, setBookingBusId] = useState<string | null>(null);
   const [bookedBus, setBookedBus] = useState<ApproachingBus | null>(null);
@@ -107,6 +125,15 @@ export default function AlertBusesScreen() {
     },
     [router, stopData, alert],
   );
+
+  if (!alert && isLoading) {
+    return (
+      <View style={st.emptyWrap}>
+        <ActivityIndicator color={Colors.primary} />
+        <Text style={st.noBusesSub}>Loading alert details…</Text>
+      </View>
+    );
+  }
 
   if (!alert) {
     return (
@@ -209,7 +236,12 @@ export default function AlertBusesScreen() {
             </Text>
           </View>
 
-          {buses.length === 0 ? (
+          {previewLoading && buses.length === 0 ? (
+            <View style={st.noBusesWrap}>
+              <ActivityIndicator color={Colors.primary} />
+              <Text style={st.noBusesSub}>Checking live approaching buses…</Text>
+            </View>
+          ) : buses.length === 0 ? (
             <View style={st.noBusesWrap}>
               <Bus size={40} color={Colors.gray300} />
               <Text style={st.noBusesTitle}>No Buses Available</Text>

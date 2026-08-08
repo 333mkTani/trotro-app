@@ -1,7 +1,7 @@
 const { query } = require('../config/db');
 
 const COLUMNS = `id, passenger_id, route_id, route_name, stop_id, stop_name,
-  alert_time, schedule, is_active, triggered, last_triggered_day, triggered_buses, created_at`;
+  alert_time, schedule, timezone, is_active, triggered, last_triggered_day, triggered_buses, created_at`;
 
 const listForPassenger = async (passengerId) => {
   const { rows } = await query(
@@ -19,8 +19,8 @@ const findById = async (id) => {
 const insert = async (data) => {
   const { rows } = await query(
     `insert into public.bus_alerts
-       (passenger_id, route_id, route_name, stop_id, stop_name, alert_time, schedule, is_active)
-     values ($1,$2,$3,$4,$5,$6,$7,coalesce($8,true))
+       (passenger_id, route_id, route_name, stop_id, stop_name, alert_time, schedule, timezone, is_active)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,coalesce($9,true))
      returning ${COLUMNS}`,
     [
       data.passengerId,
@@ -30,6 +30,7 @@ const insert = async (data) => {
       data.stopName,
       data.alertTime || null,
       data.schedule ? JSON.stringify(data.schedule) : null,
+      data.timezone || 'Africa/Accra',
       data.isActive,
     ],
   );
@@ -42,9 +43,8 @@ const update = async (id, patch) => {
   let i = 1;
   const map = {
     isActive: 'is_active',
-    triggered: 'triggered',
     alertTime: 'alert_time',
-    lastTriggeredDay: 'last_triggered_day',
+    timezone: 'timezone',
   };
   for (const [key, col] of Object.entries(map)) {
     if (patch[key] !== undefined) {
@@ -56,9 +56,8 @@ const update = async (id, patch) => {
     fields.push(`schedule = $${i++}`);
     values.push(patch.schedule ? JSON.stringify(patch.schedule) : null);
   }
-  if (patch.triggeredBuses !== undefined) {
-    fields.push(`triggered_buses = $${i++}`);
-    values.push(patch.triggeredBuses ? JSON.stringify(patch.triggeredBuses) : null);
+  if (patch.alertTime !== undefined || patch.schedule !== undefined || patch.timezone !== undefined) {
+    fields.push('triggered = false', 'last_triggered_day = null', "triggered_buses = '[]'::jsonb");
   }
   if (!fields.length) return findById(id);
   values.push(id);

@@ -1,6 +1,7 @@
 const { query } = require('../config/db');
 
-const COLUMNS = `id, phone, full_name, email, avatar_url, role, fcm_token, theme_mode, created_at, updated_at`;
+const COLUMNS = `id, phone, full_name, email, avatar_url, role, fcm_token, theme_mode,
+  bus_alerts_enabled, created_at, updated_at`;
 
 const findById = async (id) => {
   const { rows } = await query(`select ${COLUMNS} from public.profiles where id = $1`, [id]);
@@ -33,6 +34,7 @@ const update = async (id, patch) => {
     avatarUrl: 'avatar_url',
     fcmToken: 'fcm_token',
     themeMode: 'theme_mode',
+    busAlertsEnabled: 'bus_alerts_enabled',
     phone: 'phone',
   };
   for (const [key, col] of Object.entries(map)) {

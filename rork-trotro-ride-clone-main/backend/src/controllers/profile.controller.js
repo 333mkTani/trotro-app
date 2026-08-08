@@ -7,7 +7,11 @@ const me = asyncHandler(async (req, res) => {
 });
 
 const updateMe = asyncHandler(async (req, res) => {
-  const updated = await profileService.updateMe(req.user.id, req.body);
+  const patch = { ...req.body };
+  if (patch.busAlertsEnabled !== undefined && typeof patch.busAlertsEnabled !== 'boolean') {
+    return res.status(400).json({ error: 'busAlertsEnabled must be a boolean' });
+  }
+  const updated = await profileService.updateMe(req.user.id, patch);
   res.json(updated);
 });
 

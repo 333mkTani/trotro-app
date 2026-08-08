@@ -14,9 +14,10 @@ interface BookingCardProps {
   onNavigate?: () => void;
   onEndRide?: () => void;
   endingRide?: boolean;
+  cancellingRide?: boolean;
 }
 
-export default React.memo(function BookingCard({ booking, onPress, onCancel, onNavigate, onEndRide, endingRide }: BookingCardProps) {
+export default React.memo(function BookingCard({ booking, onPress, onCancel, onNavigate, onEndRide, endingRide, cancellingRide }: BookingCardProps) {
   const { colors: themeColors } = useTheme();
   const Colors = themeColors;
   styles = React.useMemo(() => make_styles(themeColors), [themeColors]);
@@ -114,12 +115,12 @@ export default React.memo(function BookingCard({ booking, onPress, onCancel, onN
         )}
         {canCancel && onCancel && (
           <TouchableOpacity
-            style={[styles.cancelBtn, isWithin30Min && styles.cancelBtnDisabled]}
-            onPress={isWithin30Min ? undefined : onCancel}
-            activeOpacity={isWithin30Min ? 1 : 0.6}
+            style={[styles.cancelBtn, (isWithin30Min || cancellingRide) && styles.cancelBtnDisabled]}
+            onPress={isWithin30Min || cancellingRide ? undefined : onCancel}
+            activeOpacity={isWithin30Min || cancellingRide ? 1 : 0.6}
           >
-            <Text style={[styles.cancelText, isWithin30Min && styles.cancelTextDisabled]}>
-              {isWithin30Min ? "Can't cancel < 30 min" : "Cancel Ride"}
+            <Text style={[styles.cancelText, (isWithin30Min || cancellingRide) && styles.cancelTextDisabled]}>
+              {cancellingRide ? "Cancelling..." : isWithin30Min ? "Can't cancel < 30 min" : "Cancel Ride"}
             </Text>
           </TouchableOpacity>
         )}

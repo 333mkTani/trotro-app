@@ -22,6 +22,11 @@ const alertRoutes = require('./routes/alert.routes');
 const walletRoutes = require('./routes/wallet.routes');
 const ratingRoutes = require('./routes/rating.routes');
 const webhookRoutes = require('./routes/webhook.routes');
+const commuterScheduleRoutes = require('./routes/commuterSchedule.routes');
+const driverScheduleRoutes = require('./routes/driverSchedule.routes');
+const scheduleNotificationRoutes = require('./routes/scheduleNotification.routes');
+const scheduleOperationsRoutes = require('./routes/scheduleOperations.routes');
+const busAlertOperationsRoutes = require('./routes/busAlertOperations.routes');
 
 const app = express();
 
@@ -74,6 +79,11 @@ app.use('/api/alerts', alertRoutes);
 app.use('/api/wallet', walletRoutes);
 app.use('/api/ratings', ratingRoutes);
 app.use('/api/webhooks', webhookRoutes);
+app.use('/api/commuter-schedules', commuterScheduleRoutes);
+app.use('/api/driver-schedules', driverScheduleRoutes);
+app.use('/api/schedule-notifications', scheduleNotificationRoutes);
+app.use('/api/admin/schedules', scheduleOperationsRoutes);
+app.use('/api/admin/bus-alerts', busAlertOperationsRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

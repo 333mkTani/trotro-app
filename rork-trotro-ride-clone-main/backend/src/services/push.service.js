@@ -11,7 +11,7 @@ const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
  * Send a push notification to a single device token.
  * Accepts both raw FCM tokens and legacy ExponentPushToken[…] strings.
  */
-const send = async (token, { title, body, data = {} }) => {
+const send = async (token, { title, body, data = {}, throwOnError = false }) => {
   if (!token) return;
 
   // Legacy Expo token — route through Expo relay
@@ -23,10 +23,15 @@ const send = async (token, { title, body, data = {} }) => {
         body: JSON.stringify({ to: token, title, body, data, sound: 'default', priority: 'high' }),
       });
       const json = await res.json();
-      if (json?.data?.status === 'error') console.error('[push/expo] error:', json.data.message);
+      if (json?.data?.status === 'error') {
+        const error = new Error(json.data.message || 'Expo push delivery failed');
+        console.error('[push/expo] error:', error.message);
+        if (throwOnError) throw error;
+      }
       else console.log('[push/expo] sent to', token.slice(0, 32) + '…');
     } catch (err) {
       console.error('[push/expo] failed:', err.message);
+      if (throwOnError) throw err;
     }
     return;
   }
@@ -35,6 +40,7 @@ const send = async (token, { title, body, data = {} }) => {
   const admin = getAdmin();
   if (!admin) {
     console.warn('[push/fcm] Firebase not configured, skipping notification');
+    if (throwOnError) throw new Error('Firebase push is not configured');
     return;
   }
 
@@ -62,6 +68,7 @@ const send = async (token, { title, body, data = {} }) => {
       console.warn('[push/fcm] stale token, skipping:', token.slice(0, 20));
     } else {
       console.error('[push/fcm] failed:', err.message);
+      if (throwOnError) throw err;
     }
   }
 };

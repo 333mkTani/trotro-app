@@ -1,0 +1,75 @@
+import createContextHook from '@nkzw/create-context-hook';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { api } from '@/services/api';
+import type {
+  CommuterSchedule,
+  CommuterScheduleStatus,
+  CreateCommuterScheduleInput,
+  ScheduleOccurrence,
+  UpdateCommuterScheduleInput,
+} from '@/types';
+
+export const [CommuterScheduleProvider, useCommuterSchedules] = createContextHook(() => {
+  const queryClient = useQueryClient();
+  const queryKey = ['commuter-schedules'] as const;
+
+  const schedulesQuery = useQuery({
+    queryKey,
+    queryFn: async (): Promise<CommuterSchedule[]> => {
+      const { data } = await api.get('/commuter-schedules');
+      return data as CommuterSchedule[];
+    },
+  });
+
+  const createMutation = useMutation({
+    mutationFn: async (input: CreateCommuterScheduleInput) => {
+      const { data } = await api.post('/commuter-schedules', input);
+      return data as CommuterSchedule;
+    },
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey }),
+  });
+
+  const statusMutation = useMutation({
+    mutationFn: async ({ id, patch }: { id: string; patch: UpdateCommuterScheduleInput }) => {
+      const { data } = await api.patch(`/commuter-schedules/${id}`, patch);
+      return data as CommuterSchedule;
+    },
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey }),
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (id: string) => api.delete(`/commuter-schedules/${id}`),
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey }),
+  });
+
+  const getOccurrences = async (id: string): Promise<ScheduleOccurrence[]> => {
+    const { data } = await api.get(`/commuter-schedules/${id}/occurrences`);
+    return data as ScheduleOccurrence[];
+  };
+  const cancelOccurrenceMutation = useMutation({
+    mutationFn: async (id: string) => {
+      const { data } = await api.post(`/commuter-schedules/occurrences/${id}/cancel`);
+      return data as ScheduleOccurrence;
+    },
+    onSuccess: async () => queryClient.invalidateQueries({ queryKey }),
+  });
+
+
+  return {
+    schedules: schedulesQuery.data ?? [],
+    schedulesLoading: schedulesQuery.isLoading,
+    createSchedule: createMutation.mutateAsync,
+    createSchedulePending: createMutation.isPending,
+    updateSchedule: statusMutation.mutateAsync,
+    setScheduleStatus: ({ id, status }: { id: string; status: CommuterScheduleStatus }) =>
+      statusMutation.mutateAsync({ id, patch: { status } }),
+    scheduleStatusPending: statusMutation.isPending,
+    deleteSchedule: deleteMutation.mutateAsync,
+    deleteSchedulePending: deleteMutation.isPending,
+    getOccurrences,
+    cancelOccurrence: cancelOccurrenceMutation.mutateAsync,
+    cancelOccurrencePending: cancelOccurrenceMutation.isPending,
+    refreshSchedules: schedulesQuery.refetch,
+    schedulesError: schedulesQuery.error,
+  };
+});
