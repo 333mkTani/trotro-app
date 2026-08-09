@@ -1,5 +1,10 @@
 jest.mock('../cache.service', () => ({
-  wrap: jest.fn((_key, _ttl, loader) => loader()),
+  get: jest.fn().mockResolvedValue(null),
+  set: jest.fn().mockResolvedValue('OK'),
+}));
+jest.mock('../../utils/observability', () => ({
+  increment: jest.fn(),
+  log: jest.fn(),
 }));
 
 const cache = require('../cache.service');
@@ -71,10 +76,11 @@ describe('routing.service', () => {
       durationSeconds: 780,
       steps: [{ instruction: 'Head north', maneuverType: 'depart' }],
     });
-    expect(cache.wrap).toHaveBeenCalledWith(
+    expect(cache.get).toHaveBeenCalledWith(expect.stringContaining('routing:directions:walking:steps'));
+    expect(cache.set).toHaveBeenCalledWith(
       expect.stringContaining('routing:directions:walking:steps'),
-      env.ROUTING_CACHE_TTL_SECONDS,
-      expect.any(Function),
+      result,
+      env.MAPBOX_CACHE_TTL_WALKING_SECONDS,
     );
   });
 
@@ -113,5 +119,33 @@ describe('routing.service', () => {
       profile: 'driving',
       steps: false,
     })).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('rejects invalid provider geometry before it can be cached', async () => {
+    global.fetch = jest.fn().mockResolvedValue(okResponse({
+      code: 'Ok',
+      routes: [{
+        distance: 100,
+        duration: 20,
+        geometry: { type: 'LineString', coordinates: [[999, 5.6], [-0.1, 5.7]] },
+        legs: [],
+      }],
+    }));
+
+    await expect(service.getDirections({
+      originLat: 5.6,
+      originLng: -0.2,
+      destinationLat: 5.7,
+      destinationLng: -0.1,
+      profile: 'driving',
+      steps: true,
+    })).rejects.toMatchObject({ status: 502 });
+    expect(cache.set).not.toHaveBeenCalled();
+  });
+
+  it('uses shorter cache lifetimes for traffic-aware routes', () => {
+    expect(service.cacheTtlForProfile('walking')).toBe(env.MAPBOX_CACHE_TTL_WALKING_SECONDS);
+    expect(service.cacheTtlForProfile('driving')).toBe(env.MAPBOX_CACHE_TTL_DRIVING_SECONDS);
+    expect(service.cacheTtlForProfile('driving-traffic')).toBe(env.MAPBOX_CACHE_TTL_TRAFFIC_SECONDS);
   });
 });

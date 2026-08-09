@@ -24,6 +24,18 @@ services:
         value: "60"
       - key: DATABASE_URL
         sync: false
+      - key: MAPBOX_ACCESS_TOKEN
+        sync: false
+      - key: ROUTING_RATE_LIMIT_MAX
+        value: "30"
+      - key: ROUTING_RATE_LIMIT_WINDOW_MS
+        value: "60000"
+      - key: MAPBOX_CACHE_TTL_WALKING_SECONDS
+        value: "120"
+      - key: MAPBOX_CACHE_TTL_DRIVING_SECONDS
+        value: "30"
+      - key: MAPBOX_CACHE_TTL_TRAFFIC_SECONDS
+        value: "15"
       - key: REDIS_URL
         fromService:
           type: redis

@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   Animated,
   Platform,
-  Dimensions,
 } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import MapLibreGL from "@maplibre/maplibre-react-native";
@@ -17,7 +16,6 @@ import {
   MapPin,
   Navigation,
   AlertTriangle,
-  Phone,
   ChevronDown,
   ChevronUp,
   Radio,
@@ -34,9 +32,8 @@ import {
   unsubscribeFromBus,
   type BusLocationEvent,
 } from "@/services/socket";
-const Colors = StaticColors;
-
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
+import { useDirections } from "@/hooks/useDirections";
+import { getRouteBounds } from "@/utils/routeGeometry";
 
 type TrackingParams = {
   driverId: string;
@@ -71,34 +68,6 @@ function interpolateCoords(
     lat: startLat + (endLat - startLat) * progress,
     lng: startLng + (endLng - startLng) * progress,
   };
-}
-
-function generateRoutePoints(
-  startLat: number,
-  startLng: number,
-  endLat: number,
-  endLng: number,
-  numPoints: number
-): { latitude: number; longitude: number }[] {
-  const points: { latitude: number; longitude: number }[] = [];
-  const midLat = (startLat + endLat) / 2;
-  const midLng = (startLng + endLng) / 2;
-  const offsetLat = (endLng - startLng) * 0.15;
-  const offsetLng = -(endLat - startLat) * 0.15;
-
-  for (let i = 0; i <= numPoints; i++) {
-    const t = i / numPoints;
-    const lat =
-      (1 - t) * (1 - t) * startLat +
-      2 * (1 - t) * t * (midLat + offsetLat) +
-      t * t * endLat;
-    const lng =
-      (1 - t) * (1 - t) * startLng +
-      2 * (1 - t) * t * (midLng + offsetLng) +
-      t * t * endLng;
-    points.push({ latitude: lat, longitude: lng });
-  }
-  return points;
 }
 
 function haversineMetres(lat1: number, lng1: number, lat2: number, lng2: number): number {
@@ -149,26 +118,38 @@ export default function TrackingScreen() {
   const [expanded, setExpanded] = useState(true);
   const [lastUpdate, setLastUpdate] = useState("Just now");
   const [socketLive, setSocketLive] = useState(false);
+  const [mapReady, setMapReady] = useState(false);
   const busIdRef = useRef<string | null>(null);
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const sheetAnim = useRef(new Animated.Value(0)).current;
   const liveDot = useRef(new Animated.Value(0.4)).current;
 
-  const routePoints = useMemo(
-    () => generateRoutePoints(busStartLat, busStartLng, stopLat, stopLng, 30),
-    [busStartLat, busStartLng, stopLat, stopLng]
+  const routingOrigin = useMemo(
+    () => ({ latitude: busPosition.lat, longitude: busPosition.lng }),
+    [busPosition],
   );
-
-  const travelledPoints = useMemo(() => {
-    const idx = Math.floor(progress * (routePoints.length - 1));
-    return routePoints.slice(0, idx + 1);
-  }, [progress, routePoints]);
-
-  const remainingPoints = useMemo(() => {
-    const idx = Math.floor(progress * (routePoints.length - 1));
-    return routePoints.slice(idx);
-  }, [progress, routePoints]);
+  const routingDestination = useMemo(
+    () => ({ latitude: stopLat, longitude: stopLng }),
+    [stopLat, stopLng],
+  );
+  const directions = useDirections({
+    origin: routingOrigin,
+    destination: routingDestination,
+    profile: "driving",
+    movementThresholdMeters: 100,
+    staleTimeMs: 30_000,
+  });
+  const routePoints = useMemo(
+    () => directions.geometry?.coordinates.map(([longitude, latitude]) => ({ latitude, longitude })) ?? [],
+    [directions.geometry],
+  );
+  const routeBounds = useMemo(() => getRouteBounds(directions.geometry), [directions.geometry]);
+  const displayedEta = directions.data?.durationSeconds != null
+    ? Math.max(1, Math.ceil(directions.data.durationSeconds / 60))
+    : eta;
+  const nextInstruction = directions.data?.steps[0]?.instruction
+    ?? `Continue toward ${stopName}`;
 
   useEffect(() => {
     Animated.timing(sheetAnim, { toValue: 1, duration: 500, useNativeDriver: true }).start();
@@ -193,7 +174,7 @@ export default function TrackingScreen() {
       pulse.stop();
       liveBlink.stop();
     };
-  }, []);
+  }, [liveDot, pulseAnim, sheetAnim]);
 
   const totalDistM = useMemo(
     () => haversineMetres(busStartLat, busStartLng, stopLat, stopLng),
@@ -326,24 +307,31 @@ export default function TrackingScreen() {
 
   const recenterMap = useCallback(() => {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    const minLng = Math.min(busPosition.lng, stopLng);
-    const maxLng = Math.max(busPosition.lng, stopLng);
-    const minLat = Math.min(busPosition.lat, stopLat);
-    const maxLat = Math.max(busPosition.lat, stopLat);
+    if (!routeBounds) return;
     cameraRef.current?.fitBounds(
-      [maxLng, maxLat], // NE [lng, lat]
-      [minLng, minLat], // SW [lng, lat]
+      [routeBounds.northEast.longitude, routeBounds.northEast.latitude],
+      [routeBounds.southWest.longitude, routeBounds.southWest.latitude],
       [80, 60, 200, 60], // padding [top, right, bottom, left]
       500
     );
-  }, [busPosition, stopLat, stopLng]);
+  }, [routeBounds]);
+
+  useEffect(() => {
+    if (Platform.OS === "web" || !mapReady || !routeBounds) return;
+    cameraRef.current?.fitBounds(
+      [routeBounds.northEast.longitude, routeBounds.northEast.latitude],
+      [routeBounds.southWest.longitude, routeBounds.southWest.latitude],
+      [80, 60, 200, 60],
+      500,
+    );
+  }, [mapReady, routeBounds]);
 
   const toggleExpand = useCallback(() => {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setExpanded((v) => !v);
   }, []);
 
-  const etaColor = eta <= 3 ? Colors.success : eta <= 7 ? Colors.warning : Colors.primary;
+  const etaColor = displayedEta <= 3 ? Colors.success : displayedEta <= 7 ? Colors.warning : Colors.primary;
 
   const sheetTranslate = sheetAnim.interpolate({
     inputRange: [0, 1],
@@ -364,6 +352,7 @@ export default function TrackingScreen() {
           mapStyle="https://tiles.openfreemap.org/styles/liberty"
           logoEnabled={false}
           attributionEnabled={false}
+          onDidFinishLoadingMap={() => setMapReady(true)}
         >
           <MapLibreGL.Camera
             ref={cameraRef}
@@ -372,40 +361,23 @@ export default function TrackingScreen() {
             animationDuration={0}
           />
 
-          {/* Full dashed route line */}
-          <MapLibreGL.ShapeSource
-            id="route-full"
-            shape={{
-              type: "Feature",
-              geometry: {
-                type: "LineString",
-                coordinates: routePoints.map((p) => [p.longitude, p.latitude]),
-              },
-              properties: {},
-            }}
-          >
-            <MapLibreGL.LineLayer
-              id="route-full-line"
-              style={{ lineColor: Colors.gray300, lineWidth: 4, lineDasharray: [2, 1.5] }}
-            />
-          </MapLibreGL.ShapeSource>
-
-          {/* Travelled portion */}
-          {travelledPoints.length > 1 && (
+          {routePoints.length > 1 && directions.geometry && (
             <MapLibreGL.ShapeSource
-              id="route-travelled"
+              id="route-to-stop"
               shape={{
                 type: "Feature",
-                geometry: {
-                  type: "LineString",
-                  coordinates: travelledPoints.map((p) => [p.longitude, p.latitude]),
-                },
+                geometry: directions.geometry,
                 properties: {},
               }}
             >
               <MapLibreGL.LineLayer
-                id="route-travelled-line"
-                style={{ lineColor: Colors.primary, lineWidth: 5 }}
+                id="route-to-stop-line"
+                style={{
+                  lineColor: Colors.primary,
+                  lineWidth: 5,
+                  lineOpacity: directions.isFallback ? 0.7 : 1,
+                  ...(directions.isFallback ? { lineDasharray: [2, 1.5] } : {}),
+                }}
               />
             </MapLibreGL.ShapeSource>
           )}
@@ -487,7 +459,7 @@ export default function TrackingScreen() {
           <View style={st.etaLeft}>
             <Text style={st.etaLabel}>Arriving in</Text>
             <View style={st.etaRow}>
-              <Text style={[st.etaNum, { color: etaColor }]}>{eta}</Text>
+              <Text style={[st.etaNum, { color: etaColor }]}>{displayedEta}</Text>
               <Text style={[st.etaUnit, { color: etaColor }]}>min</Text>
             </View>
           </View>
@@ -545,6 +517,15 @@ export default function TrackingScreen() {
             <View style={st.warningRow}>
               <AlertTriangle size={13} color={Colors.warning} />
               <Text style={st.warningTxt}>Bus will not wait at the stop. Be there before arrival.</Text>
+            </View>
+
+            <View style={st.routingRow}>
+              <Navigation size={13} color={Colors.primary} />
+              <Text style={st.routingTxt} numberOfLines={2}>
+                {directions.isError
+                  ? "Road route unavailable — showing a direct estimate."
+                  : nextInstruction}
+              </Text>
             </View>
 
             <View style={st.updateRow}>
@@ -817,6 +798,15 @@ const make_st = (Colors: ThemePalette) => StyleSheet.create({
     borderRadius: 10,
   },
   warningTxt: { fontSize: 11, color: Colors.warning, fontWeight: "500" as const, flex: 1, lineHeight: 16 },
+  routingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: Colors.primaryFaded,
+    padding: 10,
+    borderRadius: 10,
+  },
+  routingTxt: { fontSize: 11, color: Colors.primary, fontWeight: "600" as const, flex: 1, lineHeight: 16 },
 
   updateRow: {
     flexDirection: "row",

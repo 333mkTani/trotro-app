@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo } from "react";
 import {
   StyleSheet,
   Text,
@@ -12,7 +12,6 @@ import { useLocalSearchParams, useRouter, Stack } from "expo-router";
 import MapLibreGL from "@maplibre/maplibre-react-native";
 import {
   MapPin,
-  Navigation2,
   Clock,
   Bus,
   AlertTriangle,
@@ -26,7 +25,8 @@ import * as Haptics from "expo-haptics";
 import StaticColors from "@/constants/colors";
 import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
 import { useLocation } from "@/contexts/LocationContext";
-const Colors = StaticColors;
+import { useDirections } from "@/hooks/useDirections";
+import { getRouteBounds } from "@/utils/routeGeometry";
 
 type Params = {
   stopId: string;
@@ -81,6 +81,7 @@ export default function NavigateToPickupScreen() {
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [locationLoading, setLocationLoading] = useState(true);
   const [locationError, setLocationError] = useState<string | null>(null);
+  const [mapReady, setMapReady] = useState(false);
 
   const fadeIn = useRef(new Animated.Value(0)).current;
   const slideUp = useRef(new Animated.Value(40)).current;
@@ -102,7 +103,35 @@ export default function NavigateToPickupScreen() {
     );
     pulse.start();
     return () => pulse.stop();
-  }, []);
+  }, [fadeIn, pulseAnim, slideUp]);
+
+  const routingOrigin = useMemo(
+    () => userLocation
+      ? { latitude: userLocation.lat, longitude: userLocation.lng }
+      : null,
+    [userLocation],
+  );
+  const routingDestination = useMemo(
+    () => stop ? { latitude: stop.lat, longitude: stop.lng } : null,
+    [stop],
+  );
+  const directions = useDirections({
+    origin: routingOrigin,
+    destination: routingDestination,
+    profile: "walking",
+    movementThresholdMeters: 50,
+  });
+  const routeBounds = useMemo(() => getRouteBounds(directions.geometry), [directions.geometry]);
+
+  useEffect(() => {
+    if (Platform.OS === "web" || !mapReady || !routeBounds) return;
+    cameraRef.current?.fitBounds(
+      [routeBounds.northEast.longitude, routeBounds.northEast.latitude],
+      [routeBounds.southWest.longitude, routeBounds.southWest.latitude],
+      [40, 40, 40, 40],
+      500,
+    );
+  }, [mapReady, routeBounds]);
 
   useEffect(() => {
     let mounted = true;
@@ -167,19 +196,25 @@ export default function NavigateToPickupScreen() {
     return () => { mounted = false; };
   }, []);
 
-  const distance = useMemo(() => {
+  const fallbackDistance = useMemo(() => {
     if (!userLocation || !stop) return null;
     return haversineDistance(userLocation.lat, userLocation.lng, stop.lat, stop.lng);
   }, [userLocation, stop]);
 
-  const walkMin = useMemo(() => (distance != null ? estimateWalkMin(distance) : null), [distance]);
+  const distance = directions.data?.distanceMeters ?? fallbackDistance;
+
+  const walkMin = directions.data?.durationSeconds != null
+    ? Math.max(1, Math.ceil(directions.data.durationSeconds / 60))
+    : distance != null ? estimateWalkMin(distance) : null;
+  const nextInstruction = directions.data?.steps[0]?.instruction
+    ?? `Head toward ${stop?.name ?? "the boarding stop"}`;
 
   useEffect(() => {
     if (distance != null) {
       const progress = Math.min(1, Math.max(0.05, 1 - distance / 3000));
       Animated.timing(progressAnim, { toValue: progress, duration: 800, useNativeDriver: false }).start();
     }
-  }, [distance]);
+  }, [distance, progressAnim]);
 
   const bearing = useMemo(() => {
     if (!userLocation || !stop) return 0;
@@ -255,6 +290,7 @@ export default function NavigateToPickupScreen() {
                 mapStyle="https://tiles.openfreemap.org/styles/liberty"
                 logoEnabled={false}
                 attributionEnabled={false}
+                onDidFinishLoadingMap={() => setMapReady(true)}
               >
                 <MapLibreGL.Camera
                   ref={cameraRef}
@@ -263,24 +299,23 @@ export default function NavigateToPickupScreen() {
                   animationDuration={500}
                 />
 
-                {userLocation && (
+                {directions.geometry && (
                   <MapLibreGL.ShapeSource
                     id="walk-route-line"
                     shape={{
                       type: "Feature",
-                      geometry: {
-                        type: "LineString",
-                        coordinates: [
-                          [userLocation.lng, userLocation.lat],
-                          [stop.lng, stop.lat],
-                        ],
-                      },
+                      geometry: directions.geometry,
                       properties: {},
                     }}
                   >
                     <MapLibreGL.LineLayer
                       id="walk-route-dash"
-                      style={{ lineColor: Colors.primary, lineWidth: 3, lineDasharray: [2, 1.5] }}
+                      style={{
+                        lineColor: Colors.primary,
+                        lineWidth: 4,
+                        lineOpacity: directions.isFallback ? 0.7 : 1,
+                        ...(directions.isFallback ? { lineDasharray: [2, 1.5] } : {}),
+                      }}
                     />
                   </MapLibreGL.ShapeSource>
                 )}
@@ -337,7 +372,7 @@ export default function NavigateToPickupScreen() {
 
           <View style={st.directionBar}>
             <Compass size={16} color={Colors.white} />
-            <Text style={st.directionBarText}>Head {bearingLabel} toward {stop.name}</Text>
+            <Text style={st.directionBarText} numberOfLines={2}>{nextInstruction}</Text>
           </View>
         </View>
 
@@ -381,6 +416,14 @@ export default function NavigateToPickupScreen() {
             <View style={st.locationWarning}>
               <AlertTriangle size={12} color={Colors.warning} />
               <Text style={st.locationWarningText}>{locationError}</Text>
+            </View>
+          )}
+          {directions.isError && (
+            <View style={st.locationWarning}>
+              <AlertTriangle size={12} color={Colors.warning} />
+              <Text style={st.locationWarningText}>
+                Road directions are unavailable. Showing a direct route estimate.
+              </Text>
             </View>
           )}
         </View>

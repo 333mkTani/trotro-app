@@ -19,6 +19,16 @@ const env = {
     Math.max(1, parseInt(process.env.ROUTING_CACHE_TTL_SECONDS || '30', 10)),
   ROUTING_REQUEST_TIMEOUT_MS:
     Math.max(1000, parseInt(process.env.ROUTING_REQUEST_TIMEOUT_MS || '8000', 10)),
+  ROUTING_RATE_LIMIT_MAX:
+    Math.max(1, parseInt(process.env.ROUTING_RATE_LIMIT_MAX || '30', 10)),
+  ROUTING_RATE_LIMIT_WINDOW_MS:
+    Math.max(1000, parseInt(process.env.ROUTING_RATE_LIMIT_WINDOW_MS || '60000', 10)),
+  MAPBOX_CACHE_TTL_WALKING_SECONDS:
+    Math.max(1, parseInt(process.env.MAPBOX_CACHE_TTL_WALKING_SECONDS || '120', 10)),
+  MAPBOX_CACHE_TTL_DRIVING_SECONDS:
+    Math.max(1, parseInt(process.env.MAPBOX_CACHE_TTL_DRIVING_SECONDS || '30', 10)),
+  MAPBOX_CACHE_TTL_TRAFFIC_SECONDS:
+    Math.max(1, parseInt(process.env.MAPBOX_CACHE_TTL_TRAFFIC_SECONDS || '15', 10)),
   MAPBOX_DRIVING_TRAFFIC_ENABLED:
     String(process.env.MAPBOX_DRIVING_TRAFFIC_ENABLED || 'false').toLowerCase() === 'true',
   SCHEDULED_RESERVATIONS_ENABLED:

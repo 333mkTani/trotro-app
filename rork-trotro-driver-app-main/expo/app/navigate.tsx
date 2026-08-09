@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -7,7 +7,6 @@ import {
   Platform,
   ActivityIndicator,
   Animated,
-  Dimensions,
 } from 'react-native';
 import MapView, { Marker, Polyline, PROVIDER_DEFAULT } from 'react-native-maps';
 import { useLocalSearchParams, router } from 'expo-router';
@@ -16,8 +15,8 @@ import * as Haptics from 'expo-haptics';
 import * as Location from 'expo-location';
 import { Navigation, MapPin, ArrowLeft, LocateFixed, CornerDownRight } from 'lucide-react-native';
 import Colors from '@/constants/colors';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+import { useDirections } from '@/hooks/useDirections';
+import { distanceMeters } from '@/utils/routeGeometry';
 
 export default function NavigateScreen() {
   const { lat, lng, name } = useLocalSearchParams<{ lat: string; lng: string; name: string }>();
@@ -30,9 +29,7 @@ export default function NavigateScreen() {
 
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [routeCoords, setRouteCoords] = useState<Array<{ latitude: number; longitude: number }>>([]);
-  const [distanceText, setDistanceText] = useState<string>('');
-  const [durationText, setDurationText] = useState<string>('');
+  const [mapReady, setMapReady] = useState(false);
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const slideAnim = useRef(new Animated.Value(80)).current;
@@ -57,76 +54,67 @@ export default function NavigateScreen() {
     return () => pulse.stop();
   }, [pulseAnim]);
 
-  const calculateDistance = useCallback(
-    (lat1: number, lon1: number, lat2: number, lon2: number): number => {
-      const R = 6371;
-      const dLat = ((lat2 - lat1) * Math.PI) / 180;
-      const dLon = ((lon2 - lon1) * Math.PI) / 180;
-      const a =
-        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos((lat1 * Math.PI) / 180) *
-          Math.cos((lat2 * Math.PI) / 180) *
-          Math.sin(dLon / 2) *
-          Math.sin(dLon / 2);
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      return R * c;
-    },
-    []
+  const destination = useMemo(
+    () => ({ latitude: destLat, longitude: destLng }),
+    [destLat, destLng],
   );
-
-  const generateRoutePoints = useCallback(
-    (start: { latitude: number; longitude: number }, end: { latitude: number; longitude: number }) => {
-      const points: Array<{ latitude: number; longitude: number }> = [];
-      const steps = 20;
-      for (let i = 0; i <= steps; i++) {
-        const t = i / steps;
-        const latOffset = (Math.random() - 0.5) * 0.001 * Math.sin(t * Math.PI);
-        const lngOffset = (Math.random() - 0.5) * 0.001 * Math.sin(t * Math.PI);
-        points.push({
-          latitude: start.latitude + (end.latitude - start.latitude) * t + (i > 0 && i < steps ? latOffset : 0),
-          longitude: start.longitude + (end.longitude - start.longitude) * t + (i > 0 && i < steps ? lngOffset : 0),
-        });
-      }
-      return points;
-    },
-    []
+  const directions = useDirections({
+    origin: userLocation,
+    destination,
+    profile: 'driving',
+    movementThresholdMeters: 100,
+  });
+  const routeCoords = useMemo(
+    () => directions.geometry?.coordinates.map(([longitude, latitude]) => ({ latitude, longitude })) ?? [],
+    [directions.geometry],
   );
+  const fallbackDistanceMeters = userLocation ? distanceMeters(userLocation, destination) : null;
+  const displayedDistanceMeters = directions.data?.distanceMeters ?? fallbackDistanceMeters;
+  const distanceText = displayedDistanceMeters == null
+    ? ''
+    : displayedDistanceMeters < 1000
+      ? `${Math.round(displayedDistanceMeters)}m`
+      : `${(displayedDistanceMeters / 1000).toFixed(1)}km`;
+  const fallbackMinutes = fallbackDistanceMeters == null
+    ? null
+    : Math.max(1, Math.round((fallbackDistanceMeters / 1000 / 25) * 60));
+  const durationMinutes = directions.data?.durationSeconds != null
+    ? Math.max(1, Math.ceil(directions.data.durationSeconds / 60))
+    : fallbackMinutes;
+  const durationText = durationMinutes == null
+    ? ''
+    : durationMinutes < 60
+      ? `${durationMinutes} min`
+      : `${Math.floor(durationMinutes / 60)}h ${durationMinutes % 60}m`;
+  const nextInstruction = directions.data?.steps[0]?.instruction ?? `Head towards ${destName}`;
 
   useEffect(() => {
     let mounted = true;
+    let webWatchId: number | null = null;
+    let nativeSubscription: Location.LocationSubscription | null = null;
 
     const getLocation = async () => {
       try {
         if (Platform.OS === 'web') {
           if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
+            webWatchId = navigator.geolocation.watchPosition(
               (pos) => {
                 if (!mounted) return;
                 const loc = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
                 setUserLocation(loc);
-                const dist = calculateDistance(loc.latitude, loc.longitude, destLat, destLng);
-                setDistanceText(dist < 1 ? `${Math.round(dist * 1000)}m` : `${dist.toFixed(1)}km`);
-                const mins = Math.round((dist / 25) * 60);
-                setDurationText(mins < 60 ? `${mins} min` : `${Math.floor(mins / 60)}h ${mins % 60}m`);
-                setRouteCoords(generateRoutePoints(loc, { latitude: destLat, longitude: destLng }));
                 setLoading(false);
               },
               () => {
                 if (!mounted) return;
                 const fallback = { latitude: destLat - 0.01, longitude: destLng - 0.008 };
                 setUserLocation(fallback);
-                setDistanceText('~1.3km');
-                setDurationText('~5 min');
-                setRouteCoords(generateRoutePoints(fallback, { latitude: destLat, longitude: destLng }));
                 setLoading(false);
-              }
+              },
+              { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 },
             );
           } else {
             const fallback = { latitude: destLat - 0.01, longitude: destLng - 0.008 };
             setUserLocation(fallback);
-            setDistanceText('~1.3km');
-            setDurationText('~5 min');
-            setRouteCoords(generateRoutePoints(fallback, { latitude: destLat, longitude: destLng }));
             setLoading(false);
           }
           return;
@@ -137,9 +125,6 @@ export default function NavigateScreen() {
           console.log('[Navigate] Location permission denied');
           const fallback = { latitude: destLat - 0.01, longitude: destLng - 0.008 };
           setUserLocation(fallback);
-          setDistanceText('~1.3km');
-          setDurationText('~5 min');
-          setRouteCoords(generateRoutePoints(fallback, { latitude: destLat, longitude: destLng }));
           setLoading(false);
           return;
         }
@@ -148,37 +133,56 @@ export default function NavigateScreen() {
         if (!mounted) return;
         const loc = { latitude: position.coords.latitude, longitude: position.coords.longitude };
         setUserLocation(loc);
-
-        const dist = calculateDistance(loc.latitude, loc.longitude, destLat, destLng);
-        setDistanceText(dist < 1 ? `${Math.round(dist * 1000)}m` : `${dist.toFixed(1)}km`);
-        const mins = Math.round((dist / 25) * 60);
-        setDurationText(mins < 60 ? `${mins} min` : `${Math.floor(mins / 60)}h ${mins % 60}m`);
-        setRouteCoords(generateRoutePoints(loc, { latitude: destLat, longitude: destLng }));
         setLoading(false);
+        nativeSubscription = await Location.watchPositionAsync(
+          {
+            accuracy: Location.Accuracy.Balanced,
+            distanceInterval: 25,
+            timeInterval: 10000,
+          },
+          (nextPosition) => {
+            if (!mounted) return;
+            setUserLocation({
+              latitude: nextPosition.coords.latitude,
+              longitude: nextPosition.coords.longitude,
+            });
+          },
+        );
       } catch (err) {
         console.log('[Navigate] Error getting location:', err);
         if (!mounted) return;
         const fallback = { latitude: destLat - 0.01, longitude: destLng - 0.008 };
         setUserLocation(fallback);
-        setDistanceText('~1.3km');
-        setDurationText('~5 min');
-        setRouteCoords(generateRoutePoints(fallback, { latitude: destLat, longitude: destLng }));
         setLoading(false);
       }
     };
 
     getLocation();
-    return () => { mounted = false; };
-  }, [destLat, destLng, calculateDistance, generateRoutePoints]);
+    return () => {
+      mounted = false;
+      if (webWatchId != null && typeof navigator !== 'undefined') {
+        navigator.geolocation.clearWatch(webWatchId);
+      }
+      nativeSubscription?.remove();
+    };
+  }, [destLat, destLng]);
 
   const fitToMarkers = useCallback(() => {
     if (!mapRef.current || !userLocation) return;
     if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     mapRef.current.fitToCoordinates(
-      [userLocation, { latitude: destLat, longitude: destLng }],
+      routeCoords.length > 1 ? routeCoords : [userLocation, destination],
       { edgePadding: { top: 100, right: 60, bottom: 200, left: 60 }, animated: true }
     );
-  }, [userLocation, destLat, destLng]);
+  }, [userLocation, routeCoords, destination]);
+
+  useEffect(() => {
+    if (Platform.OS === 'web' || !mapReady || routeCoords.length < 2) return;
+    mapRef.current?.fitToCoordinates(routeCoords, {
+      edgePadding: { top: 100, right: 60, bottom: 200, left: 60 },
+      animated: true,
+    });
+  }, [mapReady, routeCoords]);
 
   const goBack = useCallback(() => {
     if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -228,6 +232,7 @@ export default function NavigateScreen() {
           showsUserLocation={false}
           showsMyLocationButton={false}
           showsCompass={false}
+          onMapReady={() => setMapReady(true)}
         >
           {userLocation ? (
             <Marker coordinate={userLocation} title="You" anchor={{ x: 0.5, y: 0.5 }}>
@@ -251,7 +256,7 @@ export default function NavigateScreen() {
               coordinates={routeCoords}
               strokeColor={Colors.primary}
               strokeWidth={4}
-              lineDashPattern={[0]}
+              lineDashPattern={directions.isFallback ? [8, 6] : undefined}
             />
           ) : null}
         </MapView>
@@ -310,8 +315,11 @@ export default function NavigateScreen() {
 
         <View style={s.stepRow}>
           <CornerDownRight size={16} color={Colors.primary} />
-          <Text style={s.stepText}>Head towards {destName}</Text>
+          <Text style={s.stepText}>{nextInstruction}</Text>
         </View>
+        {directions.isError ? (
+          <Text style={s.routingWarning}>Road directions unavailable — showing a direct estimate.</Text>
+        ) : null}
       </Animated.View>
     </View>
   );
@@ -538,5 +546,11 @@ const s = StyleSheet.create({
     fontWeight: '500' as const,
     color: Colors.primary,
     flex: 1,
+  },
+  routingWarning: {
+    marginTop: 8,
+    fontSize: 11,
+    color: Colors.warning,
+    textAlign: 'center',
   },
 });
