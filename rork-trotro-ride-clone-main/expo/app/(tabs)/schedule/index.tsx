@@ -249,7 +249,7 @@ export default function ScheduleScreen() {
   }, [regionStops, schedules]);
 
   const removeSchedule = useCallback((id: string) => Alert.alert("Delete recurring schedule?",
-    "Future unaccepted occurrences will stop. Already accepted occurrences remain unchanged.", [
+    "This cancels all unboarded future seat requests, releases accepted seats, and stops new occurrences.", [
       { text: "Keep", style: "cancel" },
       { text: "Delete", style: "destructive", onPress: () => void deleteSchedule(id) },
     ]), [deleteSchedule]);

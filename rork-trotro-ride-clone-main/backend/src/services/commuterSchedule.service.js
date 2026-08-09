@@ -1,6 +1,9 @@
 const scheduleModel = require('../models/commuterSchedule.model');
 const { ApiError } = require('../utils/ApiError');
 const { isScheduledReservationsEnabled } = require('../config/scheduleRollout');
+const { withTransaction } = require('../config/db');
+const notificationModel = require('../models/scheduleNotification.model');
+const clock = require('../utils/clock');
 
 const list = (passengerId) => scheduleModel.listForPassenger(passengerId);
 
@@ -30,9 +33,37 @@ const update = async (id, user, patch) => {
 };
 
 const remove = async (id, user) => {
-  await getOwned(id, user);
-  await scheduleModel.update(id, { status: 'deleted' });
-  return { ok: true };
+  const schedule = await getOwned(id, user);
+  const result = await withTransaction(async (client) => {
+    const removed = await scheduleModel.removeAndCancelFuture(
+      id,
+      schedule.passenger_id,
+      clock.now(),
+      client,
+    );
+    if (!removed) throw ApiError.notFound('Commuter schedule not found');
+    for (const occurrence of removed.occurrences) {
+      const payload = { occurrenceId: occurrence.id, serviceDate: occurrence.service_date };
+      await notificationModel.queue(
+        occurrence.id,
+        occurrence.passenger_id,
+        'schedule_cancelled',
+        payload,
+        client,
+      );
+      if (occurrence.assigned_driver_id) {
+        await notificationModel.queue(
+          occurrence.id,
+          occurrence.assigned_driver_id,
+          'schedule_cancelled',
+          { ...payload, audience: 'driver' },
+          client,
+        );
+      }
+    }
+    return removed;
+  });
+  return { ok: true, cancelledOccurrences: result.occurrences.length };
 };
 
 const listOccurrences = async (id, user) => {

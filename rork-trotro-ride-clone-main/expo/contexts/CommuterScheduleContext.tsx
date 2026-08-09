@@ -44,7 +44,10 @@ export const [CommuterScheduleProvider, useCommuterSchedules] = createContextHoo
 
   const deleteMutation = useMutation({
     mutationFn: async (id: string) => api.delete(`/commuter-schedules/${id}`),
-    onSuccess: async () => queryClient.invalidateQueries({ queryKey }),
+    onSuccess: async () => {
+      setOccurrenceRefreshToken((token) => token + 1);
+      await queryClient.invalidateQueries({ queryKey });
+    },
   });
 
   const getOccurrences = useCallback(async (id: string): Promise<ScheduleOccurrence[]> => {

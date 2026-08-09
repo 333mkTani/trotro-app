@@ -5,6 +5,7 @@ import StaticColors from "@/constants/colors";
 import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
 import { Booking } from "@/types";
 import StatusBadge from "./StatusBadge";
+import { isCancellationWindowLocked } from "@/utils/bookingCancellation";
 const Colors = StaticColors;
 
 interface BookingCardProps {
@@ -26,7 +27,7 @@ export default React.memo(function BookingCard({ booking, onPress, onCancel, onN
   const timeStr = arrivalDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const dateStr = arrivalDate.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
   const canCancel = booking.status === "pending" || booking.status === "confirmed";
-  const isWithin30Min = arrivalDate.getTime() - Date.now() < 30 * 60 * 1000;
+  const isWithin30Min = isCancellationWindowLocked(booking.desired_arrival_time);
 
   return (
     <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.7} testID={`booking-${booking.id}`}>

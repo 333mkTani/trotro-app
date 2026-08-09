@@ -82,4 +82,42 @@ const listOccurrences = async (scheduleId, passengerId) => {
   return rows;
 };
 
-module.exports = { listForPassenger, findById, insert, update, listOccurrences };
+const removeAndCancelFuture = async (scheduleId, passengerId, now, client) => {
+  const { rows: schedules } = await client.query(
+    `update public.commuter_schedules
+        set status = 'deleted', updated_at = now()
+      where id = $1 and passenger_id = $2 and status <> 'deleted'
+      returning ${COLUMNS}`,
+    [scheduleId, passengerId],
+  );
+  if (!schedules[0]) return null;
+
+  const { rows: occurrences } = await client.query(
+    `update public.schedule_occurrences
+        set status = 'cancelled', cancelled_at = coalesce(cancelled_at, $3), updated_at = now()
+      where schedule_id = $1 and passenger_id = $2
+        and status in ('pending','offered','accepted')
+        and boarding_opens_at > $3
+      returning *`,
+    [scheduleId, passengerId, now],
+  );
+
+  if (occurrences.length) {
+    const ids = occurrences.map((occurrence) => occurrence.id);
+    await client.query(
+      `update public.future_reservations
+          set status = 'cancelled', released_at = coalesce(released_at, $2), updated_at = now()
+        where occurrence_id = any($1::uuid[]) and status = 'held'`,
+      [ids, now],
+    );
+    await client.query(
+      `update public.schedule_boarding_codes set status = 'cancelled', updated_at = now()
+        where occurrence_id = any($1::uuid[]) and status = 'active'`,
+      [ids],
+    );
+  }
+
+  return { schedule: schedules[0], occurrences };
+};
+
+module.exports = { listForPassenger, findById, insert, update, listOccurrences, removeAndCancelFuture };

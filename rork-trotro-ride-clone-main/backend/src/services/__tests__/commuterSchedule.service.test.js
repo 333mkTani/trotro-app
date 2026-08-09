@@ -1,7 +1,11 @@
 jest.mock('../../models/commuterSchedule.model');
+jest.mock('../../models/scheduleNotification.model');
+jest.mock('../../config/db', () => ({ withTransaction: jest.fn((fn) => fn({ query: jest.fn() })) }));
+jest.mock('../../utils/clock', () => ({ now: jest.fn(() => new Date('2026-08-09T12:00:00Z')) }));
 jest.mock('../../config/scheduleRollout', () => ({ isScheduledReservationsEnabled: jest.fn(() => true) }));
 
 const model = require('../../models/commuterSchedule.model');
+const notificationModel = require('../../models/scheduleNotification.model');
 const service = require('../commuterSchedule.service');
 
 describe('commuterSchedule service', () => {
@@ -33,11 +37,18 @@ describe('commuterSchedule service', () => {
     expect(model.update).not.toHaveBeenCalled();
   });
 
-  it('soft deletes schedules so generated history remains traceable', async () => {
+  it('deletes a schedule, cancels its future occurrences, and notifies an assigned driver', async () => {
     model.findById.mockResolvedValue(schedule);
-    model.update.mockResolvedValue({ ...schedule, status: 'deleted' });
-    await expect(service.remove(schedule.id, passenger)).resolves.toEqual({ ok: true });
-    expect(model.update).toHaveBeenCalledWith(schedule.id, { status: 'deleted' });
+    model.removeAndCancelFuture.mockResolvedValue({
+      schedule: { ...schedule, status: 'deleted' },
+      occurrences: [{ id: 'occ-1', passenger_id: passenger.id, assigned_driver_id: 'driver-1', service_date: '2026-08-10' }],
+    });
+    await expect(service.remove(schedule.id, passenger))
+      .resolves.toEqual({ ok: true, cancelledOccurrences: 1 });
+    expect(notificationModel.queue).toHaveBeenCalledWith(
+      'occ-1', 'driver-1', 'schedule_cancelled',
+      expect.objectContaining({ audience: 'driver' }), expect.anything(),
+    );
   });
 
   it('lists occurrences only after ownership is checked', async () => {
