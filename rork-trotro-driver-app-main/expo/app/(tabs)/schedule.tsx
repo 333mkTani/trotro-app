@@ -1,5 +1,5 @@
-import React, { useState, useCallback, useMemo, useRef } from 'react';
-import { View, Text, StyleSheet, FlatList, Pressable, Alert, RefreshControl, ActivityIndicator, Platform, Modal, ScrollView, Animated } from 'react-native';
+import React, { useState, useCallback, useMemo } from 'react';
+import { View, Text, StyleSheet, FlatList, Pressable, Alert, RefreshControl, ActivityIndicator, Platform, Modal } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Calendar, CalendarClock, Clock, Inbox, ChevronUp, ChevronDown, Zap } from 'lucide-react-native';
@@ -137,7 +137,7 @@ export default function TrotroScheduleManager() {
   const onDecline = useCallback((id: string) => { Alert.alert('Decline?', 'The passenger will be notified.', [{ text: 'Cancel', style: 'cancel' }, { text: 'Decline', style: 'destructive', onPress: () => declineMut.mutate(id) }]); }, [declineMut]);
   const filters = useMemo<{ key: DateFilter; label: string }[]>(() => [{ key: 'today', label: 'Today' }, { key: 'tomorrow', label: 'Tomorrow' }, { key: 'week', label: 'This Week' }], []);
   const renderItem = useCallback(({ item }: { item: Booking }) => (
-    <View>
+    <View style={ss.listItem}>
       <BookingCard booking={item} onAccept={isStationary ? onAccept : undefined} onDecline={isStationary ? onDecline : undefined} isOnline={isOnline} />
       {!isStationary && item.status === 'PENDING' ? (
         <View style={ss.drivingHint}>
@@ -152,33 +152,6 @@ export default function TrotroScheduleManager() {
 
   return (
     <View style={ss.c}>
-      <Pressable style={ss.futureBtn} onPress={() => router.push('/future-requests' as Href)}>
-        <CalendarClock size={20} color={Colors.white} />
-        <View style={ss.futureBtnCopy}>
-          <Text style={ss.futureBtnTitle}>Future seat requests</Text>
-          <Text style={ss.futureBtnSub}>Review scheduled passenger requests</Text>
-        </View>
-      </Pressable>
-      <View style={ss.card}>
-        <View style={ss.cH}><Calendar size={18} color={Colors.primary} /><Text style={ss.cT}>Your Scheduling Window</Text></View>
-        <View style={ss.tR}>
-          <Pressable style={ss.tB} onPress={() => openPicker('start')} testID="pick-start">
-            <Text style={ss.tL}>Start</Text>
-            <View style={ss.tP}><Clock size={14} color={Colors.primary} /><Text style={ss.tV}>{formatScheduleTime(displayStart)}</Text></View>
-            <Text style={ss.tapHint}>Tap to change</Text>
-          </Pressable>
-          <Text style={ss.tS}>—</Text>
-          <Pressable style={ss.tB} onPress={() => openPicker('end')} testID="pick-end">
-            <Text style={ss.tL}>End</Text>
-            <View style={ss.tP}><Clock size={14} color={Colors.primary} /><Text style={ss.tV}>{formatScheduleTime(displayEnd)}</Text></View>
-            <Text style={ss.tapHint}>Tap to change</Text>
-          </Pressable>
-        </View>
-        <Pressable style={({ pressed }) => [ss.saveBtn, pressed && { opacity: 0.85 }]} onPress={() => schedMut.mutate()} disabled={schedMut.isPending} testID="save-hours-btn">
-          {schedMut.isPending ? <ActivityIndicator color={Colors.white} size="small" /> : <Text style={ss.saveBtnT}>Save Hours</Text>}
-        </Pressable>
-      </View>
-
       <Modal visible={pickerVisible} transparent animationType="slide" onRequestClose={() => setPickerVisible(false)}>
         <Pressable style={ss.overlay} onPress={() => setPickerVisible(false)}>
           <Pressable style={ss.sheet} onPress={() => {}}>
@@ -196,15 +169,44 @@ export default function TrotroScheduleManager() {
           </Pressable>
         </Pressable>
       </Modal>
-      {!isStationary ? (
-        <View style={ss.enRouteBanner}>
-          <Zap size={16} color={Colors.success} />
-          <Text style={ss.enRouteBannerText}>En Route — bookings are auto-handled based on available seats</Text>
-        </View>
-      ) : null}
-      <Text style={ss.lT}>Upcoming Ride Requests</Text>
-      <View style={ss.fR}>{filters.map((f) => (<Pressable key={f.key} style={[ss.fB, filter === f.key && ss.fBA]} onPress={() => setFilter(f.key)} testID={`filter-${f.key}`}><Text style={[ss.fBT, filter === f.key && ss.fBTA]}>{f.label}</Text></Pressable>))}</View>
       <FlatList data={bQ.data ?? []} renderItem={renderItem} keyExtractor={(i) => i.id} contentContainerStyle={ss.lC} showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        ListHeaderComponent={<>
+          <Pressable style={ss.futureBtn} onPress={() => router.push('/future-requests' as Href)}>
+            <CalendarClock size={20} color={Colors.white} />
+            <View style={ss.futureBtnCopy}>
+              <Text style={ss.futureBtnTitle}>Future seat requests</Text>
+              <Text style={ss.futureBtnSub}>Review scheduled passenger requests</Text>
+            </View>
+          </Pressable>
+          <View style={ss.card}>
+            <View style={ss.cH}><Calendar size={18} color={Colors.primary} /><Text style={ss.cT}>Your Scheduling Window</Text></View>
+            <View style={ss.tR}>
+              <Pressable style={ss.tB} onPress={() => openPicker('start')} testID="pick-start">
+                <Text style={ss.tL}>Start</Text>
+                <View style={ss.tP}><Clock size={14} color={Colors.primary} /><Text style={ss.tV}>{formatScheduleTime(displayStart)}</Text></View>
+                <Text style={ss.tapHint}>Tap to change</Text>
+              </Pressable>
+              <Text style={ss.tS}>—</Text>
+              <Pressable style={ss.tB} onPress={() => openPicker('end')} testID="pick-end">
+                <Text style={ss.tL}>End</Text>
+                <View style={ss.tP}><Clock size={14} color={Colors.primary} /><Text style={ss.tV}>{formatScheduleTime(displayEnd)}</Text></View>
+                <Text style={ss.tapHint}>Tap to change</Text>
+              </Pressable>
+            </View>
+            <Pressable style={({ pressed }) => [ss.saveBtn, pressed && { opacity: 0.85 }]} onPress={() => schedMut.mutate()} disabled={schedMut.isPending} testID="save-hours-btn">
+              {schedMut.isPending ? <ActivityIndicator color={Colors.white} size="small" /> : <Text style={ss.saveBtnT}>Save Hours</Text>}
+            </Pressable>
+          </View>
+          {!isStationary ? (
+            <View style={ss.enRouteBanner}>
+              <Zap size={16} color={Colors.success} />
+              <Text style={ss.enRouteBannerText}>En Route — bookings are auto-handled based on available seats</Text>
+            </View>
+          ) : null}
+          <Text style={ss.lT}>Upcoming Ride Requests</Text>
+          <View style={ss.fR}>{filters.map((f) => (<Pressable key={f.key} style={[ss.fB, filter === f.key && ss.fBA]} onPress={() => setFilter(f.key)} testID={`filter-${f.key}`}><Text style={[ss.fBT, filter === f.key && ss.fBTA]}>{f.label}</Text></Pressable>))}</View>
+        </>}
         ListEmptyComponent={bQ.isLoading ? <ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: 40 }} /> : <View style={ss.e}><View style={ss.eI}><Inbox size={40} color={Colors.disabled} /></View><Text style={ss.eT}>No upcoming bookings</Text><Text style={ss.eS}>Bookings appear when passengers request rides.</Text></View>}
         refreshControl={<RefreshControl refreshing={bQ.isRefetching} onRefresh={() => qc.invalidateQueries({ queryKey: ['bookings'] })} tintColor={Colors.primary} colors={[Colors.primary]} />}
       />
@@ -249,11 +251,12 @@ const ss = StyleSheet.create({
   fR: { flexDirection: 'row', paddingHorizontal: 16, gap: 8, marginBottom: 12 },
   fB: { paddingVertical: 8, paddingHorizontal: 16, borderRadius: 20, backgroundColor: Colors.surface, borderWidth: 1, borderColor: Colors.borderLight }, fBA: { backgroundColor: Colors.primary, borderColor: Colors.primary },
   fBT: { fontSize: 13, fontWeight: '600' as const, color: Colors.textSecondary }, fBTA: { color: Colors.white },
-  lC: { paddingHorizontal: 16, paddingBottom: 24 },
+  lC: { paddingBottom: 120 },
+  listItem: { paddingHorizontal: 16 },
   e: { alignItems: 'center', paddingTop: 48, paddingHorizontal: 32 }, eI: { width: 72, height: 72, borderRadius: 36, backgroundColor: '#F1F5F9', justifyContent: 'center', alignItems: 'center', marginBottom: 16 },
   eT: { fontSize: 18, fontWeight: '600' as const, color: Colors.textPrimary, marginBottom: 8 }, eS: { fontSize: 14, color: Colors.textSecondary, textAlign: 'center', lineHeight: 20 },
   enRouteBanner: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#E8F5E9', marginHorizontal: 16, marginTop: 8, marginBottom: 4, borderRadius: 12, padding: 12, borderWidth: 1, borderColor: '#A5D6A7' },
   enRouteBannerText: { fontSize: 13, color: '#2E7D32', fontWeight: '600' as const, flex: 1, lineHeight: 18 },
-  drivingHint: { flexDirection: 'row', alignItems: 'center', gap: 6, marginHorizontal: 16, marginTop: -8, marginBottom: 12, paddingVertical: 6, paddingHorizontal: 12, backgroundColor: '#F8FAFC', borderRadius: 8, borderWidth: 1, borderColor: '#E2E8F0' },
+  drivingHint: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: -8, marginBottom: 12, paddingVertical: 6, paddingHorizontal: 12, backgroundColor: '#F8FAFC', borderRadius: 8, borderWidth: 1, borderColor: '#E2E8F0' },
   drivingHintText: { fontSize: 11, color: Colors.textSecondary, flex: 1 },
 });
