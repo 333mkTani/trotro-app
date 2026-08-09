@@ -13,6 +13,27 @@ describe('driver scheduled request service', () => {
     ]);
   });
 
+  it('returns terminal history scoped by the model', async () => {
+    model.listHistoryForDriver.mockResolvedValue([{ id: 'occ-old', status: 'completed' }]);
+    await expect(service.listHistory('driver-1')).resolves.toEqual([
+      { id: 'occ-old', status: 'completed' },
+    ]);
+    expect(model.listHistoryForDriver).toHaveBeenCalledWith('driver-1');
+  });
+
+  it('returns an authorized occurrence detail', async () => {
+    model.findForDriver.mockResolvedValue({ id: 'occ-1', status: 'accepted' });
+    await expect(service.getRequest('occ-1', 'driver-1'))
+      .resolves.toMatchObject({ id: 'occ-1' });
+    expect(model.findForDriver).toHaveBeenCalledWith('occ-1', 'driver-1');
+  });
+
+  it('does not reveal an occurrence outside the driver scope', async () => {
+    model.findForDriver.mockResolvedValue(null);
+    await expect(service.getRequest('occ-private', 'driver-1'))
+      .rejects.toMatchObject({ status: 404, message: 'Scheduled request not found' });
+  });
+
   it('returns an already-accepted response idempotently', async () => {
     model.acceptAtomic.mockResolvedValue({ occurrence: { id: 'occ-1' }, alreadyAccepted: true });
     await expect(service.accept('occ-1', 'driver-1')).resolves.toMatchObject({ alreadyAccepted: true });
@@ -26,6 +47,11 @@ describe('driver scheduled request service', () => {
   ])('maps %s safely to HTTP %s', async (error, status) => {
     model.acceptAtomic.mockResolvedValue({ error });
     await expect(service.accept('occ-1', 'driver-1')).rejects.toMatchObject({ status });
+  });
+
+  it('returns HTTP 409 when future capacity is exhausted', async () => {
+    model.acceptAtomic.mockResolvedValue({ error: 'FULL' });
+    await expect(service.accept('occ-1', 'driver-1')).rejects.toMatchObject({ status: 409 });
   });
 
   it('records an eligible decline', async () => {

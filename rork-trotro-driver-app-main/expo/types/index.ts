@@ -75,7 +75,17 @@ export interface Booking {
   created_at: string;
 }
 
-export type FutureRequestState = 'AWAITING' | 'ACCEPTED';
+export type FutureRideRequestStatus =
+  | 'pending'
+  | 'offered'
+  | 'accepted'
+  | 'boarding_open'
+  | 'boarded'
+  | 'departed'
+  | 'completed'
+  | 'cancelled'
+  | 'expired'
+  | 'unmatched';
 
 export interface FutureRideRequest {
   id: string;
@@ -83,13 +93,17 @@ export interface FutureRideRequest {
   boardingStart: string;
   boardingEnd: string;
   departureStopId: string;
+  passengerName: string;
+  routeName: string;
   departureStation: string;
   destinationStation: string;
   availableSeats: number;
   primaryDeadline: string;
   finalDeadline: string;
-  status: string;
-  currentState: FutureRequestState;
+  backupMatchingEnabled: boolean;
+  status: FutureRideRequestStatus;
+  driverResponse?: 'accepted' | 'declined' | 'withdrawn';
+  busRegistration?: string;
 }
 
 export interface ScheduledBoardingResult {

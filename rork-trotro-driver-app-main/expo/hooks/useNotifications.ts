@@ -11,6 +11,7 @@ import {
   clearAllNotifications,
 } from '@/services/notificationService';
 import { OverflowRequest } from '@/types';
+import { getScheduleNotificationRoute, processColdStartNotification } from '@/utils/scheduleNotificationRoute';
 
 export function useNotifications(isAuthenticated: boolean) {
   const pushTokenRef = useRef<string | null>(null);
@@ -18,6 +19,27 @@ export function useNotifications(isAuthenticated: boolean) {
   const responseListenerRef = useRef<{ remove: () => void } | null>(null);
   const qc = useQueryClient();
   const isInitializedRef = useRef(false);
+
+  const handleNotificationData = useCallback(
+    (data: Record<string, unknown>) => {
+      if (data.type === 'new_request' || data.type === 'batch_request') {
+        router.push('/(tabs)/requests');
+        void qc.invalidateQueries({ queryKey: ['overflow'] });
+        return;
+      }
+
+      const path = getScheduleNotificationRoute(data);
+      if (path) {
+        router.push(path as Href);
+        void qc.invalidateQueries({ queryKey: ['future-requests'] });
+        void qc.invalidateQueries({ queryKey: ['future-request-history'] });
+        if (typeof data.occurrenceId === 'string') {
+          void qc.invalidateQueries({ queryKey: ['future-request-detail', data.occurrenceId] });
+        }
+      }
+    },
+    [qc]
+  );
 
   useEffect(() => {
     if (!isAuthenticated || Platform.OS === 'web' || isInitializedRef.current) return;
@@ -54,22 +76,18 @@ export function useNotifications(isAuthenticated: boolean) {
 
         responseListenerRef.current = Notifications.addNotificationResponseReceivedListener(
           (response) => {
-            const data = response.notification.request.content.data;
+            const data = response.notification.request.content.data as Record<string, unknown>;
             console.log('[useNotifications] Notification tapped, data:', data);
-
-            if (data?.type === 'new_request' || data?.type === 'batch_request') {
-              router.push('/(tabs)/requests');
-            } else if (typeof data?.type === 'string' && data.type.startsWith('schedule_')) {
-              const path = typeof data.occurrenceId === 'string'
-                ? `/future-requests?occurrenceId=${encodeURIComponent(data.occurrenceId)}`
-                : '/future-requests';
-              router.push(path as Href);
-            }
-
-            qc.invalidateQueries({ queryKey: ['overflow'] });
-            qc.invalidateQueries({ queryKey: ['future-requests'] });
+            handleNotificationData(data);
           }
         );
+
+        if (mounted) {
+          await processColdStartNotification(Notifications, (data) => {
+            console.log('[useNotifications] Cold-start notification, data:', data);
+            handleNotificationData(data);
+          });
+        }
       } catch (e) {
         console.log('[useNotifications] Setup error:', e);
       }
@@ -81,8 +99,11 @@ export function useNotifications(isAuthenticated: boolean) {
       mounted = false;
       notificationListenerRef.current?.remove();
       responseListenerRef.current?.remove();
+      notificationListenerRef.current = null;
+      responseListenerRef.current = null;
+      isInitializedRef.current = false;
     };
-  }, [isAuthenticated, qc]);
+  }, [handleNotificationData, isAuthenticated]);
 
   useEffect(() => {
     if (Platform.OS === 'web') return;

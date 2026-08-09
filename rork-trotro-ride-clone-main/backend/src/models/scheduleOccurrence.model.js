@@ -135,6 +135,8 @@ const retryNotification = (id, error) => query(
 const listForDriver = async (driverId) => {
   const { rows } = await query(
     `select o.*, s.route_id, s.departure_stop_id, s.destination_stop_id,
+            s.backup_matching_enabled, rte.name as route_name,
+            p.full_name as passenger_name,
             ds.name as departure_stop_name, dst.name as destination_stop_name,
             b.id as bus_id, b.registration as bus_registration, b.total_seats,
             r.response as driver_response,
@@ -142,6 +144,8 @@ const listForDriver = async (driverId) => {
        from public.buses b
        join public.commuter_schedules s on s.route_id = b.route_id
        join public.schedule_occurrences o on o.schedule_id = s.id
+       join public.routes rte on rte.id = s.route_id
+       join public.profiles p on p.id = o.passenger_id
        join public.bus_stops ds on ds.id = s.departure_stop_id
        join public.bus_stops dst on dst.id = s.destination_stop_id
        left join public.driver_schedule_responses r
@@ -153,13 +157,100 @@ const listForDriver = async (driverId) => {
           where fr.bus_id = b.id and fr.status = 'held'
             and tstzrange(ro.boarding_start_at, ro.boarding_end_at, '[)')
                 && tstzrange(o.boarding_start_at, o.boarding_end_at, '[)')
-       ) cap on true
+      ) cap on true
       where b.driver_id = $1 and b.status <> 'deleted'
-        and o.status in ('pending','offered','accepted')
-        and (o.assigned_driver_id is null or o.assigned_driver_id = $1)
-        and o.final_acceptance_deadline > now()
+        and (
+          (
+            o.status in ('pending','offered')
+            and o.assigned_driver_id is null
+            and o.final_acceptance_deadline > now()
+          )
+          or
+          (
+            o.status in ('accepted','boarding_open','boarded')
+            and o.assigned_driver_id = $1
+            and o.boarding_end_at > now()
+          )
+        )
       order by o.boarding_start_at`,
     [driverId],
+  );
+  return rows;
+};
+
+const findForDriver = async (occurrenceId, driverId) => {
+  const { rows } = await query(
+    `select o.*, s.route_id, s.departure_stop_id, s.destination_stop_id,
+            s.backup_matching_enabled, rte.name as route_name,
+            p.full_name as passenger_name,
+            ds.name as departure_stop_name, dst.name as destination_stop_name,
+            coalesce(ab.id, eb.id) as bus_id,
+            coalesce(ab.registration, eb.registration) as bus_registration,
+            coalesce(ab.total_seats, eb.total_seats) as total_seats,
+            resp.response as driver_response,
+            greatest(coalesce(ab.total_seats, eb.total_seats, 0) - coalesce(cap.reserved_seats, 0), 0)::int
+              as future_seats_remaining
+       from public.schedule_occurrences o
+       join public.commuter_schedules s on s.id = o.schedule_id
+       join public.routes rte on rte.id = s.route_id
+       join public.profiles p on p.id = o.passenger_id
+       join public.bus_stops ds on ds.id = s.departure_stop_id
+       join public.bus_stops dst on dst.id = s.destination_stop_id
+       left join public.buses ab on ab.id = o.assigned_bus_id
+       left join lateral (
+         select b.id, b.registration, b.total_seats
+           from public.buses b
+          where b.driver_id = $2 and b.route_id = s.route_id and b.status <> 'deleted'
+          order by b.created_at limit 1
+       ) eb on true
+       left join public.driver_schedule_responses resp
+         on resp.occurrence_id = o.id and resp.driver_id = $2
+       left join lateral (
+         select coalesce(sum(fr.seats), 0)::int as reserved_seats
+           from public.future_reservations fr
+           join public.schedule_occurrences ro on ro.id = fr.occurrence_id
+          where fr.bus_id = coalesce(o.assigned_bus_id, eb.id) and fr.status = 'held'
+            and tstzrange(ro.boarding_start_at, ro.boarding_end_at, '[)')
+                && tstzrange(o.boarding_start_at, o.boarding_end_at, '[)')
+       ) cap on true
+      where o.id = $1
+        and (
+          o.assigned_driver_id = $2
+          or (
+            o.status in ('pending','offered')
+            and o.assigned_driver_id is null
+            and o.final_acceptance_deadline > now()
+            and eb.id is not null
+          )
+        )`,
+    [occurrenceId, driverId],
+  );
+  return rows[0] || null;
+};
+
+const listHistoryForDriver = async (driverId, limit = 50) => {
+  const safeLimit = Math.min(100, Math.max(1, Number(limit) || 50));
+  const { rows } = await query(
+    `select o.*, s.route_id, s.departure_stop_id, s.destination_stop_id,
+            s.backup_matching_enabled, rte.name as route_name,
+            p.full_name as passenger_name,
+            ds.name as departure_stop_name, dst.name as destination_stop_name,
+            b.id as bus_id, b.registration as bus_registration,
+            resp.response as driver_response
+       from public.schedule_occurrences o
+       join public.commuter_schedules s on s.id = o.schedule_id
+       join public.routes rte on rte.id = s.route_id
+       join public.profiles p on p.id = o.passenger_id
+       join public.bus_stops ds on ds.id = s.departure_stop_id
+       join public.bus_stops dst on dst.id = s.destination_stop_id
+       left join public.buses b on b.id = o.assigned_bus_id
+       left join public.driver_schedule_responses resp
+         on resp.occurrence_id = o.id and resp.driver_id = $1
+      where o.status in ('unmatched','cancelled','expired','departed','completed')
+        and (o.assigned_driver_id = $1 or resp.driver_id = $1)
+      order by o.boarding_start_at desc
+      limit $2`,
+    [driverId, safeLimit],
   );
   return rows;
 };
@@ -326,5 +417,5 @@ const withdrawAtomic = async (occurrenceId, driverId, reason) => withTransaction
 module.exports = {
   listActiveSchedules, insert, queueInitialOffers, queueDueReminders,
   expireUnmatched, claimNotificationJobs, markNotificationSent, retryNotification,
-  listForDriver, acceptAtomic, decline, withdrawAtomic,
+  listForDriver, findForDriver, listHistoryForDriver, acceptAtomic, decline, withdrawAtomic,
 };

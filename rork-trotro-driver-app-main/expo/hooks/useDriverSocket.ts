@@ -4,6 +4,16 @@ import { useQueryClient } from '@tanstack/react-query';
 import { connectSocket, disconnectSocket, subscribeToRoute, unsubscribeFromRoute, BookingSocketEvent } from '@/services/socket';
 import { getDashboard } from '@/services/driverApi';
 
+const scheduleEvents = [
+  'schedule:offer',
+  'schedule:reminder',
+  'schedule:reopened',
+  'schedule:cancelled',
+  'schedule:expired',
+  'schedule:boarding-open',
+  'schedule:boarding-closed',
+] as const;
+
 /**
  * Connects the driver to their `driver:<driverId>` socket room (joined
  * automatically server-side on handshake — see backend/src/realtime/io.js)
@@ -25,17 +35,28 @@ export function useDriverSocket(isAuthenticated: boolean) {
     isConnectingRef.current = true;
     let cancelled = false;
     let subscribedRouteId: string | null = null;
+    let activeSocket: Awaited<ReturnType<typeof connectSocket>> | null = null;
 
     const invalidateBookingQueries = () => {
-      qc.invalidateQueries({ queryKey: ['overflow'] });
-      qc.invalidateQueries({ queryKey: ['bookings'] });
-      qc.invalidateQueries({ queryKey: ['dashboard'] });
+      void qc.invalidateQueries({ queryKey: ['overflow'] });
+      void qc.invalidateQueries({ queryKey: ['bookings'] });
+      void qc.invalidateQueries({ queryKey: ['dashboard'] });
+    };
+
+    const refreshSchedules = () => {
+      void qc.invalidateQueries({ queryKey: ['future-requests'] });
+      void qc.invalidateQueries({ queryKey: ['future-request-history'] });
+      void qc.invalidateQueries({ queryKey: ['dashboard'] });
     };
 
     const setup = async () => {
       try {
         const socket = await connectSocket();
-        if (cancelled) return;
+        if (cancelled) {
+          disconnectSocket();
+          return;
+        }
+        activeSocket = socket;
 
         socket.on('booking:new', (booking: BookingSocketEvent) => {
           console.log('[useDriverSocket] booking:new', booking.id);
@@ -45,6 +66,10 @@ export function useDriverSocket(isAuthenticated: boolean) {
         socket.on('booking:updated', (booking: BookingSocketEvent) => {
           console.log('[useDriverSocket] booking:updated', booking.id, booking.status);
           invalidateBookingQueries();
+        });
+
+        scheduleEvents.forEach((event) => {
+          socket.on(event, refreshSchedules);
         });
 
         console.log('[useDriverSocket] Connected');
@@ -72,6 +97,9 @@ export function useDriverSocket(isAuthenticated: boolean) {
     return () => {
       cancelled = true;
       isConnectingRef.current = false;
+      scheduleEvents.forEach((event) => {
+        activeSocket?.off(event, refreshSchedules);
+      });
       if (subscribedRouteId) unsubscribeFromRoute(subscribedRouteId);
       disconnectSocket();
     };

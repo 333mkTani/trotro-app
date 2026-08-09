@@ -10,6 +10,7 @@ import { CodeInputCells } from '@/components/CodeInputCell';
 import { VerificationResult } from '@/types';
 import { formatTime } from '@/utils/helpers';
 import { useDriverStore } from '@/store/driverStore';
+import { invalidateScheduledRideQueries } from '@/utils/futureRequestState';
 
 const ET: Record<string, string> = { CODE_NOT_FOUND: 'Code Not Found', CODE_EXPIRED: 'Code Has Expired', CODE_ALREADY_USED: 'Code Already Used', BUS_MISMATCH: 'Wrong Bus', CODE_INVALIDATED: 'Code Cancelled', BOARDING_NOT_OPEN: 'Boarding Not Open', WRONG_DRIVER: 'Wrong Driver' };
 const EM: Record<string, string> = { CODE_NOT_FOUND: 'Not found in the system.', CODE_EXPIRED: 'This code has expired.', CODE_ALREADY_USED: 'Already used for boarding.', BUS_MISMATCH: 'Issued for a different bus.', CODE_INVALIDATED: 'Cancelled by the passenger.', BOARDING_NOT_OPEN: 'This scheduled boarding window is not open yet.', WRONG_DRIVER: 'This scheduled seat is assigned to another driver.' };
@@ -25,13 +26,7 @@ export default function TrotroPassengerVerify() {
       setResult(d);
       if (Platform.OS !== 'web') Haptics.notificationAsync(d.success ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Error);
       if (d.success && d.source === 'SCHEDULED') {
-        await Promise.all([
-          qc.invalidateQueries({ queryKey: ['future-requests'] }),
-          qc.invalidateQueries({ queryKey: ['bookings'] }),
-          qc.invalidateQueries({ queryKey: ['confirmed-bookings'] }),
-          qc.invalidateQueries({ queryKey: ['dashboard'] }),
-          qc.invalidateQueries({ queryKey: ['seat-sync'] }),
-        ]);
+        await invalidateScheduledRideQueries(qc);
       }
       if (d.success && d.passenger_name) {
         try {

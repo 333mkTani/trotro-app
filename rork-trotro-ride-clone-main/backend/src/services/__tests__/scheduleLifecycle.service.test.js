@@ -66,6 +66,7 @@ describe('scheduled boarding lifecycle', () => {
     expect(bookingModel.insert).toHaveBeenCalledWith(expect.objectContaining({
       status: 'confirmed', sourceOccurrenceId: 'occ-1', passengerId: 'pass-1',
     }), expect.anything());
+    expect(bookingModel.insert).toHaveBeenCalledTimes(1);
     expect(result.booking.id).toBe('booking-1');
   });
 
@@ -73,6 +74,7 @@ describe('scheduled boarding lifecycle', () => {
     lifecycleModel.lockByCode.mockResolvedValue({ ...openCode, status: 'used', booking_id: 'booking-1' });
     bookingModel.findById.mockResolvedValue({ id: 'booking-1', boarded_at: now });
     await expect(service.redeem('ABC234', 'driver-1', now)).resolves.toMatchObject({ occurrenceId: 'occ-1' });
+    expect(bookingModel.findById).toHaveBeenCalledWith('booking-1', expect.anything());
     expect(busModel.reserveSeat).not.toHaveBeenCalled();
     expect(bookingModel.insert).not.toHaveBeenCalled();
   });

@@ -3,6 +3,13 @@ const { ApiError } = require('../utils/ApiError');
 const observability = require('../utils/observability');
 
 const listRequests = (driverId) => occurrenceModel.listForDriver(driverId);
+const listHistory = (driverId) => occurrenceModel.listHistoryForDriver(driverId);
+
+const getRequest = async (occurrenceId, driverId) => {
+  const occurrence = await occurrenceModel.findForDriver(occurrenceId, driverId);
+  if (!occurrence) throw ApiError.notFound('Scheduled request not found');
+  return occurrence;
+};
 
 const throwResponseError = (error) => {
   const messages = {
@@ -47,4 +54,4 @@ const withdraw = async (occurrenceId, driverId, reason) => {
   return result;
 };
 
-module.exports = { listRequests, accept, decline, withdraw };
+module.exports = { listRequests, listHistory, getRequest, accept, decline, withdraw };

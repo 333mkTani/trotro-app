@@ -9,6 +9,8 @@ const { RedeemCodeSchema } = require('../validators/booking.validators');
 
 router.use(requireAuth, requireRole('driver', 'admin'));
 router.get('/requests', ctrl.list);
+router.get('/history', ctrl.history);
+router.get('/:id', validate({ params: UuidParam }), ctrl.getById);
 router.post('/:id/accept', validate({ params: UuidParam }), ctrl.accept);
 router.post('/:id/decline', validate({ params: UuidParam, body: DriverResponseSchema }), ctrl.decline);
 router.post('/:id/withdraw', validate({ params: UuidParam, body: DriverResponseSchema }), ctrl.withdraw);
