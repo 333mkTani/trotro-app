@@ -33,7 +33,7 @@ import {
   type BusLocationEvent,
 } from "@/services/socket";
 import { useDirections } from "@/hooks/useDirections";
-import { getRouteBounds } from "@/utils/routeGeometry";
+import { getActiveRouteStep, getRouteBounds } from "@/utils/routeGeometry";
 
 type TrackingParams = {
   driverId: string;
@@ -148,8 +148,13 @@ export default function TrackingScreen() {
   const displayedEta = directions.data?.durationSeconds != null
     ? Math.max(1, Math.ceil(directions.data.durationSeconds / 60))
     : eta;
-  const nextInstruction = directions.data?.steps[0]?.instruction
-    ?? `Continue toward ${stopName}`;
+  const activeStep = useMemo(
+    () => directions.data
+      ? getActiveRouteStep(directions.data.steps, routingOrigin, directions.data.geometry)
+      : null,
+    [routingOrigin, directions.data],
+  );
+  const nextInstruction = activeStep?.instruction ?? `Continue toward ${stopName}`;
 
   useEffect(() => {
     Animated.timing(sheetAnim, { toValue: 1, duration: 500, useNativeDriver: true }).start();

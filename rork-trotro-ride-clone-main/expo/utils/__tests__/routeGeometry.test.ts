@@ -1,5 +1,5 @@
 import {
-  coordinateKey, createStraightLineFallback, distanceFromRouteMeters, distanceMeters, getRouteBounds,
+  coordinateKey, createStraightLineFallback, distanceFromRouteMeters, distanceMeters, getActiveRouteStep, getRouteBounds,
   isValidCoordinate, isValidRouteGeometry, shouldUpdateRoutingOrigin,
 } from '../routeGeometry';
 
@@ -41,5 +41,18 @@ describe('route geometry utilities', () => {
     expect(distanceFromRouteMeters(origin, geometry)).toBeCloseTo(0, 3);
     expect(distanceFromRouteMeters({ latitude: 5.6047, longitude: -0.1969 }, geometry))
       .toBeGreaterThan(50);
+  });
+
+  it('advances to the next maneuver after the previous location is passed', () => {
+    const geometry = { type: 'LineString' as const, coordinates: [[0, 0], [0.01, 0], [0.02, 0]] as [number, number][] };
+    const steps = [
+      { instruction: 'Turn at first junction', distanceMeters: 100, durationSeconds: 20, maneuverType: 'turn', modifier: 'right', location: [0.01, 0] as [number, number] },
+      { instruction: 'Turn at second junction', distanceMeters: 100, durationSeconds: 20, maneuverType: 'turn', modifier: 'left', location: [0.02, 0] as [number, number] },
+    ];
+    expect(getActiveRouteStep(steps, { latitude: 0, longitude: 0.005 }, geometry)?.index).toBe(0);
+    expect(getActiveRouteStep(steps, { latitude: 0, longitude: 0.012 }, geometry)).toMatchObject({
+      index: 1,
+      instruction: 'Turn at second junction',
+    });
   });
 });

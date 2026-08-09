@@ -26,7 +26,7 @@ import StaticColors from "@/constants/colors";
 import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
 import { useLocation } from "@/contexts/LocationContext";
 import { useDirections } from "@/hooks/useDirections";
-import { getRouteBounds } from "@/utils/routeGeometry";
+import { getActiveRouteStep, getRouteBounds } from "@/utils/routeGeometry";
 
 type Params = {
   stopId: string;
@@ -206,7 +206,13 @@ export default function NavigateToPickupScreen() {
   const walkMin = directions.data?.durationSeconds != null
     ? Math.max(1, Math.ceil(directions.data.durationSeconds / 60))
     : distance != null ? estimateWalkMin(distance) : null;
-  const nextInstruction = directions.data?.steps[0]?.instruction
+  const activeStep = useMemo(
+    () => routingOrigin && directions.data
+      ? getActiveRouteStep(directions.data.steps, routingOrigin, directions.data.geometry)
+      : null,
+    [routingOrigin, directions.data],
+  );
+  const nextInstruction = activeStep?.instruction
     ?? `Head toward ${stop?.name ?? "the boarding stop"}`;
 
   useEffect(() => {

@@ -16,7 +16,7 @@ import * as Location from 'expo-location';
 import { Navigation, MapPin, ArrowLeft, LocateFixed, CornerDownRight } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useDirections } from '@/hooks/useDirections';
-import { distanceMeters } from '@/utils/routeGeometry';
+import { distanceMeters, getActiveRouteStep } from '@/utils/routeGeometry';
 
 export default function NavigateScreen() {
   const { lat, lng, name } = useLocalSearchParams<{ lat: string; lng: string; name: string }>();
@@ -86,7 +86,13 @@ export default function NavigateScreen() {
     : durationMinutes < 60
       ? `${durationMinutes} min`
       : `${Math.floor(durationMinutes / 60)}h ${durationMinutes % 60}m`;
-  const nextInstruction = directions.data?.steps[0]?.instruction ?? `Head towards ${destName}`;
+  const activeStep = useMemo(
+    () => userLocation && directions.data
+      ? getActiveRouteStep(directions.data.steps, userLocation, directions.data.geometry)
+      : null,
+    [userLocation, directions.data],
+  );
+  const nextInstruction = activeStep?.instruction ?? `Head towards ${destName}`;
 
   useEffect(() => {
     let mounted = true;

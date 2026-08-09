@@ -1,4 +1,4 @@
-import type { MapCoordinate, RouteDirections } from '@/types/routing';
+import type { MapCoordinate, RouteDirections, RouteStep } from '@/types/routing';
 
 const EARTH_RADIUS_METERS = 6_371_000;
 
@@ -112,4 +112,67 @@ export function distanceFromRouteMeters(
     ));
   }
   return Number.isFinite(minimum) ? minimum : null;
+}
+
+type RouteProjection = { distanceFromRouteMeters: number; progressMeters: number };
+
+export function projectOntoRoute(
+  point: MapCoordinate,
+  geometry?: RouteDirections['geometry'] | null,
+): RouteProjection | null {
+  if (!isValidCoordinate(point) || !isValidRouteGeometry(geometry)) return null;
+  const latitudeScale = 111_320;
+  const longitudeScale = latitudeScale * Math.cos(point.latitude * Math.PI / 180);
+  let accumulated = 0;
+  let best: RouteProjection | null = null;
+
+  for (let index = 1; index < geometry.coordinates.length; index += 1) {
+    const [startLng, startLat] = geometry.coordinates[index - 1];
+    const [endLng, endLat] = geometry.coordinates[index];
+    const startX = (startLng - point.longitude) * longitudeScale;
+    const startY = (startLat - point.latitude) * latitudeScale;
+    const endX = (endLng - point.longitude) * longitudeScale;
+    const endY = (endLat - point.latitude) * latitudeScale;
+    const dx = endX - startX;
+    const dy = endY - startY;
+    const segmentLength = Math.hypot(dx, dy);
+    const fraction = segmentLength === 0
+      ? 0
+      : Math.max(0, Math.min(1, -(startX * dx + startY * dy) / (segmentLength ** 2)));
+    const distance = Math.hypot(startX + fraction * dx, startY + fraction * dy);
+    if (!best || distance < best.distanceFromRouteMeters) {
+      best = { distanceFromRouteMeters: distance, progressMeters: accumulated + fraction * segmentLength };
+    }
+    accumulated += segmentLength;
+  }
+  return best;
+}
+
+export type ActiveRouteStep = RouteStep & {
+  index: number;
+  distanceToManeuverMeters: number;
+};
+
+export function getActiveRouteStep(
+  steps: RouteStep[],
+  currentPosition: MapCoordinate,
+  geometry?: RouteDirections['geometry'] | null,
+  passedToleranceMeters = 15,
+): ActiveRouteStep | null {
+  const current = projectOntoRoute(currentPosition, geometry);
+  if (!current || steps.length === 0) return null;
+  for (let index = 0; index < steps.length; index += 1) {
+    const location = steps[index].location;
+    if (!location) continue;
+    const maneuver = projectOntoRoute(
+      { latitude: location[1], longitude: location[0] },
+      geometry,
+    );
+    if (!maneuver) continue;
+    const remaining = maneuver.progressMeters - current.progressMeters;
+    if (remaining >= -Math.max(0, passedToleranceMeters)) {
+      return { ...steps[index], index, distanceToManeuverMeters: Math.max(0, remaining) };
+    }
+  }
+  return null;
 }
