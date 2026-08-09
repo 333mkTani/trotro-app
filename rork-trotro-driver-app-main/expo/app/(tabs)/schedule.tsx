@@ -1,10 +1,10 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { View, Text, StyleSheet, FlatList, Pressable, Alert, RefreshControl, ActivityIndicator, Platform, Modal } from 'react-native';
+import { View, Text, TextInput, StyleSheet, FlatList, Pressable, Alert, RefreshControl, ActivityIndicator, Platform, Modal } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Calendar, CalendarClock, Clock, Inbox, ChevronUp, ChevronDown, Zap } from 'lucide-react-native';
 import { router, type Href } from 'expo-router';
-import { Route, CircleStop, Lock } from 'lucide-react-native';
+import { Route, CircleStop, Lock, Search, MapPin } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useDriverStore } from '@/store/driverStore';
 import { useBookingStore } from '@/store/bookingStore';
@@ -96,6 +96,8 @@ export default function TrotroScheduleManager() {
   const [departureStopId, setDepartureStopId] = useState<string | null>(null);
   const [destinationStopId, setDestinationStopId] = useState<string | null>(null);
   const [slotDays, setSlotDays] = useState<string[]>(['mon', 'tue', 'wed', 'thu', 'fri']);
+  const [departureSearch, setDepartureSearch] = useState('');
+  const [destinationSearch, setDestinationSearch] = useState('');
 
   const dashboardQ = useQuery({ queryKey: ['dashboard'], queryFn: getDashboard, staleTime: 30000 });
   React.useEffect(() => {
@@ -115,6 +117,20 @@ export default function TrotroScheduleManager() {
     setDepartureStopId((current) => current && stops.some((stop) => stop.id === current) ? current : stops[0].id);
     setDestinationStopId((current) => current && stops.some((stop) => stop.id === current) ? current : stops[stops.length - 1].id);
   }, [stopsQ.data]);
+
+  const routeStops = stopsQ.data ?? [];
+  const departureStop = routeStops.find((stop) => stop.id === departureStopId);
+  const destinationStop = routeStops.find((stop) => stop.id === destinationStopId);
+  const departureMatches = useMemo(() => {
+    const query = departureSearch.trim().toLowerCase();
+    if (!query) return [];
+    return routeStops.filter((stop) => stop.id !== destinationStopId && stop.name.toLowerCase().includes(query)).slice(0, 6);
+  }, [departureSearch, destinationStopId, routeStops]);
+  const destinationMatches = useMemo(() => {
+    const query = destinationSearch.trim().toLowerCase();
+    if (!query) return [];
+    return routeStops.filter((stop) => stop.id !== departureStopId && stop.name.toLowerCase().includes(query)).slice(0, 6);
+  }, [destinationSearch, departureStopId, routeStops]);
 
   React.useEffect(() => {
     if (sched?.start_time) setLocalStart(sched.start_time);
@@ -212,19 +228,26 @@ export default function TrotroScheduleManager() {
             <View style={ss.cH}><Calendar size={18} color={Colors.primary} /><Text style={ss.cT}>Publish a Departure</Text></View>
             <Text style={ss.slotHint}>Passengers can only reserve times published here for your assigned route.</Text>
             <Text style={ss.tL}>Departure station</Text>
-            <View style={ss.stopChoices}>{(stopsQ.data ?? []).map((stop) => (
-              <Pressable key={`from-${stop.id}`} style={[ss.stopChoice, departureStopId === stop.id && ss.stopChoiceOn]}
-                onPress={() => { setDepartureStopId(stop.id); if (destinationStopId === stop.id) setDestinationStopId(null); }}>
-                <Text style={[ss.stopChoiceText, departureStopId === stop.id && ss.stopChoiceTextOn]}>{stop.name}</Text>
-              </Pressable>
-            ))}</View>
+            {departureStop ? <View style={ss.selectedStation}><MapPin size={14} color={Colors.primary} /><Text style={ss.selectedStationText}>{departureStop.name}</Text></View> : null}
+            <View style={ss.searchBox}><Search size={17} color={Colors.textSecondary} />
+              <TextInput value={departureSearch} onChangeText={setDepartureSearch} placeholder="Search departure station"
+                placeholderTextColor={Colors.textSecondary} style={ss.searchInput} autoCorrect={false} returnKeyType="search" testID="departure-stop-search" />
+            </View>
+            {departureSearch.trim() ? <View style={ss.searchResults}>{departureMatches.length ? departureMatches.map((stop) => (
+              <Pressable key={`from-${stop.id}`} style={ss.searchResult} onPress={() => {
+                setDepartureStopId(stop.id); if (destinationStopId === stop.id) setDestinationStopId(null); setDepartureSearch('');
+              }}><MapPin size={14} color={Colors.textSecondary} /><Text style={ss.searchResultText}>{stop.name}</Text></Pressable>
+            )) : <Text style={ss.noResults}>No matching station on this route.</Text>}</View> : null}
             <Text style={ss.tL}>Destination station</Text>
-            <View style={ss.stopChoices}>{(stopsQ.data ?? []).filter((stop) => stop.id !== departureStopId).map((stop) => (
-              <Pressable key={`to-${stop.id}`} style={[ss.stopChoice, destinationStopId === stop.id && ss.stopChoiceOn]}
-                onPress={() => setDestinationStopId(stop.id)}>
-                <Text style={[ss.stopChoiceText, destinationStopId === stop.id && ss.stopChoiceTextOn]}>{stop.name}</Text>
-              </Pressable>
-            ))}</View>
+            {destinationStop ? <View style={ss.selectedStation}><MapPin size={14} color={Colors.primary} /><Text style={ss.selectedStationText}>{destinationStop.name}</Text></View> : null}
+            <View style={ss.searchBox}><Search size={17} color={Colors.textSecondary} />
+              <TextInput value={destinationSearch} onChangeText={setDestinationSearch} placeholder="Search destination station"
+                placeholderTextColor={Colors.textSecondary} style={ss.searchInput} autoCorrect={false} returnKeyType="search" testID="destination-stop-search" />
+            </View>
+            {destinationSearch.trim() ? <View style={ss.searchResults}>{destinationMatches.length ? destinationMatches.map((stop) => (
+              <Pressable key={`to-${stop.id}`} style={ss.searchResult} onPress={() => { setDestinationStopId(stop.id); setDestinationSearch(''); }}>
+                <MapPin size={14} color={Colors.textSecondary} /><Text style={ss.searchResultText}>{stop.name}</Text></Pressable>
+            )) : <Text style={ss.noResults}>No matching station on this route.</Text>}</View> : null}
             <Text style={ss.tL}>Operating days</Text>
             <View style={ss.dayChoices}>{SLOT_DAYS.map((day) => {
               const selected = slotDays.includes(day);
@@ -286,13 +309,19 @@ const ss = StyleSheet.create({
   futureBtnSub: { color: '#DCEBFF', fontSize: 12, marginTop: 2 },
   card: { backgroundColor: Colors.surface, margin: 16, marginBottom: 8, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: Colors.borderLight },
   slotHint: { fontSize: 12, lineHeight: 17, color: Colors.textSecondary, marginBottom: 14 },
-  stopChoices: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 7, marginBottom: 13 },
   stopChoice: { borderWidth: 1, borderColor: Colors.borderLight, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: Colors.background },
   stopChoiceOn: { borderColor: Colors.primary, backgroundColor: '#EBF4FF' },
   stopChoiceText: { color: Colors.textSecondary, fontSize: 12, fontWeight: '600' as const }, stopChoiceTextOn: { color: Colors.primary },
   dayChoices: { flexDirection: 'row', justifyContent: 'space-between', gap: 4, marginTop: 7, marginBottom: 16 },
   dayChoice: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: Colors.borderLight, borderRadius: 18 },
   publishedCount: { color: Colors.textSecondary, fontSize: 11, textAlign: 'center', marginTop: 9 },
+  selectedStation: { flexDirection: 'row', alignItems: 'center', gap: 7, backgroundColor: '#EBF4FF', borderRadius: 10, paddingHorizontal: 11, paddingVertical: 9, marginTop: 7 },
+  selectedStationText: { color: Colors.primary, fontSize: 13, fontWeight: '700' as const, flex: 1 },
+  searchBox: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderColor: Colors.borderLight, backgroundColor: Colors.background, borderRadius: 11, paddingHorizontal: 11, marginTop: 7, marginBottom: 10 },
+  searchInput: { flex: 1, minHeight: 44, color: Colors.textPrimary, fontSize: 14, paddingVertical: 9 },
+  searchResults: { borderWidth: 1, borderColor: Colors.borderLight, borderRadius: 11, overflow: 'hidden', marginTop: -5, marginBottom: 12, backgroundColor: Colors.surface },
+  searchResult: { minHeight: 43, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 11, borderBottomWidth: StyleSheet.hairlineWidth, borderBottomColor: Colors.borderLight },
+  searchResultText: { color: Colors.textPrimary, fontSize: 13, flex: 1 }, noResults: { color: Colors.textSecondary, fontSize: 12, padding: 12, textAlign: 'center' },
   cH: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 }, cT: { fontSize: 16, fontWeight: '700' as const, color: Colors.textPrimary },
   tR: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 16 },
   tB: { alignItems: 'center', gap: 6 }, tL: { fontSize: 12, color: Colors.textSecondary, fontWeight: '500' as const },
