@@ -68,7 +68,10 @@ export const useDriverStore = create<DriverState>((set) => ({
   clearAutoAcceptedBookings: () => set({ autoAcceptedBookings: [] }),
 
   setAvailability: (isAvailable: boolean) => set({ isAvailable }),
-  updateSeats: (available: number, total: number) => set({ availableSeats: available, totalSeats: total }),
+  updateSeats: (available: number, total: number) => {
+    const safeTotal = Math.max(1, Math.trunc(total));
+    set({ availableSeats: Math.min(safeTotal, Math.max(0, Math.trunc(available))), totalSeats: safeTotal });
+  },
   setRoute: (route: Route | null) => set({ assignedRoute: route }),
   setLocation: (lat: number, lng: number) => set({ currentLat: lat, currentLng: lng }),
   setOnlineStatus: (isOnline: boolean) => set({ isOnline }),

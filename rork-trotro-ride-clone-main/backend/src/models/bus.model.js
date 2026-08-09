@@ -52,7 +52,7 @@ const adjustSeats = async (id, delta, client) => {
   const runner = client || { query };
   const { rows } = await runner.query(
     `update public.buses
-        set seats_available = greatest(0, seats_available + $1)
+        set seats_available = least(total_seats, greatest(0, seats_available + $1))
       where id = $2
       returning ${COLUMNS}`,
     [delta, id],

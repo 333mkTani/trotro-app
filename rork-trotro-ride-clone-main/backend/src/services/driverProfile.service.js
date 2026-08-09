@@ -113,6 +113,14 @@ const setDrivingStatus = async (driverId, drivingStatus) => {
 const updateSeats = async (driverId, { availableSeats, totalSeats }) => {
   const bus = await getMyBus(driverId);
   if (!bus) throw ApiError.notFound('No active bus assigned to this driver');
+  const effectiveTotal = totalSeats ?? bus.total_seats;
+  const effectiveAvailable = availableSeats ?? bus.seats_available;
+  if (!Number.isInteger(effectiveTotal) || effectiveTotal <= 0) {
+    throw ApiError.badRequest('Total seats must be a positive integer');
+  }
+  if (!Number.isInteger(effectiveAvailable) || effectiveAvailable < 0 || effectiveAvailable > effectiveTotal) {
+    throw ApiError.badRequest('Available seats must be between 0 and total seats');
+  }
   const fields = [];
   const values = [];
   let i = 1;

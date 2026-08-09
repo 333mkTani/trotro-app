@@ -14,13 +14,15 @@ import { verifyScheduledThenOrdinary } from '@/utils/boardingCodeResult';
 
 export async function getDashboard(): Promise<DriverDashboard> {
   const { data } = await api.get('/drivers/me/dashboard');
+  const totalSeats = Math.max(1, Number(data.total_seats) || 14);
+  const availableSeats = Math.min(totalSeats, Math.max(0, Number(data.available_seats) || 0));
   return {
     driver_name: data.driver_name ?? '',
     bus_registration: data.bus_registration ?? '',
     is_available: data.is_available ?? false,
     driving_status: data.driving_status ?? 'STATIONARY',
-    available_seats: data.available_seats ?? 0,
-    total_seats: data.total_seats ?? 14,
+    available_seats: availableSeats,
+    total_seats: totalSeats,
     assigned_route: data.assigned_route
       ? { id: data.route_id, name: data.assigned_route, origin: data.route_origin ?? '', destination: data.route_destination ?? '' }
       : null,
