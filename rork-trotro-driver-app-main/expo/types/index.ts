@@ -75,6 +75,26 @@ export interface Booking {
   created_at: string;
 }
 
+export interface DriverDepartureSlot {
+  id: string;
+  driver_id: string;
+  bus_id: string;
+  route_id: string;
+  departure_stop_id: string;
+  destination_stop_id: string;
+  travel_days: string[];
+  boarding_start_local: string;
+  boarding_end_local: string;
+  timezone: 'Africa/Accra';
+  status: 'active' | 'paused';
+}
+
+export interface RouteStop {
+  id: string;
+  name: string;
+  sequence: number;
+}
+
 export type FutureRideRequestStatus =
   | 'pending'
   | 'offered'

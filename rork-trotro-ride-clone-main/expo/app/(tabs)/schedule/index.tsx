@@ -37,6 +37,7 @@ import {
   ScheduleTimeMode,
   DayTimeEntry,
   Route as RouteType,
+  PublishedDepartureSlot,
 } from "@/types";
 const Colors = StaticColors;
 
@@ -61,7 +62,7 @@ export default function ScheduleScreen() {
 
   const router = useRouter();
   const { regionStops, regionRoutes } = useLocation();
-  const { schedules, schedulesLoading, schedulesError, createSchedule, createSchedulePending, updateSchedule, setScheduleStatus, scheduleStatusPending, deleteSchedule, deleteSchedulePending, refreshSchedules, refreshScheduleData } = useCommuterSchedules();
+  const { schedules, schedulesLoading, schedulesError, createSchedule, createSchedulePending, updateSchedule, setScheduleStatus, scheduleStatusPending, deleteSchedule, deleteSchedulePending, refreshSchedules, refreshScheduleData, getPublishedSlots } = useCommuterSchedules();
 
   const [pickup, setPickup] = useState<BusStop | null>(null);
   const [dest, setDest] = useState<BusStop | null>(null);
@@ -91,6 +92,9 @@ export default function ScheduleScreen() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [backupMatching, setBackupMatching] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [publishedSlots, setPublishedSlots] = useState<PublishedDepartureSlot[]>([]);
+  const [selectedSlot, setSelectedSlot] = useState<PublishedDepartureSlot | null>(null);
+  const [slotsLoading, setSlotsLoading] = useState(false);
 
   const fadeIn = useRef(new Animated.Value(0)).current;
   const btnScale = useRef(new Animated.Value(1)).current;
@@ -133,6 +137,25 @@ export default function ScheduleScreen() {
     );
   }, [pickup, dest, regionRoutes]);
 
+  useEffect(() => {
+    setSelectedSlot(null);
+    if (!route || !pickup || !dest) { setPublishedSlots([]); return; }
+    let active = true;
+    setSlotsLoading(true);
+    void getPublishedSlots({ routeId: route.id, departureStopId: pickup.id, destinationStopId: dest.id })
+      .then((slots) => { if (active) setPublishedSlots(slots); })
+      .catch(() => { if (active) setPublishedSlots([]); })
+      .finally(() => { if (active) setSlotsLoading(false); });
+    return () => { active = false; };
+  }, [route, pickup, dest, getPublishedSlots]);
+
+  useEffect(() => {
+    if (!editingId || !publishedSlots.length) return;
+    const schedule = schedules.find((item) => item.id === editingId);
+    const storedSlot = publishedSlots.find((slot) => slot.id === schedule?.departure_slot_id);
+    if (storedSlot) setSelectedSlot(storedSlot);
+  }, [editingId, publishedSlots, schedules]);
+
   const closeAllPickers = useCallback(() => {
     setShowPU(false);
     setShowDest(false);
@@ -174,7 +197,11 @@ export default function ScheduleScreen() {
     );
   }, []);
 
-  const isValid = !!pickup && !!dest && !!route && selectedDays.length > 0;
+  const selectedDayCodes = useMemo(() => selectedDays.map((day) => day.toLowerCase()), [selectedDays]);
+  const slotSupportsDays = selectedSlot
+    ? selectedDayCodes.every((day) => selectedSlot.travel_days.includes(day))
+    : false;
+  const isValid = !!pickup && !!dest && !!route && !!selectedSlot && selectedDays.length > 0 && slotSupportsDays;
 
   const scheduleDescription = useMemo(() => {
     if (selectedDays.length === 7) return "Every day";
@@ -204,10 +231,8 @@ export default function ScheduleScreen() {
       Alert.alert("Cannot edit yet", "Refresh your location data and try again.");
       return;
     }
-    const [hour, minute] = schedule.boarding_start_local.slice(0, 5).split(":").map(Number);
     setPickup(departure); setDest(destination);
     setSelectedDays(schedule.travel_days.map((day) => `${day[0].toUpperCase()}${day.slice(1)}` as DayOfWeek));
-    setSameHour(hour); setSameMinute(minute); setTimeMode("same");
     setBackupMatching(schedule.backup_matching_enabled); setEditingId(schedule.id);
     requestAnimationFrame(() => {
       scrollRef.current?.scrollTo({ y: Math.max(0, editorYRef.current - 12), animated: true });
@@ -221,7 +246,7 @@ export default function ScheduleScreen() {
     ]), [deleteSchedule]);
 
   const submit = useCallback(async () => {
-    if (!pickup || !dest || !route || createSchedulePending || submittingRef.current) return;
+    if (!pickup || !dest || !route || !selectedSlot || !slotSupportsDays || createSchedulePending || submittingRef.current) return;
     submittingRef.current = true;
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
@@ -231,23 +256,10 @@ export default function ScheduleScreen() {
     ]).start();
 
     try {
-      const groups = new Map<string, string[]>();
-      selectedDays.forEach((day) => {
-        const custom = customTimes.find((entry) => entry.day === day);
-        const hour = timeMode === "same" ? sameHour : custom?.hour ?? sameHour;
-        const minute = timeMode === "same" ? sameMinute : custom?.minute ?? sameMinute;
-        const key = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-        groups.set(key, [...(groups.get(key) ?? []), day.toLowerCase()]);
-      });
-      await Promise.all([...groups].map(([start, travelDays]) => {
-        const [hour, minute] = start.split(":").map(Number);
-        const endMinutes = hour * 60 + minute + 20;
-        const end = `${String(Math.floor(endMinutes / 60) % 24).padStart(2, "0")}:${String(endMinutes % 60).padStart(2, "0")}`;
-        const input = { routeId: route.id, departureStopId: pickup.id, destinationStopId: dest.id,
-          travelDays, boardingStartLocal: start, boardingEndLocal: end, timezone: "Africa/Accra",
-          primaryDeadlineLocal: "20:00", backupMatchingEnabled: backupMatching } as const;
-        return editingId ? updateSchedule({ id: editingId, patch: input }) : createSchedule(input);
-      }));
+      const input = { routeId: route.id, departureStopId: pickup.id, destinationStopId: dest.id,
+        departureSlotId: selectedSlot.id, travelDays: selectedDayCodes, timezone: "Africa/Accra",
+        primaryDeadlineLocal: "20:00", backupMatchingEnabled: backupMatching } as const;
+      await (editingId ? updateSchedule({ id: editingId, patch: input }) : createSchedule(input));
       setEditingId(null);
       setDone(true);
       if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -262,11 +274,12 @@ export default function ScheduleScreen() {
     } finally {
       submittingRef.current = false;
     }
-  }, [pickup, dest, route, sameHour, sameMinute, selectedDays, timeMode, customTimes, createSchedule, updateSchedule, editingId, backupMatching, createSchedulePending, btnScale, successScale]);
+  }, [pickup, dest, route, selectedSlot, selectedDayCodes, slotSupportsDays, createSchedule, updateSchedule, editingId, backupMatching, createSchedulePending, btnScale, successScale]);
 
   if (done) {
-    const timeLabel =
-      timeMode === "same" ? formatTime12(sameHour, sameMinute) : "Custom per day";
+    const timeLabel = selectedSlot
+      ? `${selectedSlot.boarding_start_local.slice(0, 5)}–${selectedSlot.boarding_end_local.slice(0, 5)}`
+      : "Driver slot";
 
     return (
       <View style={st.root}>
@@ -399,7 +412,7 @@ export default function ScheduleScreen() {
             <View style={st.heroText}>
               <Text style={st.heroTitle}>Recurring station reservation</Text>
               <Text style={st.heroSub}>
-                Choose when you will travel to a station. We will search for a driver for each occurrence.
+                Choose a departure published by a driver. We will reserve that slot on your selected travel days.
               </Text>
             </View>
           </View>
@@ -407,7 +420,7 @@ export default function ScheduleScreen() {
           <View style={st.infoBar}>
             <AlertCircle size={13} color={Colors.info} />
             <Text style={st.infoTxt}>
-              Pick your stops, choose days and times. Same time for all days, or different times per day.
+              Pick your stops and travel days, then choose an available driver-published departure.
             </Text>
           </View>
 
@@ -584,7 +597,37 @@ export default function ScheduleScreen() {
             <Text style={st.daysSub}>{scheduleDescription}</Text>
           </View>
 
-          {/* TIME MODE */}
+          <Text style={st.label}>DRIVER-PUBLISHED DEPARTURE</Text>
+          <View style={st.timeModeCard}>
+            {slotsLoading ? (
+              <View style={st.infoBar}><ActivityIndicator color={Colors.primary} /><Text style={st.infoTxt}>Loading published departures…</Text></View>
+            ) : publishedSlots.length ? publishedSlots.map((slot) => {
+              const chosen = selectedSlot?.id === slot.id;
+              const supported = selectedDayCodes.every((day) => slot.travel_days.includes(day));
+              return (
+                <TouchableOpacity key={slot.id}
+                  style={[st.timeModeOption, chosen && st.timeModeOptionOn, !supported && { opacity: 0.55 }]}
+                  onPress={() => {
+                    setSelectedSlot(slot);
+                    if (!supported) setSelectedDays(slot.travel_days.map((day) => `${day[0].toUpperCase()}${day.slice(1)}` as DayOfWeek));
+                    if (Platform.OS !== "web") Haptics.selectionAsync();
+                  }} accessibilityRole="radio" accessibilityState={{ selected: chosen }}>
+                  <View style={[st.timeModeRadio, chosen && st.timeModeRadioOn]}>{chosen && <View style={st.timeModeRadioDot} />}</View>
+                  <View style={st.timeModeContent}>
+                    <Text style={[st.timeModeLbl, chosen && st.timeModeLblOn]}>{slot.boarding_start_local.slice(0, 5)}–{slot.boarding_end_local.slice(0, 5)}</Text>
+                    <Text style={st.timeModeDesc}>{slot.driver_name} · Bus {slot.bus_registration} · {slot.future_seats_remaining} future seats</Text>
+                    <Text style={st.timeModeDesc}>{slot.travel_days.map((day) => day.toUpperCase()).join(" · ")}</Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            }) : (
+              <View style={st.infoBar}><AlertCircle size={14} color={Colors.warning} /><Text style={st.infoTxt}>No driver has published a departure for these stations yet.</Text></View>
+            )}
+          </View>
+          {selectedSlot && !slotSupportsDays ? <Text style={st.routeErrTxt}>Choose only days published for this departure.</Text> : null}
+
+          {false && <>
+          {/* Legacy free-form time controls retained for migration rollback only. */}
           <Text style={st.label}>DEPARTURE TIME</Text>
           <View style={st.timeModeCard}>
             <TouchableOpacity
@@ -816,6 +859,7 @@ export default function ScheduleScreen() {
               })}
             </View>
           )}
+          </>}
 
           <Text style={st.label}>OVERNIGHT BACKUP MATCHING</Text>
           <TouchableOpacity style={[st.timeModeOption, backupMatching && st.timeModeOptionOn]}

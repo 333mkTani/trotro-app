@@ -74,6 +74,7 @@ export interface CommuterSchedule {
   route_id: string;
   departure_stop_id: string;
   destination_stop_id: string;
+  departure_slot_id?: string;
   travel_days: string[];
   boarding_start_local: string;
   boarding_end_local: string;
@@ -89,12 +90,27 @@ export interface CreateCommuterScheduleInput {
   routeId: string;
   departureStopId: string;
   destinationStopId: string;
+  departureSlotId: string;
   travelDays: string[];
-  boardingStartLocal: string;
-  boardingEndLocal: string;
   timezone?: 'Africa/Accra';
   primaryDeadlineLocal?: string;
   backupMatchingEnabled: boolean;
+}
+
+export interface PublishedDepartureSlot {
+  id: string;
+  driver_id: string;
+  bus_id: string;
+  route_id: string;
+  departure_stop_id: string;
+  destination_stop_id: string;
+  travel_days: string[];
+  boarding_start_local: string;
+  boarding_end_local: string;
+  timezone: 'Africa/Accra';
+  driver_name: string;
+  bus_registration: string;
+  future_seats_remaining: number;
 }
 
 export type ScheduleOccurrenceStatus =

@@ -2,7 +2,7 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Platform } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { fetchSeatSync, reportPassengerEvent } from '@/services/driverApi';
+import { fetchSeatSync } from '@/services/driverApi';
 import { useDriverStore } from '@/store/driverStore';
 import { SeatEvent, SeatSyncData } from '@/types';
 
@@ -11,8 +11,6 @@ interface UseSeatSyncReturn {
   lastSyncTime: string | null;
   recentEvents: SeatEvent[];
   hasSystemUpdate: boolean;
-  reportBoarding: (passengerName?: string) => Promise<void>;
-  reportAlighting: (passengerName?: string) => Promise<void>;
   clearSystemFlag: () => void;
 }
 
@@ -58,34 +56,6 @@ export function useSeatSync(enabled: boolean = true): UseSeatSyncReturn {
     prevAvailableRef.current = data.available_seats;
   }, [syncQuery.data, store, qc]);
 
-  const reportBoarding = useCallback(async (passengerName?: string) => {
-    try {
-      const evt = await reportPassengerEvent('BOARDING', passengerName);
-      console.log('[SeatSync] Boarding reported:', evt.id);
-      const newAvailable = Math.max(0, store.availableSeats - 1);
-      store.updateSeats(newAvailable, store.totalSeats);
-      prevAvailableRef.current = newAvailable;
-      qc.invalidateQueries({ queryKey: ['seat-sync'] });
-      qc.invalidateQueries({ queryKey: ['dashboard'] });
-    } catch (e) {
-      console.log('[SeatSync] Report boarding error:', e);
-    }
-  }, [store, qc]);
-
-  const reportAlighting = useCallback(async (passengerName?: string) => {
-    try {
-      const evt = await reportPassengerEvent('ALIGHTING', passengerName);
-      console.log('[SeatSync] Alighting reported:', evt.id);
-      const newAvailable = Math.min(store.totalSeats, store.availableSeats + 1);
-      store.updateSeats(newAvailable, store.totalSeats);
-      prevAvailableRef.current = newAvailable;
-      qc.invalidateQueries({ queryKey: ['seat-sync'] });
-      qc.invalidateQueries({ queryKey: ['dashboard'] });
-    } catch (e) {
-      console.log('[SeatSync] Report alighting error:', e);
-    }
-  }, [store, qc]);
-
   const clearSystemFlag = useCallback(() => {
     setHasSystemUpdate(false);
   }, []);
@@ -95,8 +65,6 @@ export function useSeatSync(enabled: boolean = true): UseSeatSyncReturn {
     lastSyncTime: syncQuery.data?.last_updated ?? null,
     recentEvents,
     hasSystemUpdate,
-    reportBoarding,
-    reportAlighting,
     clearSystemFlag,
   };
 }

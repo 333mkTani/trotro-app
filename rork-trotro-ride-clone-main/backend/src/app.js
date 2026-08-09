@@ -28,6 +28,7 @@ const scheduleNotificationRoutes = require('./routes/scheduleNotification.routes
 const scheduleOperationsRoutes = require('./routes/scheduleOperations.routes');
 const busAlertOperationsRoutes = require('./routes/busAlertOperations.routes');
 const routingRoutes = require('./routes/routing.routes');
+const departureSlotRoutes = require('./routes/departureSlot.routes');
 
 const app = express();
 
@@ -86,6 +87,7 @@ app.use('/api/schedule-notifications', scheduleNotificationRoutes);
 app.use('/api/admin/schedules', scheduleOperationsRoutes);
 app.use('/api/admin/bus-alerts', busAlertOperationsRoutes);
 app.use('/api/routing', routingRoutes);
+app.use('/api/departure-slots', departureSlotRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

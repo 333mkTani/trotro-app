@@ -46,7 +46,8 @@ const generateUpcoming = async (now = clock.now(), horizonDays = DEFAULT_HORIZON
     if (!isScheduledReservationsEnabled(schedule.passenger_id)) continue;
     for (let offset = 0; offset <= horizonDays; offset += 1) {
       const serviceDay = addDays(today, offset);
-      if (!schedule.travel_days.includes(DAY_CODES[serviceDay.getUTCDay()])) continue;
+      const publishedDays = schedule.slot_travel_days || schedule.travel_days;
+      if (!schedule.travel_days.includes(DAY_CODES[serviceDay.getUTCDay()]) || !publishedDays.includes(DAY_CODES[serviceDay.getUTCDay()])) continue;
       const candidate = buildOccurrence(schedule, serviceDay);
       if (new Date(candidate.finalDeadline) <= now) continue;
       const occurrence = await occurrenceModel.insert(candidate);

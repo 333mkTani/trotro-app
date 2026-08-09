@@ -1,17 +1,19 @@
 jest.mock('../../models/commuterSchedule.model');
 jest.mock('../../models/scheduleNotification.model');
+jest.mock('../../models/departureSlot.model');
 jest.mock('../../config/db', () => ({ withTransaction: jest.fn((fn) => fn({ query: jest.fn() })) }));
 jest.mock('../../utils/clock', () => ({ now: jest.fn(() => new Date('2026-08-09T12:00:00Z')) }));
 jest.mock('../../config/scheduleRollout', () => ({ isScheduledReservationsEnabled: jest.fn(() => true) }));
 
 const model = require('../../models/commuterSchedule.model');
 const notificationModel = require('../../models/scheduleNotification.model');
+const departureSlotModel = require('../../models/departureSlot.model');
 const service = require('../commuterSchedule.service');
 
 describe('commuterSchedule service', () => {
   const passenger = { id: 'passenger-1', role: 'passenger' };
   const schedule = {
-    id: 'schedule-1', passenger_id: passenger.id, status: 'active',
+    id: 'schedule-1', passenger_id: passenger.id, status: 'active', route_id: 'route-1',
     departure_stop_id: 'stop-1', destination_stop_id: 'stop-2',
     boarding_start_local: '06:00:00', boarding_end_local: '06:30:00',
   };
@@ -20,9 +22,16 @@ describe('commuterSchedule service', () => {
 
   it('creates a schedule for the authenticated passenger', async () => {
     model.insert.mockResolvedValue(schedule);
-    const data = { routeId: 'route-1' };
+    departureSlotModel.findActiveById.mockResolvedValue({
+      id: 'slot-1', route_id: 'route-1', departure_stop_id: 'stop-1', destination_stop_id: 'stop-2',
+      travel_days: ['mon'], boarding_start_local: '06:00:00', boarding_end_local: '06:30:00', timezone: 'Africa/Accra',
+    });
+    const data = { routeId: 'route-1', departureStopId: 'stop-1', destinationStopId: 'stop-2',
+      departureSlotId: 'slot-1', travelDays: ['mon'] };
     await expect(service.create(passenger.id, data)).resolves.toEqual(schedule);
-    expect(model.insert).toHaveBeenCalledWith(passenger.id, data);
+    expect(model.insert).toHaveBeenCalledWith(passenger.id, expect.objectContaining({
+      ...data, boardingStartLocal: '06:00', boardingEndLocal: '06:30', timezone: 'Africa/Accra',
+    }));
   });
 
   it('rejects access to another passenger schedule', async () => {
@@ -30,10 +39,14 @@ describe('commuterSchedule service', () => {
     await expect(service.getOwned(schedule.id, passenger)).rejects.toMatchObject({ status: 403 });
   });
 
-  it('rejects an update whose merged boarding window is invalid', async () => {
+  it('rejects an update to a slot that does not match the schedule route', async () => {
     model.findById.mockResolvedValue(schedule);
-    await expect(service.update(schedule.id, passenger, { boardingStartLocal: '07:00' }))
-      .rejects.toThrow('Boarding window must end after it starts');
+    departureSlotModel.findActiveById.mockResolvedValue({
+      id: 'slot-2', route_id: 'other-route', departure_stop_id: 'stop-1', destination_stop_id: 'stop-2',
+      travel_days: ['mon'], boarding_start_local: '07:00:00', boarding_end_local: '07:30:00',
+    });
+    await expect(service.update(schedule.id, passenger, { departureSlotId: 'slot-2', travelDays: ['mon'] }))
+      .rejects.toThrow('Selected departure slot does not match');
     expect(model.update).not.toHaveBeenCalled();
   });
 

@@ -10,6 +10,7 @@ import type {
   CreateCommuterScheduleInput,
   ScheduleOccurrence,
   UpdateCommuterScheduleInput,
+  PublishedDepartureSlot,
 } from '@/types';
 
 export const [CommuterScheduleProvider, useCommuterSchedules] = createContextHook(() => {
@@ -60,6 +61,13 @@ export const [CommuterScheduleProvider, useCommuterSchedules] = createContextHoo
     return data as ScheduleOccurrence[];
   }, []);
 
+  const getPublishedSlots = useCallback(async (params: {
+    routeId: string; departureStopId: string; destinationStopId: string;
+  }): Promise<PublishedDepartureSlot[]> => {
+    const { data } = await api.get('/departure-slots/published', { params });
+    return data as PublishedDepartureSlot[];
+  }, []);
+
   const refreshScheduleData = useCallback(async () => {
     setOccurrenceRefreshToken((token) => token + 1);
     return schedulesQuery.refetch();
@@ -105,6 +113,7 @@ export const [CommuterScheduleProvider, useCommuterSchedules] = createContextHoo
     deleteSchedulePending: deleteMutation.isPending,
     getOccurrences,
     getAllOccurrences,
+    getPublishedSlots,
     cancelOccurrence: cancelOccurrenceMutation.mutateAsync,
     cancelOccurrencePending: cancelOccurrenceMutation.isPending,
     refreshSchedules: schedulesQuery.refetch,

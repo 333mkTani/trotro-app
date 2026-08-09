@@ -8,7 +8,7 @@ import { Route, CircleStop, Lock } from 'lucide-react-native';
 import Colors from '@/constants/colors';
 import { useDriverStore } from '@/store/driverStore';
 import { useBookingStore } from '@/store/bookingStore';
-import { getBookings, acceptBooking, declineBooking, updateSchedulingHours } from '@/services/driverApi';
+import { getBookings, acceptBooking, declineBooking, getDashboard, getDriverDepartureSlots, getRouteStops, publishDepartureSlot } from '@/services/driverApi';
 import { BookingCard } from '@/components/BookingCard';
 import { Booking } from '@/types';
 import { formatScheduleTime } from '@/utils/helpers';
@@ -18,6 +18,7 @@ type PickerTarget = 'start' | 'end';
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
 const MINUTES = Array.from({ length: 12 }, (_, i) => i * 5);
+const SLOT_DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
 function padTwo(n: number): string {
   return n.toString().padStart(2, '0');
@@ -80,6 +81,7 @@ export default function TrotroScheduleManager() {
   const drivingStatus = useDriverStore((s) => s.drivingStatus);
   const isStationary = drivingStatus === 'STATIONARY';
   const sched = useDriverStore((s) => s.schedulingHours);
+  const assignedRoute = useDriverStore((s) => s.assignedRoute);
   const setDashboard = useDriverStore((s) => s.setDashboardData);
   const setBookings = useBookingStore((s) => s.setBookings);
   const updateStat = useBookingStore((s) => s.updateBookingStatus);
@@ -91,6 +93,28 @@ export default function TrotroScheduleManager() {
 
   const [localStart, setLocalStart] = useState<string>(sched?.start_time ?? '03:00');
   const [localEnd, setLocalEnd] = useState<string>(sched?.end_time ?? '08:00');
+  const [departureStopId, setDepartureStopId] = useState<string | null>(null);
+  const [destinationStopId, setDestinationStopId] = useState<string | null>(null);
+  const [slotDays, setSlotDays] = useState<string[]>(['mon', 'tue', 'wed', 'thu', 'fri']);
+
+  const dashboardQ = useQuery({ queryKey: ['dashboard'], queryFn: getDashboard, staleTime: 30000 });
+  React.useEffect(() => {
+    if (dashboardQ.data) setDashboard({ assignedRoute: dashboardQ.data.assigned_route });
+  }, [dashboardQ.data, setDashboard]);
+
+  const stopsQ = useQuery({
+    queryKey: ['driver-route-stops', assignedRoute?.id],
+    queryFn: () => getRouteStops(assignedRoute!.id),
+    enabled: Boolean(assignedRoute?.id),
+  });
+  const slotsQ = useQuery({ queryKey: ['driver-departure-slots'], queryFn: getDriverDepartureSlots });
+
+  React.useEffect(() => {
+    const stops = stopsQ.data ?? [];
+    if (stops.length < 2) return;
+    setDepartureStopId((current) => current && stops.some((stop) => stop.id === current) ? current : stops[0].id);
+    setDestinationStopId((current) => current && stops.some((stop) => stop.id === current) ? current : stops[stops.length - 1].id);
+  }, [stopsQ.data]);
 
   React.useEffect(() => {
     if (sched?.start_time) setLocalStart(sched.start_time);
@@ -124,13 +148,18 @@ export default function TrotroScheduleManager() {
   const acceptMut = useMutation({ mutationFn: acceptBooking, onSuccess: (_d, id) => { updateStat(id, 'CONFIRMED'); qc.invalidateQueries({ queryKey: ['bookings'] }); qc.invalidateQueries({ queryKey: ['dashboard'] }); if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success); Alert.alert('Confirmed', 'Booking confirmed.'); }, onError: () => Alert.alert('Error', 'Failed to accept.') });
   const declineMut = useMutation({ mutationFn: declineBooking, onSuccess: (_d, id) => { updateStat(id, 'DECLINED'); qc.invalidateQueries({ queryKey: ['bookings'] }); Alert.alert('Declined', 'Booking declined.'); }, onError: () => Alert.alert('Error', 'Failed to decline.') });
   const schedMut = useMutation({
-    mutationFn: () => updateSchedulingHours(localStart, localEnd),
+    mutationFn: () => {
+      if (!assignedRoute?.id || !departureStopId || !destinationStopId) throw new Error('Choose a route departure and destination');
+      return publishDepartureSlot({ routeId: assignedRoute.id, departureStopId, destinationStopId,
+        travelDays: slotDays, boardingStartLocal: localStart, boardingEndLocal: localEnd });
+    },
     onSuccess: () => {
       setDashboard({ schedulingHours: { start_time: localStart, end_time: localEnd } });
-      Alert.alert('Saved', 'Scheduling hours updated.');
+      Alert.alert('Published', 'Passengers can now select this departure slot.');
       qc.invalidateQueries({ queryKey: ['dashboard'] });
+      qc.invalidateQueries({ queryKey: ['driver-departure-slots'] });
     },
-    onError: () => Alert.alert('Error', 'Failed to update scheduling hours.'),
+    onError: (error: Error) => Alert.alert('Could not publish departure', error.message),
   });
 
   const onAccept = useCallback((id: string) => acceptMut.mutate(id), [acceptMut]);
@@ -180,7 +209,30 @@ export default function TrotroScheduleManager() {
             </View>
           </Pressable>
           <View style={ss.card}>
-            <View style={ss.cH}><Calendar size={18} color={Colors.primary} /><Text style={ss.cT}>Your Scheduling Window</Text></View>
+            <View style={ss.cH}><Calendar size={18} color={Colors.primary} /><Text style={ss.cT}>Publish a Departure</Text></View>
+            <Text style={ss.slotHint}>Passengers can only reserve times published here for your assigned route.</Text>
+            <Text style={ss.tL}>Departure station</Text>
+            <View style={ss.stopChoices}>{(stopsQ.data ?? []).map((stop) => (
+              <Pressable key={`from-${stop.id}`} style={[ss.stopChoice, departureStopId === stop.id && ss.stopChoiceOn]}
+                onPress={() => { setDepartureStopId(stop.id); if (destinationStopId === stop.id) setDestinationStopId(null); }}>
+                <Text style={[ss.stopChoiceText, departureStopId === stop.id && ss.stopChoiceTextOn]}>{stop.name}</Text>
+              </Pressable>
+            ))}</View>
+            <Text style={ss.tL}>Destination station</Text>
+            <View style={ss.stopChoices}>{(stopsQ.data ?? []).filter((stop) => stop.id !== departureStopId).map((stop) => (
+              <Pressable key={`to-${stop.id}`} style={[ss.stopChoice, destinationStopId === stop.id && ss.stopChoiceOn]}
+                onPress={() => setDestinationStopId(stop.id)}>
+                <Text style={[ss.stopChoiceText, destinationStopId === stop.id && ss.stopChoiceTextOn]}>{stop.name}</Text>
+              </Pressable>
+            ))}</View>
+            <Text style={ss.tL}>Operating days</Text>
+            <View style={ss.dayChoices}>{SLOT_DAYS.map((day) => {
+              const selected = slotDays.includes(day);
+              return <Pressable key={day} style={[ss.dayChoice, selected && ss.stopChoiceOn]} onPress={() => setSlotDays((days) =>
+                selected ? (days.length > 1 ? days.filter((item) => item !== day) : days) : [...days, day])}>
+                <Text style={[ss.stopChoiceText, selected && ss.stopChoiceTextOn]}>{day.slice(0, 1).toUpperCase()}</Text>
+              </Pressable>;
+            })}</View>
             <View style={ss.tR}>
               <Pressable style={ss.tB} onPress={() => openPicker('start')} testID="pick-start">
                 <Text style={ss.tL}>Start</Text>
@@ -194,9 +246,11 @@ export default function TrotroScheduleManager() {
                 <Text style={ss.tapHint}>Tap to change</Text>
               </Pressable>
             </View>
-            <Pressable style={({ pressed }) => [ss.saveBtn, pressed && { opacity: 0.85 }]} onPress={() => schedMut.mutate()} disabled={schedMut.isPending} testID="save-hours-btn">
-              {schedMut.isPending ? <ActivityIndicator color={Colors.white} size="small" /> : <Text style={ss.saveBtnT}>Save Hours</Text>}
+            <Pressable style={({ pressed }) => [ss.saveBtn, pressed && { opacity: 0.85 }]} onPress={() => schedMut.mutate()}
+              disabled={schedMut.isPending || !assignedRoute || !departureStopId || !destinationStopId || localEnd <= localStart} testID="save-hours-btn">
+              {schedMut.isPending ? <ActivityIndicator color={Colors.white} size="small" /> : <Text style={ss.saveBtnT}>Publish Departure</Text>}
             </Pressable>
+            {slotsQ.data?.length ? <Text style={ss.publishedCount}>{slotsQ.data.length} published departure{slotsQ.data.length === 1 ? '' : 's'}</Text> : null}
           </View>
           {!isStationary ? (
             <View style={ss.enRouteBanner}>
@@ -231,6 +285,14 @@ const ss = StyleSheet.create({
   futureBtnTitle: { color: Colors.white, fontSize: 15, fontWeight: '700' as const },
   futureBtnSub: { color: '#DCEBFF', fontSize: 12, marginTop: 2 },
   card: { backgroundColor: Colors.surface, margin: 16, marginBottom: 8, borderRadius: 16, padding: 16, borderWidth: 1, borderColor: Colors.borderLight },
+  slotHint: { fontSize: 12, lineHeight: 17, color: Colors.textSecondary, marginBottom: 14 },
+  stopChoices: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 7, marginBottom: 13 },
+  stopChoice: { borderWidth: 1, borderColor: Colors.borderLight, borderRadius: 10, paddingHorizontal: 10, paddingVertical: 8, backgroundColor: Colors.background },
+  stopChoiceOn: { borderColor: Colors.primary, backgroundColor: '#EBF4FF' },
+  stopChoiceText: { color: Colors.textSecondary, fontSize: 12, fontWeight: '600' as const }, stopChoiceTextOn: { color: Colors.primary },
+  dayChoices: { flexDirection: 'row', justifyContent: 'space-between', gap: 4, marginTop: 7, marginBottom: 16 },
+  dayChoice: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: Colors.borderLight, borderRadius: 18 },
+  publishedCount: { color: Colors.textSecondary, fontSize: 11, textAlign: 'center', marginTop: 9 },
   cH: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 16 }, cT: { fontSize: 16, fontWeight: '700' as const, color: Colors.textPrimary },
   tR: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 12, marginBottom: 16 },
   tB: { alignItems: 'center', gap: 6 }, tL: { fontSize: 12, color: Colors.textSecondary, fontWeight: '500' as const },

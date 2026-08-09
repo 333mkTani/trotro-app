@@ -7,9 +7,8 @@ const valid = {
   routeId: '11111111-1111-4111-8111-111111111111',
   departureStopId: '22222222-2222-4222-8222-222222222222',
   destinationStopId: '33333333-3333-4333-8333-333333333333',
+  departureSlotId: '44444444-4444-4444-8444-444444444444',
   travelDays: ['mon', 'tue', 'wed', 'thu', 'fri'],
-  boardingStartLocal: '06:00',
-  boardingEndLocal: '06:30',
 };
 
 describe('commuter schedule validation', () => {
@@ -32,10 +31,9 @@ describe('commuter schedule validation', () => {
     })).toThrow('Destination must differ from departure station');
   });
 
-  it('rejects an invalid boarding window', () => {
-    expect(() => CreateCommuterScheduleSchema.parse({
-      ...valid, boardingEndLocal: '05:59',
-    })).toThrow('Boarding window must end after it starts');
+  it('requires a published departure slot instead of a passenger-entered time', () => {
+    const { departureSlotId: _ignored, ...withoutSlot } = valid;
+    expect(() => CreateCommuterScheduleSchema.parse(withoutSlot)).toThrow();
   });
 
   it('does not allow clients to set deleted directly', () => {

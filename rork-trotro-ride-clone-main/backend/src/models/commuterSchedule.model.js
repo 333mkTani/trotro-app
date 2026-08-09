@@ -1,7 +1,7 @@
 const { query } = require('../config/db');
 
 const COLUMNS = `id, passenger_id, route_id, departure_stop_id, destination_stop_id,
-  travel_days, boarding_start_local, boarding_end_local, timezone,
+  departure_slot_id, travel_days, boarding_start_local, boarding_end_local, timezone,
   primary_deadline_local, backup_matching_enabled, status, created_at, updated_at`;
 
 const listForPassenger = async (passengerId) => {
@@ -27,13 +27,13 @@ const insert = async (passengerId, data) => {
   const { rows } = await query(
     `insert into public.commuter_schedules
       (passenger_id, route_id, departure_stop_id, destination_stop_id,
-       travel_days, boarding_start_local, boarding_end_local, timezone,
+       departure_slot_id, travel_days, boarding_start_local, boarding_end_local, timezone,
        primary_deadline_local, backup_matching_enabled)
-     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
      returning ${COLUMNS}`,
     [
       passengerId, data.routeId, data.departureStopId, data.destinationStopId,
-      data.travelDays, data.boardingStartLocal, data.boardingEndLocal,
+      data.departureSlotId, data.travelDays, data.boardingStartLocal, data.boardingEndLocal,
       data.timezone, data.primaryDeadlineLocal, data.backupMatchingEnabled,
     ],
   );
@@ -45,7 +45,7 @@ const update = async (id, patch) => {
   const values = [];
   const map = {
     routeId: 'route_id', departureStopId: 'departure_stop_id',
-    destinationStopId: 'destination_stop_id', travelDays: 'travel_days',
+    destinationStopId: 'destination_stop_id', departureSlotId: 'departure_slot_id', travelDays: 'travel_days',
     boardingStartLocal: 'boarding_start_local', boardingEndLocal: 'boarding_end_local',
     timezone: 'timezone', primaryDeadlineLocal: 'primary_deadline_local',
     backupMatchingEnabled: 'backup_matching_enabled', status: 'status',

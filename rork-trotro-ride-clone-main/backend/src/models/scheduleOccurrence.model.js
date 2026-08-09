@@ -2,7 +2,14 @@ const { query, withTransaction } = require('../config/db');
 
 const listActiveSchedules = async () => {
   const { rows } = await query(
-    `select * from public.commuter_schedules where status = 'active' order by created_at`,
+    `select s.*,
+            coalesce(ds.boarding_start_local, s.boarding_start_local) as boarding_start_local,
+            coalesce(ds.boarding_end_local, s.boarding_end_local) as boarding_end_local,
+            coalesce(ds.travel_days, s.travel_days) as slot_travel_days
+       from public.commuter_schedules s
+       left join public.driver_departure_slots ds on ds.id = s.departure_slot_id and ds.status = 'active'
+      where s.status = 'active' and (s.departure_slot_id is null or ds.id is not null)
+      order by s.created_at`,
   );
   return rows;
 };

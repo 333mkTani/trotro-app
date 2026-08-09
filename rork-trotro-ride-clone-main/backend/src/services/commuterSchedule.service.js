@@ -4,6 +4,7 @@ const { isScheduledReservationsEnabled } = require('../config/scheduleRollout');
 const { withTransaction } = require('../config/db');
 const notificationModel = require('../models/scheduleNotification.model');
 const clock = require('../utils/clock');
+const departureSlotModel = require('../models/departureSlot.model');
 
 const list = (passengerId) => scheduleModel.listForPassenger(passengerId);
 
@@ -14,22 +15,51 @@ const getOwned = async (id, user) => {
   return schedule;
 };
 
-const create = (passengerId, data) => {
+const resolveSlot = async (data) => {
+  const slot = await departureSlotModel.findActiveById(data.departureSlotId);
+  if (!slot) throw ApiError.notFound('Published departure slot not found');
+  if (slot.route_id !== data.routeId || slot.departure_stop_id !== data.departureStopId || slot.destination_stop_id !== data.destinationStopId) {
+    throw ApiError.badRequest('Selected departure slot does not match this route and stations');
+  }
+  if (data.travelDays.some((day) => !slot.travel_days.includes(day))) {
+    throw ApiError.badRequest('Selected departure slot is not published for every travel day');
+  }
+  return slot;
+};
+
+const create = async (passengerId, data) => {
   if (!isScheduledReservationsEnabled(passengerId)) {
     throw ApiError.notFound('Scheduled reservations are not enabled');
   }
-  return scheduleModel.insert(passengerId, data);
+  const slot = await resolveSlot(data);
+  return scheduleModel.insert(passengerId, {
+    ...data,
+    boardingStartLocal: String(slot.boarding_start_local).slice(0, 5),
+    boardingEndLocal: String(slot.boarding_end_local).slice(0, 5),
+    timezone: slot.timezone,
+  });
 };
 
 const update = async (id, user, patch) => {
   const current = await getOwned(id, user);
-  const mergedStart = patch.boardingStartLocal ?? String(current.boarding_start_local).slice(0, 5);
-  const mergedEnd = patch.boardingEndLocal ?? String(current.boarding_end_local).slice(0, 5);
   const departure = patch.departureStopId ?? current.departure_stop_id;
   const destination = patch.destinationStopId ?? current.destination_stop_id;
   if (departure === destination) throw ApiError.badRequest('Destination must differ from departure station');
-  if (mergedEnd <= mergedStart) throw ApiError.badRequest('Boarding window must end after it starts');
-  return scheduleModel.update(id, patch);
+  if (!patch.departureSlotId) return scheduleModel.update(id, patch);
+  const merged = {
+    routeId: patch.routeId ?? current.route_id,
+    departureStopId: departure,
+    destinationStopId: destination,
+    departureSlotId: patch.departureSlotId,
+    travelDays: patch.travelDays ?? current.travel_days,
+  };
+  const slot = await resolveSlot(merged);
+  return scheduleModel.update(id, {
+    ...patch,
+    boardingStartLocal: String(slot.boarding_start_local).slice(0, 5),
+    boardingEndLocal: String(slot.boarding_end_local).slice(0, 5),
+    timezone: slot.timezone,
+  });
 };
 
 const remove = async (id, user) => {

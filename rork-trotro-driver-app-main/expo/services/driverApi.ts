@@ -1,9 +1,10 @@
 import {
   DriverDashboard, Booking, DemandStop, OverflowRequest, VerificationResult,
   WalletBalance, WalletTransaction, AutoAcceptedBooking, DrivingStatus,
-  SeatSyncData, SeatEvent, AvailableRoute, RouteChangeEligibility, Route,
+  SeatSyncData, AvailableRoute, RouteChangeEligibility, Route,
   FutureRideRequest,
   ScheduledBoardingResult,
+  DriverDepartureSlot, RouteStop,
 } from '@/types';
 import { useDriverStore } from '@/store/driverStore';
 import api from './api';
@@ -38,8 +39,26 @@ export async function postLocation(lat: number, lng: number): Promise<void> {
   await api.patch('/drivers/me/location', { lat, lng });
 }
 
-export async function updateSchedulingHours(_start: string, _end: string): Promise<void> {
-  return;
+export async function getDriverDepartureSlots(): Promise<DriverDepartureSlot[]> {
+  const { data } = await api.get('/departure-slots/mine');
+  return data as DriverDepartureSlot[];
+}
+
+export async function getRouteStops(routeId: string): Promise<RouteStop[]> {
+  const { data } = await api.get(`/routes/${routeId}`);
+  return ((data as { stops?: RouteStop[] }).stops ?? []);
+}
+
+export async function publishDepartureSlot(input: {
+  routeId: string;
+  departureStopId: string;
+  destinationStopId: string;
+  travelDays: string[];
+  boardingStartLocal: string;
+  boardingEndLocal: string;
+}): Promise<DriverDepartureSlot> {
+  const { data } = await api.post('/departure-slots', { ...input, timezone: 'Africa/Accra' });
+  return data as DriverDepartureSlot;
 }
 
 // ─── Bookings ────────────────────────────────────────────────────────────────
@@ -301,25 +320,15 @@ export async function updateSeatCount(available: number, total: number): Promise
 }
 
 export async function fetchSeatSync(): Promise<SeatSyncData> {
+  const dashboard = await getDashboard();
   return {
-    available_seats: 0,
-    total_seats: 14,
+    available_seats: dashboard.available_seats,
+    total_seats: dashboard.total_seats,
     last_updated: new Date().toISOString(),
     recent_events: [],
-    has_system_update: false,
-  };
-}
-
-export async function reportPassengerEvent(
-  type: 'BOARDING' | 'ALIGHTING',
-  _passengerName?: string
-): Promise<SeatEvent> {
-  return {
-    id: `evt-${Date.now()}`,
-    type,
-    seats_changed: type === 'BOARDING' ? -1 : 1,
-    timestamp: new Date().toISOString(),
-    source: 'DRIVER',
+    // The hook compares this authoritative snapshot with its previous value
+    // before updating the local store or showing a system-change indicator.
+    has_system_update: true,
   };
 }
 
