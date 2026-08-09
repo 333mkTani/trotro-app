@@ -121,6 +121,12 @@ export interface ScheduleOccurrence {
   code_valid_from?: string;
   code_valid_until?: string;
   code_status?: 'active' | 'used' | 'expired' | 'cancelled';
+  route_id?: string;
+  departure_stop_id?: string;
+  destination_stop_id?: string;
+  route_name?: string;
+  departure_stop_name?: string;
+  destination_stop_name?: string;
 }
 
 export type UpdateCommuterScheduleInput = Partial<CreateCommuterScheduleInput> & {

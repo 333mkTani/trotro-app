@@ -112,6 +112,7 @@ function RootLayoutNav() {
       <Stack.Screen name="change-password" options={{ title: "Change Password", ...headerOpts }} />
       <Stack.Screen name="pay-driver" options={{ title: "Pay Driver", ...headerOpts }} />
       <Stack.Screen name="rate-driver" options={{ title: "Rate Your Ride", ...headerOpts }} />
+      <Stack.Screen name="future-seats" options={{ title: "Future Seats", ...headerOpts }} />
     </Stack>
   );
 }

@@ -12,6 +12,7 @@ const {
 router.use(requireAuth, requireRole('passenger', 'admin'));
 router.get('/', ctrl.list);
 router.post('/', validate({ body: CreateCommuterScheduleSchema }), ctrl.create);
+router.get('/occurrences', ctrl.allOccurrences);
 router.get('/occurrences/:id/code', validate({ params: UuidParam }), lifecycle.getCode);
 router.post('/occurrences/:id/cancel', validate({ params: UuidParam }), lifecycle.cancel);
 router.get('/:id', validate({ params: UuidParam }), ctrl.getById);

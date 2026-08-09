@@ -71,4 +71,6 @@ const listOccurrences = async (id, user) => {
   return scheduleModel.listOccurrences(id, schedule.passenger_id);
 };
 
-module.exports = { list, getOwned, create, update, remove, listOccurrences };
+const listAllOccurrences = (passengerId) => scheduleModel.listAllOccurrencesForPassenger(passengerId);
+
+module.exports = { list, getOwned, create, update, remove, listOccurrences, listAllOccurrences };

@@ -55,6 +55,11 @@ export const [CommuterScheduleProvider, useCommuterSchedules] = createContextHoo
     return data as ScheduleOccurrence[];
   }, []);
 
+  const getAllOccurrences = useCallback(async (): Promise<ScheduleOccurrence[]> => {
+    const { data } = await api.get('/commuter-schedules/occurrences');
+    return data as ScheduleOccurrence[];
+  }, []);
+
   const refreshScheduleData = useCallback(async () => {
     setOccurrenceRefreshToken((token) => token + 1);
     return schedulesQuery.refetch();
@@ -99,6 +104,7 @@ export const [CommuterScheduleProvider, useCommuterSchedules] = createContextHoo
     deleteSchedule: deleteMutation.mutateAsync,
     deleteSchedulePending: deleteMutation.isPending,
     getOccurrences,
+    getAllOccurrences,
     cancelOccurrence: cancelOccurrenceMutation.mutateAsync,
     cancelOccurrencePending: cancelOccurrenceMutation.isPending,
     refreshSchedules: schedulesQuery.refetch,

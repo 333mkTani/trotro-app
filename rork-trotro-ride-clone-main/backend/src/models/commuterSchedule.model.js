@@ -82,6 +82,27 @@ const listOccurrences = async (scheduleId, passengerId) => {
   return rows;
 };
 
+const listAllOccurrencesForPassenger = async (passengerId) => {
+  const { rows } = await query(
+    `select o.*, s.route_id, s.departure_stop_id, s.destination_stop_id,
+            rte.name as route_name, ds.name as departure_stop_name,
+            dst.name as destination_stop_name,
+            c.code as boarding_code, c.qr_payload as boarding_qr_payload,
+            c.valid_from as code_valid_from, c.valid_until as code_valid_until,
+            c.status as code_status
+       from public.schedule_occurrences o
+       join public.commuter_schedules s on s.id = o.schedule_id
+       join public.routes rte on rte.id = s.route_id
+       join public.bus_stops ds on ds.id = s.departure_stop_id
+       join public.bus_stops dst on dst.id = s.destination_stop_id
+       left join public.schedule_boarding_codes c on c.occurrence_id = o.id
+      where o.passenger_id = $1
+      order by o.boarding_start_at asc`,
+    [passengerId],
+  );
+  return rows;
+};
+
 const removeAndCancelFuture = async (scheduleId, passengerId, now, client) => {
   const { rows: schedules } = await client.query(
     `update public.commuter_schedules
@@ -120,4 +141,5 @@ const removeAndCancelFuture = async (scheduleId, passengerId, now, client) => {
   return { schedule: schedules[0], occurrences };
 };
 
-module.exports = { listForPassenger, findById, insert, update, listOccurrences, removeAndCancelFuture };
+module.exports = { listForPassenger, findById, insert, update, listOccurrences,
+  listAllOccurrencesForPassenger, removeAndCancelFuture };

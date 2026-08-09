@@ -10,7 +10,7 @@ describe('notification deep links', () => {
     expect(resolveNotificationRoute({
       type: 'schedule_accepted', occurrenceId: 'occ-1',
       deepLink: '/(tabs)/schedule?occurrenceId=occ-1',
-    })).toBe('/(tabs)/schedule?occurrenceId=occ-1');
+    })).toBe('/future-seats?occurrenceId=occ-1');
   });
 
   it('retains immediate-booking routes', () => {

@@ -7,5 +7,6 @@ const create = asyncHandler(async (req, res) => res.status(201).json(await sched
 const update = asyncHandler(async (req, res) => res.json(await scheduleService.update(req.params.id, req.user, req.body)));
 const remove = asyncHandler(async (req, res) => res.json(await scheduleService.remove(req.params.id, req.user)));
 const occurrences = asyncHandler(async (req, res) => res.json(await scheduleService.listOccurrences(req.params.id, req.user)));
+const allOccurrences = asyncHandler(async (req, res) => res.json(await scheduleService.listAllOccurrences(req.user.id)));
 
-module.exports = { list, getById, create, update, remove, occurrences };
+module.exports = { list, getById, create, update, remove, occurrences, allOccurrences };
