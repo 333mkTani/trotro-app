@@ -23,6 +23,18 @@ export const groupFutureRequests = (requests: FutureRideRequest[]) => ({
     !OPEN_FUTURE_STATUSES.includes(request.status) && !UPCOMING_FUTURE_STATUSES.includes(request.status)),
 });
 
+export const mergeFutureRequestSources = (
+  detail: FutureRideRequest | undefined,
+  requests: FutureRideRequest[],
+  history: FutureRideRequest[],
+) => {
+  const byId = new Map<string, FutureRideRequest>();
+  if (detail) byId.set(detail.id, detail);
+  for (const request of requests) byId.set(request.id, request);
+  for (const request of history) byId.set(request.id, request);
+  return [...byId.values()];
+};
+
 export const isBackupMatchingActive = (request: FutureRideRequest, nowMs = Date.now()) =>
   request.backupMatchingEnabled &&
   OPEN_FUTURE_STATUSES.includes(request.status) &&

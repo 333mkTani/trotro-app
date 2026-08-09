@@ -42,6 +42,7 @@ import {
   invalidateScheduledRideQueries,
   isBackupMatchingActive,
   isNotificationSelected,
+  mergeFutureRequestSources,
 } from '@/utils/futureRequestState';
 
 const formatDate = (value: string) => new Date(value).toLocaleDateString(undefined, {
@@ -120,12 +121,16 @@ export default function FutureRequestsScreen() {
   });
 
   const grouped = useMemo(() => {
-    const byId = new Map<string, FutureRideRequest>();
-    for (const request of [...(requestsQuery.data ?? []), ...(historyQuery.data ?? [])]) byId.set(request.id, request);
-    if (detailQuery.data) byId.set(detailQuery.data.id, detailQuery.data);
-    const all = [...byId.values()];
+    // Detail is a fallback for notification targets missing from the lists.
+    // Refreshed list/history state must win so a cancellation cannot remain
+    // visually accepted because of an older detail response.
+    const all = mergeFutureRequestSources(
+      detailQuery.isError ? undefined : detailQuery.data,
+      requestsQuery.data ?? [],
+      historyQuery.data ?? [],
+    );
     return groupFutureRequests(all);
-  }, [detailQuery.data, historyQuery.data, requestsQuery.data]);
+  }, [detailQuery.data, detailQuery.isError, historyQuery.data, requestsQuery.data]);
 
   const confirmAction = (request: FutureRideRequest, kind: Action['kind']) => {
     const copy = {
@@ -245,7 +250,9 @@ export default function FutureRequestsScreen() {
     return <View style={styles.center}><ActivityIndicator size="large" color={Colors.primary} /><Text style={styles.loadingText}>Loading future requests…</Text></View>;
   }
 
-  const queryError = requestsQuery.error ?? historyQuery.error ?? detailQuery.error;
+  // A detail can legitimately become inaccessible after decline/cancellation;
+  // the refreshed list and history remain the source of truth in that case.
+  const queryError = requestsQuery.error ?? historyQuery.error;
   const refreshing = requestsQuery.isRefetching || historyQuery.isRefetching || detailQuery.isRefetching;
 
   return (

@@ -164,6 +164,7 @@ const listForDriver = async (driverId) => {
             o.status in ('pending','offered')
             and o.assigned_driver_id is null
             and o.final_acceptance_deadline > now()
+            and r.response is distinct from 'declined'
           )
           or
           (
@@ -221,6 +222,7 @@ const findForDriver = async (occurrenceId, driverId) => {
             and o.assigned_driver_id is null
             and o.final_acceptance_deadline > now()
             and eb.id is not null
+            and resp.response is distinct from 'declined'
           )
         )`,
     [occurrenceId, driverId],

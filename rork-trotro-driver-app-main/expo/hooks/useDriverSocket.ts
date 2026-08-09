@@ -46,6 +46,7 @@ export function useDriverSocket(isAuthenticated: boolean) {
     const refreshSchedules = () => {
       void qc.invalidateQueries({ queryKey: ['future-requests'] });
       void qc.invalidateQueries({ queryKey: ['future-request-history'] });
+      void qc.invalidateQueries({ queryKey: ['future-request-detail'] });
       void qc.invalidateQueries({ queryKey: ['dashboard'] });
     };
 

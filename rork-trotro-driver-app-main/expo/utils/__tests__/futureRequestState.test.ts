@@ -4,9 +4,10 @@ import {
   invalidateScheduledRideQueries,
   isBackupMatchingActive,
   isNotificationSelected,
+  mergeFutureRequestSources,
 } from '../futureRequestState';
 
-const request = (status: FutureRideRequestStatus, id = status): FutureRideRequest => ({
+const request = (status: FutureRideRequestStatus, id: string = status): FutureRideRequest => ({
   id, status, serviceDate: '2026-08-10', boardingStart: '2026-08-10T08:00:00Z',
   boardingEnd: '2026-08-10T09:00:00Z', departureStopId: 'stop-1', passengerName: 'Ama',
   routeName: 'Adum route', departureStation: 'Kejetia', destinationStation: 'Adum',
@@ -34,6 +35,16 @@ describe('future request state', () => {
   it('highlights only the notification-selected occurrence', () => {
     expect(isNotificationSelected('occ-1', 'occ-1')).toBe(true);
     expect(isNotificationSelected('occ-2', 'occ-1')).toBe(false);
+  });
+
+  it('lets refreshed cancellation history replace a stale accepted detail', () => {
+    const merged = mergeFutureRequestSources(
+      request('accepted', 'occ-1'),
+      [],
+      [request('cancelled', 'occ-1')],
+    );
+    expect(merged).toHaveLength(1);
+    expect(merged[0].status).toBe('cancelled');
   });
 
   it.each(['acceptance', 'scheduled boarding'])('invalidates schedule consumers after %s', async () => {

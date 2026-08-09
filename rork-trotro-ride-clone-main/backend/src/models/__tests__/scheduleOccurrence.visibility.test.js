@@ -31,6 +31,12 @@ describe('driver scheduled occurrence visibility', () => {
     expect(values).toEqual(['driver-1']);
   });
 
+  it('hides an open offer after this driver declines it', async () => {
+    await occurrenceModel.listForDriver('driver-1');
+    const [sql] = db.query.mock.calls[0];
+    expect(sql).toContain("r.response is distinct from 'declined'");
+  });
+
   it('shows an open offer before the final deadline and hides it after expiry', async () => {
     await occurrenceModel.listForDriver('driver-1');
     const [sql] = db.query.mock.calls[0];
@@ -62,6 +68,7 @@ describe('driver scheduled occurrence visibility', () => {
     expect(sql).toContain('o.assigned_driver_id = $2');
     expect(sql).toMatch(/o\.status in \('pending','offered'\)[\s\S]*o\.final_acceptance_deadline > now\(\)[\s\S]*eb\.id is not null/);
     expect(sql).toContain("b.driver_id = $2 and b.route_id = s.route_id");
+    expect(sql).toContain("resp.response is distinct from 'declined'");
   });
 
   it('limits terminal history to assigned or responding drivers', async () => {
