@@ -12,6 +12,15 @@ const env = {
   SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
   SUPABASE_JWT_SECRET: process.env.SUPABASE_JWT_SECRET || '',
   PAYSTACK_SECRET_KEY: process.env.PAYSTACK_SECRET_KEY || '',
+  MAPBOX_ACCESS_TOKEN: process.env.MAPBOX_ACCESS_TOKEN || '',
+  MAPBOX_DIRECTIONS_BASE_URL:
+    process.env.MAPBOX_DIRECTIONS_BASE_URL || 'https://api.mapbox.com',
+  ROUTING_CACHE_TTL_SECONDS:
+    Math.max(1, parseInt(process.env.ROUTING_CACHE_TTL_SECONDS || '30', 10)),
+  ROUTING_REQUEST_TIMEOUT_MS:
+    Math.max(1000, parseInt(process.env.ROUTING_REQUEST_TIMEOUT_MS || '8000', 10)),
+  MAPBOX_DRIVING_TRAFFIC_ENABLED:
+    String(process.env.MAPBOX_DRIVING_TRAFFIC_ENABLED || 'false').toLowerCase() === 'true',
   SCHEDULED_RESERVATIONS_ENABLED:
     String(process.env.SCHEDULED_RESERVATIONS_ENABLED || 'false').toLowerCase() === 'true',
   SCHEDULED_RESERVATIONS_ROLLOUT_PERCENT:

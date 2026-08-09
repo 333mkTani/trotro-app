@@ -37,7 +37,6 @@ import {
   ScheduleTimeMode,
   DayTimeEntry,
   Route as RouteType,
-  ScheduleOccurrence,
 } from "@/types";
 const Colors = StaticColors;
 
@@ -62,7 +61,7 @@ export default function ScheduleScreen() {
 
   const router = useRouter();
   const { regionStops, regionRoutes } = useLocation();
-  const { schedules, schedulesLoading, schedulesError, createSchedule, createSchedulePending, updateSchedule, setScheduleStatus, scheduleStatusPending, deleteSchedule, deleteSchedulePending, refreshSchedules, refreshScheduleData, occurrenceRefreshToken, getOccurrences, cancelOccurrence, cancelOccurrencePending } = useCommuterSchedules();
+  const { schedules, schedulesLoading, schedulesError, createSchedule, createSchedulePending, updateSchedule, setScheduleStatus, scheduleStatusPending, deleteSchedule, deleteSchedulePending, refreshSchedules, refreshScheduleData } = useCommuterSchedules();
 
   const [pickup, setPickup] = useState<BusStop | null>(null);
   const [dest, setDest] = useState<BusStop | null>(null);
@@ -91,31 +90,18 @@ export default function ScheduleScreen() {
   const [done, setDone] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [backupMatching, setBackupMatching] = useState(false);
-  const [occurrences, setOccurrences] = useState<Record<string, ScheduleOccurrence[]>>({});
   const [refreshing, setRefreshing] = useState(false);
 
   const fadeIn = useRef(new Animated.Value(0)).current;
   const btnScale = useRef(new Animated.Value(1)).current;
   const successScale = useRef(new Animated.Value(0.8)).current;
+  const submittingRef = useRef(false);
+  const scrollRef = useRef<ScrollView>(null);
+  const editorYRef = useRef(0);
 
   useEffect(() => {
     Animated.timing(fadeIn, { toValue: 1, duration: 350, useNativeDriver: true }).start();
   }, []);
-  const loadOccurrences = useCallback(async (scheduleList = schedules) => {
-    const entries = await Promise.all(
-      scheduleList.map(async (schedule) => [schedule.id, await getOccurrences(schedule.id)] as const),
-    );
-    setOccurrences(Object.fromEntries(entries));
-  }, [getOccurrences, schedules]);
-
-  useEffect(() => {
-    let active = true;
-    void Promise.all(schedules.map(async (schedule) => [schedule.id, await getOccurrences(schedule.id)] as const))
-      .then((entries) => { if (active) setOccurrences(Object.fromEntries(entries)); })
-      .catch(() => { if (active) setOccurrences({}); });
-    return () => { active = false; };
-  }, [schedules, getOccurrences, occurrenceRefreshToken]);
-
   useFocusEffect(useCallback(() => {
     void refreshScheduleData();
   }, [refreshScheduleData]));
@@ -123,34 +109,11 @@ export default function ScheduleScreen() {
   const refreshAll = useCallback(async () => {
     setRefreshing(true);
     try {
-      const result = await refreshSchedules();
-      await loadOccurrences(result.data ?? schedules);
+      await refreshSchedules();
     } finally {
       setRefreshing(false);
     }
-  }, [loadOccurrences, refreshSchedules, schedules]);
-
-  const occurrenceLabel = useCallback((occurrence: ScheduleOccurrence) => {
-    const schedule = schedules.find((item) => item.id === occurrence.schedule_id);
-    const backupActive = Boolean(
-      schedule?.backup_matching_enabled
-      && ['pending', 'offered'].includes(occurrence.status)
-      && Date.now() >= new Date(occurrence.primary_acceptance_deadline).getTime(),
-    );
-    const labels: Record<ScheduleOccurrence["status"], string> = {
-      pending: backupActive ? "Backup matching" : "Searching — not confirmed",
-      offered: backupActive ? "Backup matching" : "Searching — not confirmed",
-      accepted: "Accepted — seat confirmed",
-      boarding_open: "Boarding open",
-      boarded: "Boarded",
-      departed: "Departed",
-      completed: "Completed",
-      cancelled: "Cancelled",
-      expired: "Expired",
-      unmatched: "Unmatched",
-    };
-    return labels[occurrence.status];
-  }, [schedules]);
+  }, [refreshSchedules]);
 
   const stops = useMemo(() => regionStops, [regionStops]);
   const destStops = useMemo(() => stops.filter((s) => s.id !== pickup?.id), [stops, pickup]);
@@ -246,6 +209,9 @@ export default function ScheduleScreen() {
     setSelectedDays(schedule.travel_days.map((day) => `${day[0].toUpperCase()}${day.slice(1)}` as DayOfWeek));
     setSameHour(hour); setSameMinute(minute); setTimeMode("same");
     setBackupMatching(schedule.backup_matching_enabled); setEditingId(schedule.id);
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ y: Math.max(0, editorYRef.current - 12), animated: true });
+    });
   }, [regionStops, schedules]);
 
   const removeSchedule = useCallback((id: string) => Alert.alert("Delete recurring schedule?",
@@ -255,7 +221,8 @@ export default function ScheduleScreen() {
     ]), [deleteSchedule]);
 
   const submit = useCallback(async () => {
-    if (!pickup || !dest || !route || createSchedulePending) return;
+    if (!pickup || !dest || !route || createSchedulePending || submittingRef.current) return;
+    submittingRef.current = true;
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     Animated.sequence([
@@ -292,6 +259,8 @@ export default function ScheduleScreen() {
           ? error.message
           : "Check your connection and try again. Nothing is confirmed yet."
       );
+    } finally {
+      submittingRef.current = false;
     }
   }, [pickup, dest, route, sameHour, sameMinute, selectedDays, timeMode, customTimes, createSchedule, updateSchedule, editingId, backupMatching, createSchedulePending, btnScale, successScale]);
 
@@ -301,7 +270,12 @@ export default function ScheduleScreen() {
 
     return (
       <View style={st.root}>
-        <View style={st.successWrap}>
+        <ScrollView
+          style={st.flex}
+          contentContainerStyle={st.successWrap}
+          showsVerticalScrollIndicator={false}
+          bounces
+        >
           <Animated.View style={[st.successCard, { transform: [{ scale: successScale }] }]}>
             <View style={st.successIconWrap}>
               <CalendarDays size={40} color={Colors.white} />
@@ -347,6 +321,7 @@ export default function ScheduleScreen() {
               onPress={() => {
                 setDone(false);
                 void refreshScheduleData();
+                router.push('/future-seats');
               }}
               activeOpacity={0.7}
             >
@@ -374,7 +349,7 @@ export default function ScheduleScreen() {
               <Text style={[st.setAnotherTxt, { color: Colors.gray500 }]}>Back to Home</Text>
             </TouchableOpacity>
           </Animated.View>
-        </View>
+        </ScrollView>
       </View>
     );
   }
@@ -383,21 +358,41 @@ export default function ScheduleScreen() {
     <View style={st.root}>
       <Animated.View style={[st.flex, { opacity: fadeIn }]}>
         <ScrollView
+          ref={scrollRef}
           style={st.flex}
           contentContainerStyle={st.scroll}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void refreshAll()} tintColor={Colors.primary} colors={[Colors.primary]} />}
         >
-          <View style={st.heroCard} accessibilityLiveRegion="polite"><View style={st.heroText}><Text style={st.heroTitle}>My recurring schedules</Text><Text style={st.heroSub}>Accepted occurrences stay unchanged when you edit or pause a schedule.</Text></View></View>
+          <View style={st.heroCard} accessibilityLiveRegion="polite"><View style={st.heroText}><Text style={st.heroTitle}>My recurring schedules</Text><Text style={st.heroSub}>Manage the days, times and routes used to create future seat searches.</Text></View></View>
           <TouchableOpacity style={st.daysCard} onPress={() => router.push('/future-seats')} activeOpacity={0.7} accessibilityRole="button">
             <View style={st.successRow}><Text style={st.timeModeLbl}>View future seats</Text><CalendarDays size={20} color={Colors.primary} /></View>
             <Text style={st.daysSub}>Track searches, accepted seats, boarding codes and history.</Text>
           </TouchableOpacity>
-          {schedulesLoading ? <View style={st.infoBar} accessibilityRole="progressbar"><ActivityIndicator color={Colors.primary} /><Text style={st.infoTxt}>Loading your schedules?</Text></View> : schedulesError ? <TouchableOpacity style={st.routeErr} onPress={() => void refreshSchedules()} accessibilityRole="button"><AlertCircle size={14} color={Colors.danger} /><Text style={st.routeErrTxt}>Could not load schedules. Tap to retry.</Text></TouchableOpacity> : schedules.map((schedule) => { const departure = regionStops.find((stop) => stop.id === schedule.departure_stop_id)?.name ?? "Departure station"; const destination = regionStops.find((stop) => stop.id === schedule.destination_stop_id)?.name ?? "Destination"; return <View key={schedule.id} style={st.daysCard} accessible accessibilityLabel={`${schedule.status} schedule from ${departure} to ${destination}`}><View style={st.successRow}><Text style={st.timeModeLbl}>{departure} ? {destination}</Text><Text style={[st.sVal, { color: schedule.status === "active" ? Colors.success : Colors.warning }]}>{schedule.status}</Text></View><Text style={st.daysSub}>{schedule.travel_days.map((day) => day.toUpperCase()).join(", ")} ? {schedule.boarding_start_local.slice(0, 5)}?{schedule.boarding_end_local.slice(0, 5)}</Text><Text style={st.hint}>Next: {nextOccurrence(schedule.travel_days)} ? Ghana time (Africa/Accra)</Text><Text style={st.hint}>Driver acceptance deadline: 8:00 PM the previous day. Searching is not confirmation.</Text><View style={st.presetRow}><TouchableOpacity style={st.presetChip} onPress={() => void setScheduleStatus({ id: schedule.id, status: schedule.status === "active" ? "paused" : "active" })} disabled={scheduleStatusPending}><Text style={st.presetTxt}>{schedule.status === "active" ? "Pause" : "Resume"}</Text></TouchableOpacity><TouchableOpacity style={st.presetChip} onPress={() => beginEdit(schedule)}><Text style={st.presetTxt}>Edit future</Text></TouchableOpacity><TouchableOpacity style={st.presetChip} onPress={() => removeSchedule(schedule.id)} disabled={deleteSchedulePending}><Text style={[st.presetTxt, { color: Colors.danger }]}>Delete</Text></TouchableOpacity></View></View>; })}
-          {Object.values(occurrences).flat().sort((a, b) => a.boarding_start_at.localeCompare(b.boarding_start_at)).slice(0, 5).map((occurrence) => <View key={occurrence.id} style={st.infoBar} accessible accessibilityLabel={`${occurrenceLabel(occurrence)} on ${occurrence.service_date}`}><Calendar size={14} color={['accepted','boarding_open','boarded','completed'].includes(occurrence.status) ? Colors.success : occurrence.status === 'cancelled' || occurrence.status === 'expired' || occurrence.status === 'unmatched' ? Colors.danger : Colors.primary} /><Text style={st.infoTxt}><Text style={{ fontWeight: '700' }}>{occurrenceLabel(occurrence)}</Text> · {new Date(occurrence.boarding_start_at).toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Africa/Accra" })}{occurrence.bus_registration ? ` · Bus ${occurrence.bus_registration}` : ""}{occurrence.future_seats_remaining !== undefined ? ` · ${occurrence.future_seats_remaining} future seats left` : ""}</Text></View>)}
-          {Object.values(occurrences).flat().filter((occurrence) => occurrence.boarding_code || ['pending','offered','accepted'].includes(occurrence.status)).slice(0, 5).map((occurrence) => <View key={`action-${occurrence.id}`} style={st.daysCard}>{occurrence.boarding_code && occurrence.code_status === 'active' ? <><Text style={st.label}>BOARDING CODE</Text><Text style={st.timeNum} selectable accessibilityLabel={`Boarding code ${occurrence.boarding_code}`}>{occurrence.boarding_code}</Text><Text style={st.hint}>Active only during the boarding window. Payment unlocks after the driver scans it.</Text></> : null}{['pending','offered','accepted'].includes(occurrence.status) ? <TouchableOpacity style={st.presetChip} disabled={cancelOccurrencePending} onPress={() => Alert.alert('Cancel this occurrence?', 'This releases its future seat. Cancellation closes when boarding opens.', [{ text: 'Keep', style: 'cancel' }, { text: 'Cancel occurrence', style: 'destructive', onPress: async () => { try { await cancelOccurrence(occurrence.id); setOccurrences((current) => ({ ...current, [occurrence.schedule_id]: (current[occurrence.schedule_id] ?? []).map((item) => item.id === occurrence.id ? { ...item, status: 'cancelled' } : item) })); } catch (error) { Alert.alert('Could not cancel', error instanceof Error ? error.message : 'Try again.'); } } }])}><Text style={[st.presetTxt, { color: Colors.danger }]}>Cancel occurrence</Text></TouchableOpacity> : null}</View>)}
-          <View style={st.heroCard}>
+          {schedulesLoading ? <View style={st.infoBar} accessibilityRole="progressbar"><ActivityIndicator color={Colors.primary} /><Text style={st.infoTxt}>Loading your schedules…</Text></View> : schedulesError ? <TouchableOpacity style={st.routeErr} onPress={() => void refreshSchedules()} accessibilityRole="button"><AlertCircle size={14} color={Colors.danger} /><Text style={st.routeErrTxt}>Could not load schedules. Tap to retry.</Text></TouchableOpacity> : schedules.map((schedule) => {
+            const departure = regionStops.find((stop) => stop.id === schedule.departure_stop_id)?.name ?? "Departure station";
+            const destination = regionStops.find((stop) => stop.id === schedule.destination_stop_id)?.name ?? "Destination";
+            const active = schedule.status === "active";
+            return (
+              <View key={schedule.id} style={st.templateCard} accessible accessibilityLabel={`${schedule.status} recurring schedule from ${departure} to ${destination}`}>
+                <View style={st.templateHeader}>
+                  <View style={st.templateIcon}><Repeat size={20} color={Colors.primary} /></View>
+                  <View style={st.templateHeading}><Text style={st.templateEyebrow}>RECURRING SCHEDULE</Text><Text style={st.templateRoute}>{departure} → {destination}</Text></View>
+                  <View style={[st.templateStatus, active ? st.templateStatusActive : st.templateStatusPaused]}><Text style={[st.templateStatusText, { color: active ? Colors.success : Colors.warning }]}>{active ? "Active" : "Paused"}</Text></View>
+                </View>
+                <View style={st.templateMetaRow}><Calendar size={16} color={Colors.gray500} /><Text style={st.templateMetaText}>{schedule.travel_days.map((day) => day.slice(0, 3).toUpperCase()).join(" · ")}</Text></View>
+                <View style={st.templateMetaRow}><Clock size={16} color={Colors.gray500} /><Text style={st.templateMetaText}>{schedule.boarding_start_local.slice(0, 5)}–{schedule.boarding_end_local.slice(0, 5)} · Ghana time</Text></View>
+                <Text style={st.templateNext}>Next travel day: {nextOccurrence(schedule.travel_days)}</Text>
+                <View style={st.templateActions}>
+                  <TouchableOpacity style={st.templateAction} onPress={() => void setScheduleStatus({ id: schedule.id, status: active ? "paused" : "active" })} disabled={scheduleStatusPending} activeOpacity={0.7}><Text style={st.templateActionText}>{active ? "Pause" : "Resume"}</Text></TouchableOpacity>
+                  <TouchableOpacity style={st.templateEditAction} onPress={() => beginEdit(schedule)} activeOpacity={0.7} testID={`edit-schedule-${schedule.id}`}><Text style={st.templateEditText}>Edit schedule</Text></TouchableOpacity>
+                  <TouchableOpacity style={st.templateAction} onPress={() => removeSchedule(schedule.id)} disabled={deleteSchedulePending} activeOpacity={0.7}><Text style={[st.templateActionText, { color: Colors.danger }]}>Delete</Text></TouchableOpacity>
+                </View>
+              </View>
+            );
+          })}
+          <View style={st.heroCard} onLayout={(event) => { editorYRef.current = event.nativeEvent.layout.y; }}>
             <View style={st.heroIcon}>
               <CalendarDays size={24} color={Colors.primary} />
             </View>
@@ -1005,6 +1000,36 @@ const make_st = (Colors: ThemePalette) => StyleSheet.create({
     shadowRadius: 8,
     elevation: 2,
   },
+  templateCard: {
+    backgroundColor: Colors.cardBg,
+    borderRadius: 20,
+    padding: 18,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    elevation: 3,
+  },
+  templateHeader: { flexDirection: "row", alignItems: "center", gap: 11, marginBottom: 16 },
+  templateIcon: { width: 42, height: 42, borderRadius: 13, alignItems: "center", justifyContent: "center", backgroundColor: Colors.primaryFaded },
+  templateHeading: { flex: 1, minWidth: 0 },
+  templateEyebrow: { color: Colors.primary, fontSize: 9, fontWeight: "800", letterSpacing: 1 },
+  templateRoute: { color: Colors.text, fontSize: 16, fontWeight: "800", marginTop: 3 },
+  templateStatus: { borderRadius: 999, paddingHorizontal: 9, paddingVertical: 5 },
+  templateStatusActive: { backgroundColor: Colors.successLight },
+  templateStatusPaused: { backgroundColor: Colors.warningLight },
+  templateStatusText: { fontSize: 10, fontWeight: "800" },
+  templateMetaRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
+  templateMetaText: { flex: 1, color: Colors.textMuted, fontSize: 13, fontWeight: "600" },
+  templateNext: { color: Colors.textMuted, fontSize: 12, lineHeight: 17, backgroundColor: Colors.gray50, borderRadius: 10, padding: 10, marginTop: 4 },
+  templateActions: { flexDirection: "row", gap: 8, marginTop: 16 },
+  templateAction: { flex: 1, minHeight: 43, alignItems: "center", justifyContent: "center", borderRadius: 11, backgroundColor: Colors.gray100, borderWidth: 1, borderColor: Colors.gray200 },
+  templateActionText: { color: Colors.textMuted, fontSize: 12, fontWeight: "700" },
+  templateEditAction: { flex: 1.25, minHeight: 43, alignItems: "center", justifyContent: "center", borderRadius: 11, backgroundColor: Colors.primary },
+  templateEditText: { color: Colors.white, fontSize: 12, fontWeight: "800" },
   presetRow: {
     flexDirection: "row",
     gap: 8,
@@ -1265,7 +1290,7 @@ const make_st = (Colors: ThemePalette) => StyleSheet.create({
   submitOff: { opacity: 0.5 },
   submitTxt: { fontSize: 16, fontWeight: "700" as const, color: Colors.white },
 
-  successWrap: { flex: 1, justifyContent: "center" as const, padding: 20, backgroundColor: Colors.screenBg },
+  successWrap: { flexGrow: 1, justifyContent: "center" as const, padding: 20, paddingBottom: 40, backgroundColor: Colors.screenBg },
   successCard: {
     backgroundColor: Colors.white,
     borderRadius: 24,
