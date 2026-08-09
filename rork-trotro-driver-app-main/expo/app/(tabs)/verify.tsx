@@ -5,12 +5,12 @@ import { CameraView, useCameraPermissions, type BarcodeScanningResult } from 'ex
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ShieldCheck, CheckCircle, XCircle, ScanLine, RefreshCw, X } from 'lucide-react-native';
 import Colors from '@/constants/colors';
-import { verifyBoardingCode, reportPassengerEvent } from '@/services/driverApi';
+import { verifyBoardingCode } from '@/services/driverApi';
 import { CodeInputCells } from '@/components/CodeInputCell';
 import { VerificationResult } from '@/types';
 import { formatTime } from '@/utils/helpers';
-import { useDriverStore } from '@/store/driverStore';
 import { invalidateScheduledRideQueries } from '@/utils/futureRequestState';
+import { parseBoardingQrPayload } from '@/utils/boardingQrPayload';
 
 const ET: Record<string, string> = { CODE_NOT_FOUND: 'Code Not Found', CODE_EXPIRED: 'Code Has Expired', CODE_ALREADY_USED: 'Code Already Used', BUS_MISMATCH: 'Wrong Bus', CODE_INVALIDATED: 'Code Cancelled', BOARDING_NOT_OPEN: 'Boarding Not Open', WRONG_DRIVER: 'Wrong Driver' };
 const EM: Record<string, string> = { CODE_NOT_FOUND: 'Not found in the system.', CODE_EXPIRED: 'This code has expired.', CODE_ALREADY_USED: 'Already used for boarding.', BUS_MISMATCH: 'Issued for a different bus.', CODE_INVALIDATED: 'Cancelled by the passenger.', BOARDING_NOT_OPEN: 'This scheduled boarding window is not open yet.', WRONG_DRIVER: 'This scheduled seat is assigned to another driver.' };
@@ -19,26 +19,16 @@ export default function TrotroPassengerVerify() {
   const [code, setCode] = useState<string[]>(['', '', '', '', '', '']);
   const [result, setResult] = useState<VerificationResult | null>(null);
   const qc = useQueryClient();
-  const store = useDriverStore();
   const vMut = useMutation({
     mutationFn: (c: string) => verifyBoardingCode(c),
     onSuccess: async (d: VerificationResult) => {
       setResult(d);
       if (Platform.OS !== 'web') Haptics.notificationAsync(d.success ? Haptics.NotificationFeedbackType.Success : Haptics.NotificationFeedbackType.Error);
-      if (d.success && d.source === 'SCHEDULED') {
+      if (d.success) {
+        // Redemption is authoritative and idempotent on the backend. Never
+        // decrement the local store here: replaying a successful response
+        // must not consume the same seat twice in the driver's UI.
         await invalidateScheduledRideQueries(qc);
-      }
-      if (d.success && d.passenger_name) {
-        try {
-          await reportPassengerEvent('BOARDING', d.passenger_name);
-          const newSeats = Math.max(0, store.availableSeats - 1);
-          store.updateSeats(newSeats, store.totalSeats);
-          qc.invalidateQueries({ queryKey: ['seat-sync'] });
-          qc.invalidateQueries({ queryKey: ['dashboard'] });
-          console.log('[Verify] Auto-decremented seat after verification:', d.passenger_name);
-        } catch (e) {
-          console.log('[Verify] Failed to report boarding event:', e);
-        }
       }
     },
     onError: () => setResult({ success: false, error_code: 'CODE_NOT_FOUND' }),
@@ -62,15 +52,15 @@ export default function TrotroPassengerVerify() {
 
   const onBarcodeScanned = useCallback((res: BarcodeScanningResult) => {
     if (scanLock.current) return;
-    const digits = (res.data ?? '').replace(/\D/g, '');
-    if (digits.length !== 6) return; // ignore non-boarding QR codes, keep scanning
+    const boardingCode = parseBoardingQrPayload(res.data);
+    if (!boardingCode) return; // ignore unrelated QR codes and keep scanning
     scanLock.current = true;
     if (Platform.OS !== 'web') Haptics.selectionAsync();
     setScanning(false);
     setResult(null);
     vMut.reset();
-    setCode(digits.split(''));
-    vMut.mutate(digits);
+    setCode(boardingCode.split(''));
+    vMut.mutate(boardingCode);
   }, [vMut]);
 
   return (
@@ -79,7 +69,7 @@ export default function TrotroPassengerVerify() {
       <View style={vs.codeW}><CodeInputCells code={code} onCodeChange={setCode} /></View>
       <Pressable style={({ pressed }) => [vs.scanBtn, pressed && { opacity: 0.6 }]} onPress={openScanner} testID="scan-qr"><ScanLine size={18} color={Colors.primary} /><Text style={vs.scanT}>Scan QR Code instead</Text></Pressable>
       {!result && <Pressable style={({ pressed }) => [vs.vBtn, pressed && vs.vBtnP, !filled && vs.vBtnD]} onPress={onVerify} disabled={!filled || vMut.isPending} testID="verify-btn">{vMut.isPending ? <ActivityIndicator color={Colors.white} size="small" /> : <Text style={vs.vBtnT}>Verify Passenger</Text>}</Pressable>}
-      {result?.success && <View style={vs.okCard} testID="verify-ok"><CheckCircle size={48} color={Colors.success} /><Text style={vs.okT}>Boarding Confirmed</Text>{result.passenger_name && <Text style={vs.det}>{result.passenger_name}</Text>}{result.route_name && <Text style={vs.route}>{result.route_name}</Text>}{result.confirmed_at && <Text style={vs.time}>Confirmed at {formatTime(result.confirmed_at)}</Text>}<View style={vs.seatUpdate}><RefreshCw size={12} color={Colors.primary} /><Text style={vs.seatUpdateText}>Seat count auto-updated</Text></View><Pressable style={({ pressed }) => [vs.resetBtn, pressed && { opacity: 0.85 }]} onPress={onReset} testID="verify-another"><Text style={vs.resetT}>Verify Another</Text></Pressable></View>}
+      {result?.success && <View style={vs.okCard} testID="verify-ok"><CheckCircle size={48} color={Colors.success} /><Text style={vs.okT}>Boarding Confirmed</Text>{result.passenger_name && <Text style={vs.det}>{result.passenger_name}</Text>}{result.route_name && <Text style={vs.route}>{result.route_name}</Text>}{result.confirmed_at && <Text style={vs.time}>Confirmed at {formatTime(result.confirmed_at)}</Text>}<View style={vs.seatUpdate}><RefreshCw size={12} color={Colors.primary} /><Text style={vs.seatUpdateText}>Seat count refreshed from server</Text></View><Pressable style={({ pressed }) => [vs.resetBtn, pressed && { opacity: 0.85 }]} onPress={onReset} testID="verify-another"><Text style={vs.resetT}>Verify Another</Text></Pressable></View>}
       {result && !result.success && <View style={vs.failCard} testID="verify-fail"><XCircle size={48} color={Colors.error} /><Text style={vs.failT}>{result.error_code ? ET[result.error_code] ?? 'Failed' : 'Failed'}</Text><Text style={vs.failM}>{result.error_code ? EM[result.error_code] ?? 'Try again.' : 'Try again.'}</Text><Pressable style={({ pressed }) => [vs.retryBtn, pressed && { opacity: 0.85 }]} onPress={onReset} testID="try-again"><Text style={vs.retryT}>Try Again</Text></Pressable></View>}
 
       <Modal visible={scanning} animationType="slide" onRequestClose={() => setScanning(false)} statusBarTranslucent>

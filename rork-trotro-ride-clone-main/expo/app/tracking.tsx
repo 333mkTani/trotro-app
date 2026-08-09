@@ -357,6 +357,9 @@ export default function TrackingScreen() {
           mapStyle="https://tiles.openfreemap.org/styles/liberty"
           logoEnabled={false}
           attributionEnabled={false}
+          compassEnabled
+          compassViewPosition={1}
+          compassViewMargins={{ x: 16, y: Platform.OS === "ios" ? 112 : 98 }}
           onDidFinishLoadingMap={() => setMapReady(true)}
         >
           <MapLibreGL.Camera

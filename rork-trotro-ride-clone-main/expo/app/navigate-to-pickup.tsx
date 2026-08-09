@@ -296,6 +296,9 @@ export default function NavigateToPickupScreen() {
                 mapStyle="https://tiles.openfreemap.org/styles/liberty"
                 logoEnabled={false}
                 attributionEnabled={false}
+                compassEnabled
+                compassViewPosition={1}
+                compassViewMargins={{ x: 12, y: 12 }}
                 onDidFinishLoadingMap={() => setMapReady(true)}
               >
                 <MapLibreGL.Camera

@@ -11,10 +11,12 @@ import {
 } from 'react-native';
 import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { Bus, CalendarDays, Clock3, MapPin, ShieldCheck, UserRound } from 'lucide-react-native';
+import QRCode from '@/components/QRCode';
 import { useCommuterSchedules } from '@/contexts/CommuterScheduleContext';
 import { useLocation } from '@/contexts/LocationContext';
 import { useTheme, type ThemePalette } from '@/contexts/ThemeContext';
 import type { ScheduleOccurrence, ScheduleOccurrenceStatus } from '@/types';
+import { getScheduledBoardingQrValue } from '@/utils/scheduledBoardingQr';
 
 const LABELS: Record<ScheduleOccurrenceStatus, string> = {
   pending: 'Searching — not confirmed',
@@ -118,6 +120,7 @@ export default function FutureSeatsScreen() {
     const selected = occurrence.id === occurrenceId;
     const positive = UPCOMING.includes(occurrence.status) || occurrence.status === 'completed';
     const negative = ['cancelled', 'expired', 'unmatched'].includes(occurrence.status);
+    const boardingQrValue = getScheduledBoardingQrValue(occurrence);
     return (
       <View
         key={occurrence.id}
@@ -140,8 +143,26 @@ export default function FutureSeatsScreen() {
         <View style={styles.row}><Clock3 size={16} color={colors.gray500} /><Text style={styles.rowText}>Boarding ends {formatDateTime(occurrence.boarding_end_at)}</Text></View>
         {occurrence.driver_name ? <View style={styles.row}><UserRound size={16} color={colors.gray500} /><Text style={styles.rowText}>{occurrence.driver_name}{occurrence.bus_registration ? ` · Bus ${occurrence.bus_registration}` : ''}</Text></View> : null}
         {occurrence.status === 'accepted' ? <Text style={styles.confirmed}>Your seat is confirmed. Travel to the departure station for boarding.</Text> : null}
-        {occurrence.status === 'boarding_open' && occurrence.boarding_code && occurrence.code_status === 'active' ? (
-          <View style={styles.codeBox}><ShieldCheck size={20} color={colors.primary} /><View><Text style={styles.codeLabel}>BOARDING CODE</Text><Text style={styles.code} selectable>{occurrence.boarding_code}</Text></View></View>
+        {boardingQrValue && occurrence.boarding_code ? (
+          <View style={styles.boardingPass}>
+            <View style={styles.boardingPassHeader}>
+              <ShieldCheck size={21} color={colors.primary} />
+              <Text style={styles.boardingPassTitle}>Scheduled boarding pass</Text>
+            </View>
+            <View style={styles.qrWrap}>
+              <QRCode
+                value={boardingQrValue}
+                size={180}
+                backgroundColor="#FFFFFF"
+                testID={`scheduled-boarding-qr-${occurrence.id}`}
+              />
+            </View>
+            <Text style={styles.scanHint}>Show this QR code to your driver when boarding.</Text>
+            <View style={styles.codeBox}>
+              <Text style={styles.codeLabel}>MANUAL BOARDING CODE</Text>
+              <Text style={styles.code} selectable>{occurrence.boarding_code}</Text>
+            </View>
+          </View>
         ) : null}
         {section !== 'history' && ['pending', 'offered', 'accepted'].includes(occurrence.status) ? (
           <TouchableOpacity style={styles.cancelButton} disabled={cancelOccurrencePending} onPress={() => cancel(occurrence)}>
@@ -188,7 +209,10 @@ const makeStyles = (colors: ThemePalette) => StyleSheet.create({
   badge: { maxWidth: '50%', borderRadius: 999, paddingHorizontal: 9, paddingVertical: 5 }, goodBadge: { backgroundColor: colors.successLight }, badBadge: { backgroundColor: colors.dangerLight }, waitBadge: { backgroundColor: colors.warningLight },
   badgeText: { textAlign: 'center', fontSize: 10, fontWeight: '800' }, row: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, marginBottom: 8 }, rowText: { flex: 1, color: colors.textMuted, fontSize: 13, lineHeight: 18 }, strong: { color: colors.text, fontWeight: '700' },
   confirmed: { color: colors.success, backgroundColor: colors.successLight, borderRadius: 10, padding: 10, fontSize: 12, fontWeight: '700', marginTop: 3 },
-  codeBox: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.primaryFaded, borderRadius: 12, padding: 13, marginTop: 5 }, codeLabel: { color: colors.textMuted, fontSize: 10, fontWeight: '800' }, code: { color: colors.primary, fontSize: 25, fontWeight: '900', letterSpacing: 5 },
+  boardingPass: { alignItems: 'center', backgroundColor: colors.primaryFaded, borderColor: `${colors.primary}35`, borderRadius: 16, borderWidth: 1, marginTop: 8, padding: 16 },
+  boardingPassHeader: { alignItems: 'center', flexDirection: 'row', gap: 8 }, boardingPassTitle: { color: colors.text, fontSize: 16, fontWeight: '700' },
+  qrWrap: { backgroundColor: '#FFFFFF', borderRadius: 16, marginTop: 14, padding: 10 }, scanHint: { color: colors.textMuted, fontSize: 13, lineHeight: 19, marginTop: 10, textAlign: 'center' },
+  codeBox: { alignItems: 'center', backgroundColor: colors.cardBg, borderRadius: 12, marginTop: 12, padding: 12, width: '100%' }, codeLabel: { color: colors.textMuted, fontSize: 10, fontWeight: '800' }, code: { color: colors.primary, fontSize: 25, fontWeight: '900', letterSpacing: 5 },
   cancelButton: { minHeight: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 11, borderWidth: 1, borderColor: colors.danger, marginTop: 12 }, cancelText: { color: colors.danger, fontWeight: '700' },
   empty: { borderRadius: 14, borderWidth: 1, borderStyle: 'dashed', borderColor: colors.border, padding: 18, marginBottom: 18 }, emptyText: { color: colors.textMuted, textAlign: 'center', fontSize: 13 },
 });
