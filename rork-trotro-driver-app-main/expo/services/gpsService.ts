@@ -1,11 +1,13 @@
 import * as Location from 'expo-location';
+import * as TaskManager from 'expo-task-manager';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import { useDriverStore } from '@/store/driverStore';
+import { useAuthStore } from '@/store/authStore';
 import { postLocation } from './driverApi';
 import { enqueueLocation } from './offlineQueue';
 import { haversineDistance } from '@/utils/helpers';
 
-let locationSubscription: Location.LocationSubscription | null = null;
 let gpsInterval: ReturnType<typeof setInterval> | null = null;
 let lastPostedLat: number | null = null;
 let lastPostedLng: number | null = null;
@@ -14,6 +16,19 @@ let gpsStarting = false;
 const MIN_DISTANCE_M = 50;
 const POST_INTERVAL_MS = 30000;
 const HEARTBEAT_INTERVAL_MS = 60000;
+export const DRIVER_LOCATION_TASK = 'trotro-driver-background-location';
+
+type BackgroundLocationData = { locations?: Location.LocationObject[] };
+
+async function restoreAuthForBackgroundTask(): Promise<boolean> {
+  if (useAuthStore.getState().accessToken) return true;
+  const stored = await AsyncStorage.getItem('auth_tokens');
+  if (!stored) return false;
+  const tokens = JSON.parse(stored) as { accessToken?: string; refreshToken?: string };
+  if (!tokens.accessToken || !tokens.refreshToken) return false;
+  useAuthStore.getState().setTokens(tokens.accessToken, tokens.refreshToken);
+  return true;
+}
 
 async function sendLocation(lat: number, lng: number, isOnline: boolean): Promise<void> {
   if (lastPostedLat !== null && lastPostedLng !== null) {
@@ -44,8 +59,28 @@ async function sendLocation(lat: number, lng: number, isOnline: boolean): Promis
   }
 }
 
+TaskManager.defineTask<BackgroundLocationData>(DRIVER_LOCATION_TASK, async ({ data, error }) => {
+  if (error) {
+    console.log('[GPS] Background location task error:', error.message);
+    return;
+  }
+
+  const latest = data?.locations?.at(-1);
+  if (!latest) return;
+
+  try {
+    if (!(await restoreAuthForBackgroundTask())) {
+      console.log('[GPS] Background update skipped: no stored driver session');
+      return;
+    }
+    await sendLocation(latest.coords.latitude, latest.coords.longitude, true);
+  } catch (taskError) {
+    console.log('[GPS] Background location handling failed:', taskError);
+  }
+});
+
 export async function startGpsService(): Promise<boolean> {
-  if (locationSubscription || gpsInterval || gpsStarting) return true;
+  if (gpsInterval || gpsStarting) return true;
   gpsStarting = true;
   try {
     const { status } = await Location.requestForegroundPermissionsAsync();
@@ -74,17 +109,27 @@ export async function startGpsService(): Promise<boolean> {
     gpsInterval = setInterval(() => { void fetchAndSend(); }, HEARTBEAT_INTERVAL_MS);
 
     if (Platform.OS !== 'web') {
-      locationSubscription = await Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.High,
-          timeInterval: POST_INTERVAL_MS,
-          distanceInterval: 0,
-        },
-        (location) => {
-          const isOnline = useDriverStore.getState().isOnline;
-          sendLocation(location.coords.latitude, location.coords.longitude, isOnline);
+      const backgroundPermission = await Location.getBackgroundPermissionsAsync();
+      if (backgroundPermission.status === 'granted') {
+        const alreadyStarted = await Location.hasStartedLocationUpdatesAsync(DRIVER_LOCATION_TASK);
+        if (!alreadyStarted) {
+          await Location.startLocationUpdatesAsync(DRIVER_LOCATION_TASK, {
+            accuracy: Location.Accuracy.High,
+            timeInterval: POST_INTERVAL_MS,
+            distanceInterval: 20,
+            pausesUpdatesAutomatically: false,
+            activityType: Location.ActivityType.AutomotiveNavigation,
+            foregroundService: {
+              notificationTitle: 'Trotro Driver is sharing location',
+              notificationBody: 'Live bus location is active while you are signed in.',
+              notificationColor: '#1565C0',
+              killServiceOnDestroy: false,
+            },
+          });
         }
-      );
+      } else {
+        console.log('[GPS] Background permission not granted; screen-off tracking is unavailable');
+      }
     }
 
     return true;
@@ -99,9 +144,12 @@ export async function startGpsService(): Promise<boolean> {
 
 export function stopGpsService(): void {
   console.log('[GPS] Stopping GPS service');
-  if (locationSubscription) {
-    locationSubscription.remove();
-    locationSubscription = null;
+  if (Platform.OS !== 'web') {
+    void Location.hasStartedLocationUpdatesAsync(DRIVER_LOCATION_TASK)
+      .then(async (started) => {
+        if (started) await Location.stopLocationUpdatesAsync(DRIVER_LOCATION_TASK);
+      })
+      .catch((error) => console.log('[GPS] Failed to stop background task:', error));
   }
   if (gpsInterval) {
     clearInterval(gpsInterval);

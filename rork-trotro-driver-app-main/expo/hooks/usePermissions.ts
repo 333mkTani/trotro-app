@@ -27,6 +27,38 @@ export function usePermissions() {
         setLocationGranted(false);
         return false;
       }
+
+      if (Platform.OS === 'android') {
+        const background = await Location.getBackgroundPermissionsAsync();
+        if (background.status !== 'granted') {
+          const shouldContinue = await new Promise<boolean>((resolve) => {
+            Alert.alert(
+              'Allow location all the time',
+              'Passengers need your live bus position when the screen is off. Android will open Location settings; choose “Allow all the time”.',
+              [
+                { text: 'Not now', style: 'cancel', onPress: () => resolve(false) },
+                { text: 'Continue', onPress: () => resolve(true) },
+              ],
+              { cancelable: false }
+            );
+          });
+          if (!shouldContinue) {
+            setLocationGranted(false);
+            return false;
+          }
+
+          const requested = await Location.requestBackgroundPermissionsAsync();
+          if (requested.status !== 'granted') {
+            Alert.alert(
+              'Background location required',
+              'Choose “Allow all the time” in Android settings so passengers can track the bus while your screen is off.',
+              [{ text: 'Open Settings', onPress: () => Linking.openSettings() }]
+            );
+            setLocationGranted(false);
+            return false;
+          }
+        }
+      }
       setLocationGranted(true);
       console.log('[Permissions] Location permission granted');
       return true;
