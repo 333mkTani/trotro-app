@@ -78,7 +78,6 @@ export default function FindRouteScreen() {
   const {
     userLat,
     userLng,
-    nearbyStops,
     regionStops,
     regionRoutes,
     activeBuses,
@@ -133,10 +132,8 @@ export default function FindRouteScreen() {
   // Keep this reference stable: route-result synchronization depends on it and
   // must not retrigger merely because the screen rendered again.
   const stopsForSearch = useMemo(
-    () => nearbyStops.length > 0
-      ? nearbyStops.filter((stop) => stop.status === 'active')
-      : regionStops,
-    [nearbyStops, regionStops],
+    () => regionStops.filter((stop) => stop.status === 'active'),
+    [regionStops],
   );
 
   useEffect(() => {

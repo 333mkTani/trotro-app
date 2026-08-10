@@ -82,6 +82,7 @@ export const [LocationProvider, useLocation] = createContextHook(() => {
   const [locationLoading, setLocationLoading] = useState(true);
   const [locationError, setLocationError] = useState<string | null>(null);
   const [nearbyStops, setNearbyStops] = useState<BusStop[]>([]);
+  const [allStops, setAllStops] = useState<BusStop[]>([]);
   const [routes, setRoutes] = useState<RouteType[]>([]);
   const [activeBuses, setActiveBuses] = useState<ApproachingBus[]>([]);
 
@@ -91,6 +92,16 @@ export const [LocationProvider, useLocation] = createContextHook(() => {
       .then(({ data }) => setRoutes((data as Record<string, unknown>[]).map(mapRoute)))
       .catch(() => { /* routes stay empty until API responds */ });
   }, [region.id]);
+
+  // Route discovery needs the complete stop catalogue. Nearby stops remain a
+  // separate location-scoped collection used only for pickup convenience.
+  useEffect(() => {
+    api.get('/stops')
+      .then(({ data }) => setAllStops(
+        (data as Record<string, unknown>[]).filter((s) => !!s.id).map(mapStop),
+      ))
+      .catch(() => { /* keep the last successful catalogue */ });
+  }, []);
 
   const fetchActiveBuses = useCallback(async () => {
     try {
@@ -184,16 +195,18 @@ export const [LocationProvider, useLocation] = createContextHook(() => {
   useEffect(() => { fetchLocation(); }, [fetchLocation]);
 
   // Use backend nearby stops — no mock fallback
-  const regionStops = useMemo(
-    () => nearbyStops.filter((s) => s.status === 'active'),
-    [nearbyStops]
-  );
-
   // Use backend routes when available, otherwise fall back to region mock routes
   const regionRoutes = useMemo(
     () => routes.length > 0 ? routes.filter((r) => r.status === 'active') : [],
     [routes]
   );
+
+  // Limit the complete catalogue to stops belonging to the detected region's
+  // active routes. A 3 km nearby response must never become the route dataset.
+  const regionStops = useMemo(() => {
+    const routeStopIds = new Set(regionRoutes.flatMap((route) => route.stops_sequence));
+    return allStops.filter((stop) => stop.status === 'active' && routeStopIds.has(stop.id));
+  }, [allStops, regionRoutes]);
 
   const mapCenter = useMemo(
     () => ({

@@ -174,6 +174,35 @@ describe('findRouteRecommendations', () => {
     expect(result.length).toBeGreaterThan(0);
     expect(result.every((rec) => rec.destinationStop.id === stopDest.id)).toBe(true);
   });
+
+  it('keeps destination choices distinct outside the pickup-nearby subset', () => {
+    const otherDestination: BusStop = {
+      id: 'stop-other-destination',
+      name: 'Community 25',
+      type: 'stop',
+      lat: 5.5900,
+      lng: -0.0900,
+      status: 'active',
+    };
+    const routeWithTwoDestinations: Route = {
+      ...route,
+      stops_sequence: [stopFar.id, stopNear.id, stopDest.id, otherDestination.id],
+      reverse_stops_sequence: [otherDestination.id, stopDest.id, stopNear.id, stopFar.id],
+    };
+    const completeCatalogue = [...allStops, otherDestination];
+
+    const first = findRouteRecommendations(
+      USER.lat, USER.lng, stopDest.lat, stopDest.lng, 3000,
+      completeCatalogue, [routeWithTwoDestinations], [fastBus], stopDest.id,
+    );
+    const second = findRouteRecommendations(
+      USER.lat, USER.lng, otherDestination.lat, otherDestination.lng, 3000,
+      completeCatalogue, [routeWithTwoDestinations], [fastBus], otherDestination.id,
+    );
+
+    expect(first[0].destinationStop.id).toBe(stopDest.id);
+    expect(second[0].destinationStop.id).toBe(otherDestination.id);
+  });
 });
 
 describe('searchStops', () => {
