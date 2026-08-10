@@ -25,4 +25,9 @@ const changePassword = asyncHandler(async (req, res) => {
   res.json(result);
 });
 
-module.exports = { register, registerVerified, login, me, changePassword };
+const resetPassword = asyncHandler(async (req, res) => {
+  const result = await authService.resetPasswordWithVerifiedPhone(req.body);
+  res.json(result);
+});
+
+module.exports = { register, registerVerified, login, me, changePassword, resetPassword };

@@ -11,6 +11,8 @@ export interface RouteRecommendation {
   bestBus: ApproachingBus | null;
   estimatedTotalMinutes: number;
   score: number;
+  walkingDistanceSource: 'straight-line' | 'mapbox';
+  walkingDurationMinutes: number;
 }
 
 function haversineDistance(
@@ -65,7 +67,11 @@ export function findRouteRecommendations(
   destinationStopId?: string,
 ): RouteRecommendation[] {
   const stopsToSearch = stops ?? [];
-  const routesToSearch = routes ?? [];
+  const activeStopIds = new Set(stopsToSearch.filter((stop) => stop.status === 'active').map((stop) => stop.id));
+  const routesToSearch = (routes ?? []).map((route) => {
+    const stops_sequence = route.stops_sequence.filter((id) => activeStopIds.has(id));
+    return { ...route, stops_sequence, reverse_stops_sequence: [...stops_sequence].reverse() };
+  }).filter((route) => route.stops_sequence.length >= 2);
   const busPool = activeBuses ?? [];
 
   const nearbyPickups = findNearbyStops(userLat, userLng, maxWalkM, stopsToSearch);
@@ -136,6 +142,8 @@ export function findRouteRecommendations(
         bestBus,
         estimatedTotalMinutes: totalMinutes,
         score,
+        walkingDistanceSource: 'straight-line',
+        walkingDurationMinutes: walkToPickup,
       });
     }
   }

@@ -38,6 +38,7 @@ import {
   Building2,
 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
+import * as Location from "expo-location";
 import StaticColors from "@/constants/colors";
 import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
 import { useLocation } from "@/contexts/LocationContext";
@@ -51,6 +52,7 @@ import {
   findNearbyStops,
   RouteRecommendation,
 } from "@/utils/routeFinder";
+import { rankRecommendationsByWalkingRoute } from "@/utils/walkingRouteRanker";
 const Colors = StaticColors;
 
 const SCREEN_W = Dimensions.get("window").width;
@@ -109,6 +111,7 @@ export default function FindRouteScreen() {
 
   const [activeField, setActiveField] = useState<"pickup" | "destination">("destination");
   const [pickupOverride, setPickupOverride] = useState<{ lat: number; lng: number; label: string } | null>(null);
+  const [searchOrigin, setSearchOrigin] = useState<{ lat: number; lng: number; accuracy: number | null } | null>(null);
   const [pickupQuery, setPickupQuery] = useState("");
   const [pickupResults, setPickupResults] = useState<BusStop[]>([]);
   const [pickupPlaceResults, setPickupPlaceResults] = useState<PlaceResult[]>([]);
@@ -206,8 +209,38 @@ export default function FindRouteScreen() {
 
   const onSelectDestination = useCallback(
     async (stop: BusStop) => {
-      const pickupLat = pickupOverride?.lat ?? userLat;
-      const pickupLng = pickupOverride?.lng ?? userLng;
+      let pickupLat = pickupOverride?.lat ?? userLat;
+      let pickupLng = pickupOverride?.lng ?? userLng;
+      let accuracy: number | null = null;
+
+      if (!pickupOverride) {
+        try {
+          if (Platform.OS === 'web') {
+            const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+              navigator.geolocation.getCurrentPosition(resolve, reject, {
+                enableHighAccuracy: true,
+                timeout: 12_000,
+                maximumAge: 0,
+              });
+            });
+            pickupLat = position.coords.latitude;
+            pickupLng = position.coords.longitude;
+            accuracy = position.coords.accuracy;
+          } else {
+            const permission = await Location.requestForegroundPermissionsAsync();
+            if (permission.status === 'granted') {
+              const position = await Location.getCurrentPositionAsync({
+                accuracy: Location.Accuracy.High,
+              });
+              pickupLat = position.coords.latitude;
+              pickupLng = position.coords.longitude;
+              accuracy = position.coords.accuracy;
+            }
+          }
+        } catch {
+          // A fresh fix is preferred, but an existing valid fix remains usable.
+        }
+      }
 
       // Never rank pickup stops from the regional map centre. It is only a map
       // fallback and may be kilometres away from the passenger's real position.
@@ -233,11 +266,10 @@ export default function FindRouteScreen() {
       setSearchResults([]);
       setLoading(true);
       setPhase("results");
-
-      await new Promise((r) => setTimeout(r, 800));
+      setSearchOrigin({ lat: pickupLat, lng: pickupLng, accuracy });
 
       const exactDestinationId = stop.id.startsWith("place-") ? undefined : stop.id;
-      const recs = findRouteRecommendations(
+      const candidates = findRouteRecommendations(
         pickupLat,
         pickupLng,
         stop.lat,
@@ -248,6 +280,10 @@ export default function FindRouteScreen() {
         activeBuses,
         exactDestinationId,
       );
+      const recs = await rankRecommendationsByWalkingRoute(candidates, {
+        latitude: pickupLat,
+        longitude: pickupLng,
+      });
       setRecommendations(recs);
       setLoading(false);
 
@@ -285,14 +321,14 @@ export default function FindRouteScreen() {
   // Otherwise recommendations retain the bus snapshot from the original search.
   useEffect(() => {
     if (phase !== "results" || !selectedDest || loading) return;
-    const pickupLat = pickupOverride?.lat ?? userLat;
-    const pickupLng = pickupOverride?.lng ?? userLng;
+    const pickupLat = pickupOverride?.lat ?? searchOrigin?.lat ?? userLat;
+    const pickupLng = pickupOverride?.lng ?? searchOrigin?.lng ?? userLng;
     if (pickupLat == null || pickupLng == null) return;
 
     const exactDestinationId = selectedDest.id.startsWith("place-")
       ? undefined
       : selectedDest.id;
-    setRecommendations(findRouteRecommendations(
+    const candidates = findRouteRecommendations(
       pickupLat,
       pickupLng,
       selectedDest.lat,
@@ -302,13 +338,22 @@ export default function FindRouteScreen() {
       regionRoutes.length > 0 ? regionRoutes : undefined,
       activeBuses,
       exactDestinationId,
-    ));
+    );
+    let cancelled = false;
+    void rankRecommendationsByWalkingRoute(candidates, {
+      latitude: pickupLat,
+      longitude: pickupLng,
+    }).then((ranked) => {
+      if (!cancelled) setRecommendations(ranked);
+    });
+    return () => { cancelled = true; };
   }, [
     activeBuses,
     loading,
     phase,
     pickupOverride,
     regionRoutes,
+    searchOrigin,
     selectedDest,
     stopsForSearch,
     userLat,
@@ -637,7 +682,10 @@ export default function FindRouteScreen() {
                 >
                   <Text style={st.pillLabel}>From</Text>
                   <Text style={st.pillValue} numberOfLines={1}>
-                    {pickupOverride?.label ?? regionName.split(',')[0]}
+                    {pickupOverride?.label
+                      ?? (searchOrigin
+                        ? `Current location${searchOrigin.accuracy != null ? ` (±${Math.round(searchOrigin.accuracy)}m)` : ''}`
+                        : 'Current location')}
                   </Text>
                 </TouchableOpacity>
               )}
@@ -1240,7 +1288,7 @@ const RecommendationCard = React.memo(function RecommendationCard({
             {rec.walkDistanceToPickup < 1000
               ? `${rec.walkDistanceToPickup}m`
               : `${(rec.walkDistanceToPickup / 1000).toFixed(1)}km`}{" "}
-            walk
+            {rec.walkingDistanceSource === 'mapbox' ? 'walk' : 'approx. walk'}
           </Text>
         </View>
         {rec.bestBus ? (

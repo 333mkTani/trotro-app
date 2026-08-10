@@ -1,5 +1,6 @@
 jest.mock('../../models/profile.model');
 jest.mock('../../models/wallet.model');
+jest.mock('../../models/auth.model');
 jest.mock('../../config/firebase');
 jest.mock('../../config/db', () => ({
   // The real withTransaction runs fn against a locked pg client; tests don't
@@ -12,6 +13,7 @@ jest.mock('../../config/db', () => ({
 
 const profileModel = require('../../models/profile.model');
 const walletModel = require('../../models/wallet.model');
+const authModel = require('../../models/auth.model');
 const { getAdmin } = require('../../config/firebase');
 const authService = require('../auth.service');
 
@@ -74,5 +76,28 @@ describe('registerWithVerifiedPhone', () => {
     await expect(authService.registerWithVerifiedPhone(basePayload)).rejects.toThrow(
       'Phone already registered',
     );
+  });
+});
+
+describe('resetPasswordWithVerifiedPhone', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('changes the password only for the account owning the Firebase-verified phone', async () => {
+    getAdmin.mockReturnValue({ auth: () => ({ verifyIdToken: jest.fn().mockResolvedValue({ phone_number: '+233555000111' }) }) });
+    profileModel.findByPhoneVariants.mockResolvedValue([{ id: 'user-1' }]);
+    authModel.upsertPassword.mockResolvedValue(undefined);
+
+    await expect(authService.resetPasswordWithVerifiedPhone({ idToken: 'verified-token', newPassword: 'newsecurepass' }))
+      .resolves.toEqual({ ok: true });
+    expect(authModel.upsertPassword).toHaveBeenCalledWith('user-1', expect.any(String));
+  });
+
+  it('rejects a reset token with no registered account', async () => {
+    getAdmin.mockReturnValue({ auth: () => ({ verifyIdToken: jest.fn().mockResolvedValue({ phone_number: '+233555000111' }) }) });
+    profileModel.findByPhoneVariants.mockResolvedValue([]);
+
+    await expect(authService.resetPasswordWithVerifiedPhone({ idToken: 'verified-token', newPassword: 'newsecurepass' }))
+      .rejects.toThrow('No account is registered');
+    expect(authModel.upsertPassword).not.toHaveBeenCalled();
   });
 });

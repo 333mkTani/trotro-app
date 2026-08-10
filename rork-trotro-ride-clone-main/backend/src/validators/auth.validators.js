@@ -34,4 +34,9 @@ const ChangePasswordSchema = z.object({
   newPassword: z.string().min(6).max(72),
 });
 
-module.exports = { RegisterSchema, RegisterVerifiedSchema, LoginSchema, ChangePasswordSchema };
+const ResetPasswordSchema = z.object({
+  idToken: z.string().min(10),
+  newPassword: z.string().min(8).max(72),
+});
+
+module.exports = { RegisterSchema, RegisterVerifiedSchema, LoginSchema, ChangePasswordSchema, ResetPasswordSchema };

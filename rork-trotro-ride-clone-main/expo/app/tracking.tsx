@@ -57,19 +57,6 @@ function validLongitude(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= -180 && value <= 180;
 }
 
-function interpolateCoords(
-  startLat: number,
-  startLng: number,
-  endLat: number,
-  endLng: number,
-  progress: number
-): { lat: number; lng: number } {
-  return {
-    lat: startLat + (endLat - startLat) * progress,
-    lng: startLng + (endLng - startLng) * progress,
-  };
-}
-
 function haversineMetres(lat1: number, lng1: number, lat2: number, lng2: number): number {
   const R = 6371000;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
@@ -255,12 +242,10 @@ export default function TrackingScreen() {
     return () => disconnectSocket();
   }, []);
 
-  // REST fallback: keeps tracking working if the socket is unavailable, and
-  // simulates motion when no real GPS reading exists yet.
+  // REST fallback keeps tracking working when the socket is unavailable.
+  // Never fabricate movement: stale or missing GPS must remain visibly stale.
   useEffect(() => {
     const driverId = p.driverId;
-    let simElapsed = 0;
-    const simTickMs = 4000;
 
     const poll = async () => {
       if (socketLive) return; // socket is delivering live updates already
@@ -279,17 +264,9 @@ export default function TrackingScreen() {
           applyRealPosition(realLat, realLng);
           return;
         }
-      } catch { /* fall through to simulation */ }
-
-      // Simulation fallback when real GPS unavailable
-      simElapsed += simTickMs;
-      const newProgress = Math.min(1, simElapsed / (initialEta * 60 * 1000));
-      const newPos = interpolateCoords(busStartLat, busStartLng, stopLat, stopLng, newProgress);
-      setBusPosition({ lat: newPos.lat, lng: newPos.lng });
-      setProgress(newProgress);
-      setEta(Math.max(1, Math.round(initialEta * (1 - newProgress))));
-      const secs = Math.floor(simElapsed / 1000);
-      setLastUpdate(secs < 60 ? `${secs}s ago` : `${Math.floor(secs / 60)}m ago`);
+      } catch {
+        setLastUpdate('Waiting for live GPS');
+      }
     };
 
     poll();

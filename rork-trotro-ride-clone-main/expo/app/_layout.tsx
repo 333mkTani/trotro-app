@@ -97,6 +97,7 @@ function RootLayoutNav() {
       <Stack.Screen name="login" options={{ headerShown: false }} />
       <Stack.Screen name="register" options={{ headerShown: false }} />
       <Stack.Screen name="otp-verification" options={{ headerShown: false }} />
+      <Stack.Screen name="forgot-password" options={{ headerShown: false }} />
       <Stack.Screen name="book-bus" options={{ title: "Book a Seat", ...headerOpts }} />
       <Stack.Screen name="tracking" options={{ title: "Live Tracking", ...headerOpts }} />
       <Stack.Screen name="find-route" options={{ title: "Find Route", ...headerOpts }} />

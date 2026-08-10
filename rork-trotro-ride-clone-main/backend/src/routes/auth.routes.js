@@ -2,7 +2,7 @@ const router = require('express').Router();
 const ctrl = require('../controllers/auth.controller');
 const { validate } = require('../middleware/validate');
 const { requireAuth } = require('../middleware/auth');
-const { RegisterSchema, RegisterVerifiedSchema, LoginSchema, ChangePasswordSchema } = require('../validators/auth.validators');
+const { RegisterSchema, RegisterVerifiedSchema, LoginSchema, ChangePasswordSchema, ResetPasswordSchema } = require('../validators/auth.validators');
 
 router.post('/register', validate({ body: RegisterSchema }), ctrl.register);
 
@@ -13,5 +13,6 @@ router.post('/register-verified', validate({ body: RegisterVerifiedSchema }), ct
 router.post('/login', validate({ body: LoginSchema }), ctrl.login);
 router.get('/me', requireAuth, ctrl.me);
 router.post('/change-password', requireAuth, validate({ body: ChangePasswordSchema }), ctrl.changePassword);
+router.post('/reset-password', validate({ body: ResetPasswordSchema }), ctrl.resetPassword);
 
 module.exports = router;

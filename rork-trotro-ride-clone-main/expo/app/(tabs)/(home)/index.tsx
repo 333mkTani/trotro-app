@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useMemo, useRef } from "react";
+import React, { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import {
   StyleSheet,
   Text,
@@ -24,6 +24,17 @@ import { useLocation } from "@/contexts/LocationContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useBookings } from "@/contexts/BookingContext";
 import OfflineBanner from "@/components/OfflineBanner";
+import ActiveRideCard from "@/components/ActiveRideCard";
+import { api } from "@/services/api";
+import {
+  connectSocket,
+  getSocket,
+  subscribeToBus,
+  unsubscribeFromBus,
+  type BusLocationEvent,
+} from "@/services/socket";
+import { useDirections } from "@/hooks/useDirections";
+import { getRouteBounds } from "@/utils/routeGeometry";
 const Colors = StaticColors;
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -212,6 +223,121 @@ export default function HomeScreen() {
     [regionStops]
   );
 
+  const activeBooking = useMemo(
+    () => bookings
+      .filter((booking) => booking.status === "confirmed" && (booking.passenger_id === user?.id || booking.passenger_id === "pass-1"))
+      .sort((a, b) => new Date(b.confirmed_at ?? b.created_at).getTime() - new Date(a.confirmed_at ?? a.created_at).getTime())[0],
+    [bookings, user?.id]
+  );
+  const activeBookingBus = useMemo(
+    () => activeBuses.find((bus) => bus.driver_id === activeBooking?.driver_id),
+    [activeBuses, activeBooking?.driver_id]
+  );
+  const activeTargetStop = useMemo(
+    () => activeBooking ? stopById.get(activeBooking.boarded_at ? activeBooking.destination_stop_id : activeBooking.pickup_stop_id) : undefined,
+    [activeBooking, stopById]
+  );
+  const isPassengerOnBoard = Boolean(activeBooking?.boarded_at);
+  const [assignedBusPosition, setAssignedBusPosition] = useState<{ lat: number; lng: number } | null>(null);
+
+  useEffect(() => {
+    if (!isPassengerOnBoard || !activeBooking?.driver_id) {
+      setAssignedBusPosition(null);
+      return;
+    }
+
+    let disposed = false;
+    let busId: string | null = null;
+    const driverId = activeBooking.driver_id;
+    const applyPosition = (lat: number, lng: number) => {
+      if (!Number.isFinite(lat) || !Number.isFinite(lng) || lat < -90 || lat > 90 || lng < -180 || lng > 180 || (lat === 0 && lng === 0)) return;
+      setAssignedBusPosition({ lat, lng });
+    };
+    const onLocation = (event: BusLocationEvent) => {
+      if (event.busId === busId) applyPosition(event.lat, event.lng);
+    };
+    const onConnect = () => {
+      if (busId) subscribeToBus(busId);
+    };
+
+    const setup = async () => {
+      try {
+        const { data } = await api.get(`/buses/driver/${driverId}/location`);
+        if (disposed) return;
+        busId = data?.bus_id ?? null;
+        applyPosition(Number(data?.lat), Number(data?.lng));
+        if (!busId) return;
+        const socket = await connectSocket();
+        if (disposed) return;
+        subscribeToBus(busId);
+        socket.on("bus:location", onLocation);
+        socket.on("connect", onConnect);
+      } catch {
+        // The existing active-bus polling remains available as a fallback.
+      }
+    };
+    void setup();
+
+    return () => {
+      disposed = true;
+      const socket = getSocket();
+      socket?.off("bus:location", onLocation);
+      socket?.off("connect", onConnect);
+      if (busId) unsubscribeFromBus(busId);
+    };
+  }, [activeBooking?.driver_id, isPassengerOnBoard]);
+
+  const assignedBusForMap = useMemo(() => {
+    if (!activeBooking || !activeBookingBus) return undefined;
+    return assignedBusPosition
+      ? { ...activeBookingBus, lat: assignedBusPosition.lat, lng: assignedBusPosition.lng }
+      : activeBookingBus;
+  }, [activeBooking, activeBookingBus, assignedBusPosition]);
+
+  const busesForMap = useMemo(
+    () => isPassengerOnBoard
+      ? (assignedBusForMap ? [assignedBusForMap] : [])
+      : activeBuses.filter((bus) => bus.seats_available > 0),
+    [activeBuses, assignedBusForMap, isPassengerOnBoard]
+  );
+
+  const onboardDirections = useDirections({
+    origin: assignedBusForMap && assignedBusForMap.lat !== 0 && assignedBusForMap.lng !== 0
+      ? { latitude: assignedBusForMap.lat, longitude: assignedBusForMap.lng }
+      : null,
+    destination: activeTargetStop
+      ? { latitude: activeTargetStop.lat, longitude: activeTargetStop.lng }
+      : null,
+    profile: "driving",
+    movementThresholdMeters: 50,
+    staleTimeMs: 30_000,
+    maxRouteAgeMs: 60_000,
+    offRouteThresholdMeters: 60,
+    enabled: isPassengerOnBoard,
+  });
+  const onboardRouteBounds = useMemo(
+    () => getRouteBounds(onboardDirections.geometry),
+    [onboardDirections.geometry]
+  );
+
+  useEffect(() => {
+    if (!isPassengerOnBoard || !assignedBusForMap || assignedBusForMap.lat === 0 || assignedBusForMap.lng === 0) return;
+    if (onboardRouteBounds) {
+      cameraRef.current?.fitBounds(
+        [onboardRouteBounds.northEast.longitude, onboardRouteBounds.northEast.latitude],
+        [onboardRouteBounds.southWest.longitude, onboardRouteBounds.southWest.latitude],
+        [110, 45, 260, 45],
+        700
+      );
+      return;
+    }
+    cameraRef.current?.setCamera({
+      centerCoordinate: [assignedBusForMap.lng, assignedBusForMap.lat],
+      zoomLevel: 16,
+      animationDuration: 700,
+    });
+  }, [assignedBusForMap, isPassengerOnBoard, onboardRouteBounds]);
+
   const onSelectRecentDestination = useCallback(
     (b: (typeof recentDestinations)[number]) => {
       if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -257,15 +383,38 @@ export default function HomeScreen() {
               }}
             />
             <MapLibreGL.UserLocation
-              visible
+              visible={!isPassengerOnBoard}
               renderMode="native"
               androidRenderMode="gps"
               showsUserHeadingIndicator
             />
 
+            {isPassengerOnBoard && onboardDirections.geometry && (
+              <MapLibreGL.ShapeSource
+                id="home-active-trip-route"
+                shape={{
+                  type: "Feature",
+                  geometry: onboardDirections.geometry,
+                  properties: {},
+                }}
+              >
+                <MapLibreGL.LineLayer
+                  id="home-active-trip-route-line"
+                  style={{
+                    lineColor: Colors.primary,
+                    lineWidth: 6,
+                    lineOpacity: onboardDirections.isFallback ? 0.65 : 1,
+                    lineCap: "round",
+                    lineJoin: "round",
+                    ...(onboardDirections.isFallback ? { lineDasharray: [2, 1.5] } : {}),
+                  }}
+                />
+              </MapLibreGL.ShapeSource>
+            )}
+
             {/* Only active bus markers on the map */}
-            {activeBuses
-              .filter((b) => b.lat !== 0 && b.lng !== 0 && b.seats_available > 0)
+            {busesForMap
+              .filter((b) => b.lat !== 0 && b.lng !== 0)
               .map((bus) => (
                 <MapLibreGL.MarkerView
                   key={bus.driver_id}
@@ -274,7 +423,24 @@ export default function HomeScreen() {
                   isSelected
                 >
                   <TouchableOpacity
-                    onPress={() => router.push({
+                    onPress={() => isPassengerOnBoard && activeBooking && activeTargetStop
+                      ? router.push({
+                          pathname: "/tracking",
+                          params: {
+                            driverId: activeBooking.driver_id ?? "",
+                            driverName: activeBooking.driver_name ?? bus.driver_name,
+                            busReg: activeBooking.bus_registration ?? bus.bus_registration,
+                            routeName: activeBooking.route_name ?? bus.route_name,
+                            seats: String(bus.seats_available),
+                            eta: String(bus.eta_minutes),
+                            lat: String(bus.lat),
+                            lng: String(bus.lng),
+                            stopLat: String(activeTargetStop.lat),
+                            stopLng: String(activeTargetStop.lng),
+                            stopName: activeBooking.destination_stop_name,
+                          },
+                        })
+                      : router.push({
                       pathname: "/book-bus",
                       params: {
                         driverId: bus.driver_id,
@@ -382,6 +548,10 @@ export default function HomeScreen() {
             </View>
             <Text style={s.searchPH}>Where are you going?</Text>
           </TouchableOpacity>
+
+          {activeBooking && (
+            <ActiveRideCard booking={activeBooking} bus={activeBookingBus} targetStop={activeTargetStop} />
+          )}
 
           <View style={s.quickRow}>
             <TouchableOpacity

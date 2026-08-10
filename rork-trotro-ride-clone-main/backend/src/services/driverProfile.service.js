@@ -1,8 +1,10 @@
 const { query } = require('../config/db');
 const busModel = require('../models/bus.model');
+const bookingModel = require('../models/booking.model');
 const walletModel = require('../models/wallet.model');
+const push = require('./push.service');
 const { ApiError } = require('../utils/ApiError');
-const { emitToBus, emitToRoute } = require('../realtime/io');
+const { emitToBus, emitToRoute, emitToUser } = require('../realtime/io');
 
 const getMyBus = async (driverId) => {
   const { rows } = await query(
@@ -143,6 +145,33 @@ const updateLocation = async (driverId, { lat, lng }) => {
   const event = { busId: updated.id, routeId: updated.route_id, lat, lng, driverId, ts: Date.now() };
   emitToBus(updated.id, 'bus:location', event);
   if (updated.route_id) emitToRoute(updated.route_id, 'bus:location', event);
+
+  // The driver app reports through this endpoint (not /buses/:id/location),
+  // so destination detection must run here as part of the same GPS update.
+  // Await the spatial update so a passenger refresh immediately sees
+  // arrived_at; push delivery remains non-blocking.
+  const arrivals = await bookingModel.detectDestinationArrivals(driverId, { lat, lng });
+  for (const arrival of arrivals) {
+    const payload = {
+      bookingId: arrival.id,
+      arrivedAt: arrival.arrived_at,
+      destinationStopName: arrival.destination_stop_name,
+    };
+    emitToUser(arrival.passenger_id, 'booking:arrived', payload);
+    setImmediate(async () => {
+      try {
+        if (arrival.passenger_push_token) {
+          await push.send(arrival.passenger_push_token, {
+            title: 'You have arrived',
+            body: `Confirm arrival at ${arrival.destination_stop_name} when you are ready to pay.`,
+            data: { type: 'booking_arrived', ...payload },
+          });
+        }
+      } catch (error) {
+        console.error('[driver-location] arrival push failed:', error.message);
+      }
+    });
+  }
 
   return updated;
 };

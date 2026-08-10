@@ -51,18 +51,22 @@ const mapStop = (s: Record<string, unknown>): BusStop => ({
   distance_m: s.distance_m as number | undefined,
 });
 
-const mapRoute = (r: Record<string, unknown>): RouteType => ({
-  id: r.id as string,
-  name: r.name as string,
-  origin: r.origin as string,
-  destination: r.destination as string,
-  stops_sequence: (r.stops_sequence as string[]) ?? [],
-  reverse_stops_sequence: (r.reverse_stops_sequence as string[]) ?? [],
-  distance_km: parseFloat(r.distance_km as string),
-  duration_min: parseFloat(r.duration_min as string),
-  fare: parseFloat(r.fare as string),
-  status: (r.status as RouteType['status']) ?? 'active',
-});
+const mapRoute = (r: Record<string, unknown>): RouteType => {
+  const forward = Array.from(new Set(((r.stops_sequence as unknown[]) ?? []).filter((id): id is string => typeof id === 'string' && id.length > 0)));
+  const reverseResponse = Array.from(new Set(((r.reverse_stops_sequence as unknown[]) ?? []).filter((id): id is string => typeof id === 'string' && id.length > 0)));
+  return {
+    id: r.id as string,
+    name: r.name as string,
+    origin: r.origin as string,
+    destination: r.destination as string,
+    stops_sequence: forward,
+    reverse_stops_sequence: reverseResponse.length === forward.length ? reverseResponse : [...forward].reverse(),
+    distance_km: parseFloat(r.distance_km as string),
+    duration_min: parseFloat(r.duration_min as string),
+    fare: parseFloat(r.fare as string),
+    status: (r.status as RouteType['status']) ?? 'active',
+  };
+};
 
 const mapActiveBus = (b: Record<string, unknown>): ApproachingBus => ({
   driver_id: b.driver_id as string,
@@ -197,8 +201,17 @@ export const [LocationProvider, useLocation] = createContextHook(() => {
   // Use backend nearby stops — no mock fallback
   // Use backend routes when available, otherwise fall back to region mock routes
   const regionRoutes = useMemo(
-    () => routes.length > 0 ? routes.filter((r) => r.status === 'active') : [],
-    [routes]
+    () => {
+      const activeStopIds = new Set(allStops.filter((stop) => stop.status === 'active').map((stop) => stop.id));
+      return routes
+        .filter((route) => route.status === 'active')
+        .map((route) => {
+          const stops_sequence = route.stops_sequence.filter((id) => activeStopIds.has(id));
+          return { ...route, stops_sequence, reverse_stops_sequence: [...stops_sequence].reverse() };
+        })
+        .filter((route) => route.stops_sequence.length >= 2);
+    },
+    [routes, allStops]
   );
 
   // Limit the complete catalogue to stops belonging to the detected region's

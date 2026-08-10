@@ -9,6 +9,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { Booking, BookingStatus } from "@/types";
 import BookingCard from "@/components/BookingCard";
 import { useBookings } from "@/contexts/BookingContext";
+import { api } from "@/services/api";
 const Colors = StaticColors;
 
 const FILTERS: { label: string; value: BookingStatus | "all" }[] = [
@@ -74,9 +75,21 @@ export default function RidesScreen() {
     });
   }, [router]);
 
-  const onEndRide = useCallback((id: string) => {
+  const onEndRide = useCallback(async (id: string) => {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    const booking = allBookings.find((b) => b.id === id);
+    const cachedBooking = allBookings.find((b) => b.id === id);
+    if (!cachedBooking) return;
+
+    // Arrival is set by the driver's latest GPS update. Read the booking once
+    // more before blocking the action so the 15-second list cache cannot make
+    // a passenger who has arrived appear to still be travelling.
+    let booking = cachedBooking;
+    try {
+      const { data } = await api.get(`/bookings/${id}`);
+      booking = { ...cachedBooking, ...(data as Booking) };
+    } catch {
+      // Retain the cached booking and show the normal lifecycle message.
+    }
     if (!booking) return;
 
     if (!booking.arrived_at) {

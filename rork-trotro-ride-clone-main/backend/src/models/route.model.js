@@ -8,15 +8,16 @@ const list = async ({ status = 'active', city = null } = {}) => {
   const { rows } = await query(
     `SELECT r.id, r.name, r.origin, r.destination, r.distance_km, r.duration_min, r.fare, r.status, r.created_at,
             COALESCE(
-              array_agg(rs.stop_id::text ORDER BY rs.sequence ASC)  FILTER (WHERE rs.stop_id IS NOT NULL),
+              array_agg(s.id::text ORDER BY rs.sequence ASC)  FILTER (WHERE s.id IS NOT NULL),
               ARRAY[]::text[]
             ) AS stops_sequence,
             COALESCE(
-              array_agg(rs.stop_id::text ORDER BY rs.sequence DESC) FILTER (WHERE rs.stop_id IS NOT NULL),
+              array_agg(s.id::text ORDER BY rs.sequence DESC) FILTER (WHERE s.id IS NOT NULL),
               ARRAY[]::text[]
             ) AS reverse_stops_sequence
      FROM public.routes r
      LEFT JOIN public.route_stops rs ON rs.route_id = r.id
+     LEFT JOIN public.bus_stops s ON s.id = rs.stop_id AND s.status = 'active'
      WHERE r.status = $1 ${cityClause}
      GROUP BY r.id
      ORDER BY r.name ASC`,
@@ -36,6 +37,7 @@ const findStops = async (routeId) => {
        from public.route_stops rs
        join public.bus_stops s on s.id = rs.stop_id
       where rs.route_id = $1
+        and s.status = 'active'
       order by rs.sequence asc`,
     [routeId],
   );

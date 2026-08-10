@@ -4,7 +4,7 @@ import {
   KeyboardAvoidingView, Platform, ScrollView, Animated, StyleSheet,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { router } from 'expo-router';
+import { router, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMutation } from '@tanstack/react-query';
 import { Phone, Lock, Eye, EyeOff, Bus } from 'lucide-react-native';
@@ -109,6 +109,10 @@ export default function TrotroDriverLoginPage() {
               </View>
             </View>
 
+            <Pressable onPress={() => router.push('/forgot-password' as Href)} style={ls.forgot} hitSlop={8}>
+              <Text style={ls.forgotTxt}>Forgot password?</Text>
+            </Pressable>
+
             <Pressable
               style={({ pressed }) => [ls.btn, pressed && ls.btnP, !canSubmit && ls.btnD]}
               onPress={doLogin} disabled={loginMut.isPending || !canSubmit} testID="login-btn"
@@ -151,6 +155,8 @@ const ls = StyleSheet.create({
   errBox: { backgroundColor: '#FFEBEE', borderRadius: 12, padding: 14, marginBottom: 20, borderLeftWidth: 4, borderLeftColor: '#C62828' },
   errTxt: { fontSize: 14, color: '#C62828', fontWeight: '500' as const, lineHeight: 20 },
   fields: { gap: 14, marginBottom: 28 },
+  forgot: { alignSelf: 'flex-end', marginTop: -16, marginBottom: 22 },
+  forgotTxt: { color: '#1565C0', fontSize: 14, fontWeight: '700' as const },
   inputRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', borderRadius: 14, borderWidth: 1, borderColor: '#E2E8F0', height: 56, paddingHorizontal: 4 },
   ic: { width: 44, justifyContent: 'center', alignItems: 'center' },
   pre: { fontSize: 16, color: '#2D3E40', fontWeight: '500' as const, marginRight: 6 },

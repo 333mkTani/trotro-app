@@ -116,4 +116,25 @@ const changePassword = async (userId, { currentPassword, newPassword }) => {
   return { ok: true };
 };
 
-module.exports = { register, login, changePassword, signToken, createAccount, registerWithVerifiedPhone };
+const resetPasswordWithVerifiedPhone = async ({ idToken, newPassword }) => {
+  const admin = getAdmin();
+  if (!admin) throw ApiError.internal('Phone verification is not configured');
+
+  let decoded;
+  try {
+    decoded = await admin.auth().verifyIdToken(idToken);
+  } catch (_error) {
+    throw ApiError.unauthorized('Phone verification expired or invalid — request a new code');
+  }
+  if (!decoded.phone_number) throw ApiError.badRequest('Token has no verified phone number');
+
+  const phone = toE164Gh(decoded.phone_number);
+  const profiles = await profileModel.findByPhoneVariants(ghPhoneVariants(phone), phone);
+  if (profiles.length === 0) throw ApiError.notFound('No account is registered with this phone number');
+
+  const passwordHash = await bcrypt.hash(newPassword, 10);
+  await Promise.all(profiles.map((profile) => authModel.upsertPassword(profile.id, passwordHash)));
+  return { ok: true };
+};
+
+module.exports = { register, login, changePassword, resetPasswordWithVerifiedPhone, signToken, createAccount, registerWithVerifiedPhone };
