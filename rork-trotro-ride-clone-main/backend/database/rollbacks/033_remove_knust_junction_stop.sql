@@ -1,0 +1,11 @@
+UPDATE public.bus_stops
+SET status = 'active'
+WHERE id = 'c2000000-0000-0000-0000-000000000004';
+
+INSERT INTO public.route_stops (route_id, stop_id, sequence)
+VALUES (
+  'd2000000-0000-0000-0000-000000000001',
+  'c2000000-0000-0000-0000-000000000004',
+  4
+)
+ON CONFLICT DO NOTHING;

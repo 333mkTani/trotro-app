@@ -166,7 +166,7 @@ export default function HomeScreen() {
       }
 
       const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.Balanced,
+        accuracy: Location.Accuracy.High,
       });
       console.log("[Home] Current location:", location.coords.latitude, location.coords.longitude);
 
