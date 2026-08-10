@@ -38,7 +38,7 @@ export default function HomeScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { activeAlerts, triggeredAlerts } = useBusAlerts();
-  const { activeBuses, regionStops, mapCenter, userLat, userLng, refreshLocation } = useLocation();
+  const { activeBuses, regionStops, mapCenter, refreshLocation } = useLocation();
   const { user } = useAuth();
   const { bookings } = useBookings();
   const [refreshing, setRefreshing] = useState(false);
@@ -166,7 +166,7 @@ export default function HomeScreen() {
       }
 
       const location = await Location.getCurrentPositionAsync({
-        accuracy: Location.Accuracy.High,
+        accuracy: Location.Accuracy.Balanced,
       });
       console.log("[Home] Current location:", location.coords.latitude, location.coords.longitude);
 
@@ -256,16 +256,12 @@ export default function HomeScreen() {
                 zoomLevel: 12,
               }}
             />
-            {userLat != null && userLng != null ? (
-              <MapLibreGL.MarkerView
-                coordinate={[userLng, userLat]}
-                allowOverlap
-              >
-                <View style={s.passengerLocationOuter}>
-                  <View style={s.passengerLocationInner} />
-                </View>
-              </MapLibreGL.MarkerView>
-            ) : null}
+            <MapLibreGL.UserLocation
+              visible
+              renderMode="native"
+              androidRenderMode="gps"
+              showsUserHeadingIndicator
+            />
 
             {/* Only active bus markers on the map */}
             {activeBuses
@@ -840,22 +836,6 @@ const make_s = (Colors: ThemePalette) => StyleSheet.create({
   },
 
   // Live bus markers — circular badge (orange fill, black ring)
-  passengerLocationOuter: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "rgba(21, 101, 192, 0.22)",
-  },
-  passengerLocationInner: {
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: "#1565C0",
-    borderWidth: 2,
-    borderColor: Colors.white,
-  },
   busMarkerOuter: {
     alignItems: "center",
     paddingTop: 8,

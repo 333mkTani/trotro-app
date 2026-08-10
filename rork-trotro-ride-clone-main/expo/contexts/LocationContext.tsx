@@ -86,15 +86,6 @@ export const [LocationProvider, useLocation] = createContextHook(() => {
   const [routes, setRoutes] = useState<RouteType[]>([]);
   const [activeBuses, setActiveBuses] = useState<ApproachingBus[]>([]);
 
-  const applyDeviceLocation = useCallback((latitude: number, longitude: number) => {
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return;
-    setUserLat(latitude);
-    setUserLng(longitude);
-    setRegion(detectRegion(latitude, longitude));
-    setLocationError(null);
-    setLocationLoading(false);
-  }, []);
-
   // Fetch routes filtered by the user's detected city; re-fetches when location resolves
   useEffect(() => {
     api.get('/routes', { params: { city: region.id } })
@@ -165,7 +156,10 @@ export const [LocationProvider, useLocation] = createContextHook(() => {
         if (navigator.geolocation) {
           navigator.geolocation.getCurrentPosition(
             ({ coords: { latitude, longitude } }) => {
-              applyDeviceLocation(latitude, longitude);
+              setUserLat(latitude);
+              setUserLng(longitude);
+              setRegion(detectRegion(latitude, longitude));
+              setLocationLoading(false);
             },
             () => { setRegion(ALL_REGIONS[0]); setLocationLoading(false); },
             { timeout: 8000, enableHighAccuracy: false }
@@ -185,57 +179,20 @@ export const [LocationProvider, useLocation] = createContextHook(() => {
         return;
       }
 
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
       const { latitude, longitude } = loc.coords;
-      applyDeviceLocation(latitude, longitude);
+      setUserLat(latitude);
+      setUserLng(longitude);
+      setRegion(detectRegion(latitude, longitude));
+      setLocationLoading(false);
     } catch {
       setLocationError('Could not get location');
       setRegion(ALL_REGIONS[0]);
       setLocationLoading(false);
     }
-  }, [applyDeviceLocation]);
+  }, []);
 
   useEffect(() => { fetchLocation(); }, [fetchLocation]);
-
-  // Keep the passenger position independent from the driver's published bus
-  // position. A one-shot balanced reading can remain coarse until another app
-  // activates GPS, so watch high-accuracy foreground fixes directly here.
-  useEffect(() => {
-    if (Platform.OS === 'web') return undefined;
-
-    let cancelled = false;
-    let subscription: Location.LocationSubscription | null = null;
-
-    const startWatching = async () => {
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted' || cancelled) return;
-      subscription = await Location.watchPositionAsync(
-        {
-          accuracy: Location.Accuracy.High,
-          timeInterval: 10_000,
-          distanceInterval: 10,
-        },
-        ({ coords: { latitude, longitude } }) => {
-          applyDeviceLocation(latitude, longitude);
-        },
-      );
-    };
-
-    void startWatching();
-    return () => {
-      cancelled = true;
-      subscription?.remove();
-    };
-  }, [applyDeviceLocation]);
-
-  // Native location watchers can pause while the app is backgrounded. Force a
-  // fresh reading whenever the passenger returns to the foreground.
-  useEffect(() => {
-    const listener = AppState.addEventListener('change', (state) => {
-      if (state === 'active') void fetchLocation();
-    });
-    return () => listener.remove();
-  }, [fetchLocation]);
 
   // Use backend nearby stops — no mock fallback
   // Use backend routes when available, otherwise fall back to region mock routes
