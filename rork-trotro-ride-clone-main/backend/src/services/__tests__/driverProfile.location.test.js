@@ -43,4 +43,14 @@ describe('driver profile location lifecycle', () => {
       expect.objectContaining({ bookingId: 'booking-1' }),
     );
   });
+
+  it('rejects location updates after the driver becomes unavailable', async () => {
+    query.mockResolvedValueOnce({
+      rows: [{ id: 'bus-1', driver_id: 'driver-1', route_id: 'route-1', status: 'paused' }],
+    });
+
+    await expect(service.updateLocation('driver-1', { lat: 6.67, lng: -1.57 }))
+      .rejects.toMatchObject({ status: 409 });
+    expect(busModel.updateLocation).not.toHaveBeenCalled();
+  });
 });

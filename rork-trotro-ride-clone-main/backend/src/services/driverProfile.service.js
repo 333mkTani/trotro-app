@@ -141,6 +141,9 @@ const updateSeats = async (driverId, { availableSeats, totalSeats }) => {
 const updateLocation = async (driverId, { lat, lng }) => {
   const bus = await getMyBus(driverId);
   if (!bus) throw ApiError.notFound('No active bus assigned to this driver');
+  if (bus.status !== 'active') {
+    throw ApiError.conflict('Location sharing is disabled while the driver is unavailable');
+  }
   const movementState = await routeProgressService.calculateMovementState(bus, { lat, lng });
   const updated = await busModel.updateLocation(bus.id, { lat, lng, movementState });
 

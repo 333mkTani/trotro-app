@@ -10,8 +10,6 @@ import { useMutation } from '@tanstack/react-query';
 import { ArrowLeft, ShieldCheck } from 'lucide-react-native';
 import { startPhoneVerification, registerVerifiedPhone } from '@/services/auth';
 import { usePendingVerificationStore } from '@/store/pendingVerificationStore';
-import { startGpsService } from '@/services/gpsService';
-import { usePermissions } from '@/hooks/usePermissions';
 
 const CODE_LENGTH = 6;
 const RESEND_COOLDOWN = 60;
@@ -21,7 +19,6 @@ type OtpParams = { phone: string };
 export default function OtpVerificationScreen() {
   const { top: safeTop, bottom: safeBottom } = useSafeAreaInsets();
   const params = useLocalSearchParams<OtpParams>();
-  const { requestLocationPermission } = usePermissions();
   const confirmation = usePendingVerificationStore((s) => s.confirmation);
   const pendingPayload = usePendingVerificationStore((s) => s.payload);
   const setPendingVerification = usePendingVerificationStore((s) => s.set);
@@ -49,11 +46,9 @@ export default function OtpVerificationScreen() {
       if (!idToken) throw new Error('Verification failed. Please try again.');
       return registerVerifiedPhone(idToken, pendingPayload);
     },
-    onSuccess: async () => {
+    onSuccess: () => {
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       clearPendingVerification();
-      const ok = await requestLocationPermission();
-      if (ok) await startGpsService();
       router.replace('/(tabs)/dashboard');
     },
     onError: (_err: Error) => {

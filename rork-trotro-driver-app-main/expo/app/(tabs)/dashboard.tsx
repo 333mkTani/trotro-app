@@ -9,7 +9,8 @@ import { useDriverStore } from '@/store/driverStore';
 import { useAuthStore } from '@/store/authStore';
 import { getDashboard, toggleAvailability, getDemandHeatmap, updateDrivingStatus, updateSeatCount } from '@/services/driverApi';
 import { useSeatSync } from '@/hooks/useSeatSync';
-import { startGpsService } from '@/services/gpsService';
+import { startGpsService, stopGpsService } from '@/services/gpsService';
+import { usePermissions } from '@/hooks/usePermissions';
 import { AvailabilityToggle } from '@/components/AvailabilityToggle';
 import { SeatProgressBar } from '@/components/SeatProgressBar';
 import { StatCard } from '@/components/StatCard';
@@ -20,6 +21,7 @@ export default function TrotroDriverDashboard() {
   const qc = useQueryClient();
   const store = useDriverStore();
   const user = useAuthStore((s) => s.user);
+  const { requestLocationPermission } = usePermissions();
 
   const fade = useRef(new Animated.Value(0)).current;
   useEffect(() => { Animated.timing(fade, { toValue: 1, duration: 400, useNativeDriver: true }).start(); }, [fade]);
@@ -30,6 +32,8 @@ export default function TrotroDriverDashboard() {
     if (dashQ.data) {
       const d = dashQ.data;
       store.setDashboardData({ isAvailable: d.is_available, drivingStatus: d.driving_status, availableSeats: d.available_seats, totalSeats: d.total_seats, assignedRoute: d.assigned_route, pendingBookingCount: d.pending_booking_count, demandScore: d.demand_score, todaysTrips: d.todays_trips, driverName: d.driver_name, busRegistration: d.bus_registration, schedulingHours: d.scheduling_hours });
+      if (d.is_available) void startGpsService();
+      else stopGpsService();
     }
   }, [dashQ.data]);
 
@@ -37,7 +41,11 @@ export default function TrotroDriverDashboard() {
     mutationFn: toggleAvailability,
     onSuccess: (_data: void, confirmedValue: boolean) => {
       store.setAvailability(confirmedValue);
-      if (!confirmedValue) store.setDrivingStatus('STATIONARY');
+      if (confirmedValue) void startGpsService();
+      else {
+        store.setDrivingStatus('STATIONARY');
+        stopGpsService();
+      }
       qc.invalidateQueries({ queryKey: ['dashboard'] });
     },
     onError: (error: Error) => {
@@ -46,14 +54,14 @@ export default function TrotroDriverDashboard() {
   });
   const onToggle = useCallback(async (v: boolean) => {
     if (v) {
-      const gpsReady = await startGpsService();
-      if (!gpsReady) {
+      const permissionGranted = await requestLocationPermission();
+      if (!permissionGranted) {
         Alert.alert('Location Required', 'Enable location access before making your bus available.');
         return;
       }
     }
     availMut.mutate(v);
-  }, [availMut]);
+  }, [availMut, requestLocationPermission]);
 
   const drivingMut = useMutation({
     mutationFn: updateDrivingStatus,

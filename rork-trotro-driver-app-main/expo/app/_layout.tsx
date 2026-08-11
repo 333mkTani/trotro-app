@@ -9,7 +9,7 @@ import { useNotifications } from "@/hooks/useNotifications";
 import { useDriverSocket } from "@/hooks/useDriverSocket";
 import { useConnectivity } from "@/hooks/useConnectivity";
 import { OfflineBanner } from "@/components/OfflineBanner";
-import { startGpsService, stopGpsService } from "@/services/gpsService";
+import { stopGpsService } from "@/services/gpsService";
 
 SplashScreen.preventAutoHideAsync();
 
@@ -46,11 +46,7 @@ function AppWithNotifications() {
 
   useEffect(() => {
     if (isAuthLoading) return;
-    if (isAuthenticated) {
-      void startGpsService();
-    } else {
-      stopGpsService();
-    }
+    if (!isAuthenticated) stopGpsService();
   }, [isAuthenticated, isAuthLoading]);
 
   return (

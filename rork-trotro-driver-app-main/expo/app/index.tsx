@@ -10,8 +10,6 @@ import { useMutation } from '@tanstack/react-query';
 import { Phone, Lock, Eye, EyeOff, Bus } from 'lucide-react-native';
 import { login as performLogin } from '@/services/auth';
 import { useAuthStore } from '@/store/authStore';
-import { startGpsService } from '@/services/gpsService';
-import { usePermissions } from '@/hooks/usePermissions';
 
 export default function TrotroDriverLoginPage() {
   const { top: safeTop, bottom: safeBottom } = useSafeAreaInsets();
@@ -20,7 +18,6 @@ export default function TrotroDriverLoginPage() {
   const [pwVis, setPwVis] = useState(false);
   const isAuth = useAuthStore((s) => s.isAuthenticated);
   const isBootLoading = useAuthStore((s) => s.isLoading);
-  const { requestLocationPermission } = usePermissions();
   const fadeIn = useRef(new Animated.Value(0)).current;
   const slideUp = useRef(new Animated.Value(30)).current;
 
@@ -40,11 +37,9 @@ export default function TrotroDriverLoginPage() {
 
   const loginMut = useMutation({
     mutationFn: () => performLogin(ph, pw),
-    onSuccess: async () => {
+    onSuccess: () => {
       console.log('[Login] Success');
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      const ok = await requestLocationPermission();
-      if (ok) await startGpsService();
       router.replace('/(tabs)/dashboard');
     },
     onError: (err: Error) => {
