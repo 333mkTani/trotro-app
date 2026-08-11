@@ -1302,7 +1302,9 @@ const RecommendationCard = React.memo(function RecommendationCard({
             <View style={st.recMetaItem}>
               <Bus size={12} color={Colors.primary} />
               <Text style={st.recMetaText}>
-                {rec.bestBus.bus_registration} · {rec.bestBus.eta_minutes} min
+                {rec.bestBus.bus_registration} · {rec.bestBus.arrival_state === 'boarding_now'
+                  ? 'Boarding now'
+                  : `${rec.bestBus.eta_minutes} min`}
               </Text>
             </View>
             <View style={st.recMetaDivider} />

@@ -41,6 +41,7 @@ export interface ApproachingBus {
   route_name: string;
   lat: number;
   lng: number;
+  arrival_state?: 'approaching' | 'boarding_now';
 }
 
 export interface Route {

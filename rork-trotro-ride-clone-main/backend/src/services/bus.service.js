@@ -6,10 +6,14 @@ const { publisher, isReady } = require('../config/redis');
 const { ApiError } = require('../utils/ApiError');
 const { emitToBus, emitToRoute, emitToUser } = require('../realtime/io');
 const routeProgressService = require('./routeProgress.service');
-const { projectOntoRoute, isStopAhead, isDestinationAheadAfterPickup } = require('../utils/routeProgress');
+const {
+  projectOntoRoute, isStopAhead, isDestinationAheadAfterPickup, resolveEffectiveDirection,
+} = require('../utils/routeProgress');
 
 const APPROACH_RADIUS_M = 500;
 const AVG_SPEED_MPS = 6.9; // ~25 km/h average city driving speed, for ETA estimates
+const PARKED_PICKUP_RADIUS_M = 100;
+const HEADING_LOCK_TTL_MS = 45 * 60 * 1000;
 
 function haversineM(lat1, lng1, lat2, lng2) {
   const R = 6371000;
@@ -131,25 +135,41 @@ const listApproachingStop = async ({ stopId, destinationStopId, routeName }) => 
   return rows.map((b) => {
     const stops = routeStopsById.get(b.route_id) || [];
     const stop = stops.find((item) => item.id === stopId);
-    const stopProgressM = stop ? projectOntoRoute(stop, stops)?.progressM : null;
+    const stopProjection = stop ? projectOntoRoute(stop, stops) : null;
+    const stopProgressM = stopProjection?.progressM ?? null;
     const destination = destinationStopId ? stops.find((item) => item.id === destinationStopId) : null;
     const destinationProgressM = destination ? projectOntoRoute(destination, stops)?.progressM : null;
-    const hasKnownDirection = ['forward', 'reverse'].includes(b.route_direction)
-      && Number(b.direction_confidence || 0) >= 1;
-    if (!hasKnownDirection) return null;
-    const approaching = isStopAhead({
+    const distanceM = b.distance_m != null ? Number(b.distance_m) : null;
+    const isParkedAtPickup = b.driving_status === 'STATIONARY'
+      && distanceM != null && distanceM <= PARKED_PICKUP_RADIUS_M;
+    if (b.driving_status === 'STATIONARY' && !isParkedAtPickup) return null;
+
+    const lockedAt = b.direction_observed_at ? new Date(b.direction_observed_at).getTime() : 0;
+    const hasFreshLock = lockedAt > 0 && Date.now() - lockedAt <= HEADING_LOCK_TTL_MS;
+    const rawProgressM = b.route_progress_m == null ? null : Number(b.route_progress_m);
+    const effectiveDirection = resolveEffectiveDirection({
       direction: b.route_direction,
-      confidence: Number(b.direction_confidence || 0),
-      busProgressM: b.route_progress_m == null ? null : Number(b.route_progress_m),
+      drivingStatus: b.driving_status,
+      progressM: rawProgressM,
+      routeLengthM: stopProjection?.routeLengthM,
+    });
+    const terminalDirectionInferred = effectiveDirection !== b.route_direction;
+    const hasKnownDirection = ['forward', 'reverse'].includes(effectiveDirection)
+      && Number(b.direction_confidence || 0) >= 1;
+    if (!hasKnownDirection && !terminalDirectionInferred) return null;
+    if (isParkedAtPickup && !hasFreshLock && !terminalDirectionInferred) return null;
+    const approaching = isStopAhead({
+      direction: effectiveDirection,
+      confidence: terminalDirectionInferred ? 1 : Number(b.direction_confidence || 0),
+      busProgressM: rawProgressM,
       stopProgressM: stopProgressM == null ? null : Number(stopProgressM),
     });
     if (!approaching) return null;
     if (destinationStopId && !isDestinationAheadAfterPickup({
-      direction: b.route_direction,
+      direction: effectiveDirection,
       pickupProgressM: stopProgressM,
       destinationProgressM,
     })) return null;
-    const distanceM = b.distance_m != null ? Number(b.distance_m) : null;
     const remainingRouteM = Number.isFinite(stopProgressM) && Number.isFinite(Number(b.route_progress_m))
       ? Math.abs(stopProgressM - Number(b.route_progress_m))
       : distanceM;
@@ -159,8 +179,10 @@ const listApproachingStop = async ({ stopId, destinationStopId, routeName }) => 
       ...b,
       distance_m: distanceM != null ? Math.round(distanceM) : null,
       route_distance_to_stop_m: remainingRouteM != null ? Math.round(remainingRouteM) : null,
-      eta_minutes: remainingRouteM != null ? Math.max(1, Math.round(remainingRouteM / effectiveSpeedMps / 60)) : 5,
-      is_approaching: true,
+      eta_minutes: isParkedAtPickup ? 0 : (remainingRouteM != null ? Math.max(1, Math.round(remainingRouteM / effectiveSpeedMps / 60)) : 5),
+      effective_direction: effectiveDirection,
+      arrival_state: isParkedAtPickup ? 'boarding_now' : 'approaching',
+      is_approaching: !isParkedAtPickup,
     };
   }).filter(Boolean).sort((a, b) => a.eta_minutes - b.eta_minutes);
 };

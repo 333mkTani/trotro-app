@@ -193,7 +193,8 @@ const updateRoute = async (driverId, routeId) => {
   const { rows } = await query(
     `UPDATE buses
         SET route_id = $1, route_direction = 'unknown', route_progress_m = null,
-            route_offset_m = null, movement_speed_mps = null, direction_confidence = 0
+            route_offset_m = null, movement_speed_mps = null, movement_heading_deg = null,
+            direction_confidence = 0, direction_observed_at = null
       WHERE id = $2 RETURNING *`,
     [routeId, bus.id]
   );

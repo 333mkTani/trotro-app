@@ -3,7 +3,7 @@ const { query } = require('../config/db');
 const COLUMNS = `id, registration, driver_id, route_id, total_seats, seats_available,
   current_lat, current_lng, last_ping_at, status, driving_status,
   route_direction, route_progress_m, route_offset_m, movement_speed_mps,
-  direction_confidence, created_at`;
+  movement_heading_deg, direction_confidence, direction_observed_at, created_at`;
 
 // Only surfaces buses a passenger could actually board: `seats_available > 0`
 // is enforced here so full buses never appear in discovery, matching
@@ -48,8 +48,10 @@ const updateLocation = async (id, { lat, lng, movementState }) => {
             route_progress_m = $4,
             route_offset_m = $5,
             movement_speed_mps = $6,
-            direction_confidence = $7
-      where id = $8
+            direction_confidence = $7,
+            movement_heading_deg = $8,
+            direction_observed_at = $9
+      where id = $10
       returning ${COLUMNS}`,
     [
       lat, lng,
@@ -58,6 +60,8 @@ const updateLocation = async (id, { lat, lng, movementState }) => {
       movement.offsetM ?? null,
       movement.speedMps ?? null,
       movement.confidence ?? 0,
+      movement.headingDeg ?? null,
+      movement.directionObservedAt ?? null,
       id,
     ],
   );
@@ -146,7 +150,8 @@ const listActive = async () => {
     `SELECT b.driver_id, b.registration AS bus_registration, b.route_id,
             b.seats_available, b.total_seats, b.current_lat, b.current_lng,
             b.route_direction, b.route_progress_m, b.route_offset_m,
-            b.movement_speed_mps, b.direction_confidence,
+            b.movement_speed_mps, b.movement_heading_deg,
+            b.direction_confidence, b.direction_observed_at,
             r.name AS route_name,
             d.full_name AS driver_name
      FROM public.buses b
@@ -196,7 +201,8 @@ const listApproachingStop = async ({ stopId, routeName, radiusM = 10000, limit =
     `select b.driver_id, b.registration as bus_registration, b.route_id,
             b.seats_available, b.total_seats, b.current_lat, b.current_lng,
             b.route_direction, b.route_progress_m, b.route_offset_m,
-            b.movement_speed_mps, b.direction_confidence,
+            b.movement_speed_mps, b.movement_heading_deg,
+            b.direction_confidence, b.direction_observed_at, b.driving_status,
             r.name as route_name, d.full_name as driver_name,
             ST_Distance(b.geom, s.geom) as distance_m
        from public.buses b
@@ -204,7 +210,6 @@ const listApproachingStop = async ({ stopId, routeName, radiusM = 10000, limit =
        left join public.routes r on r.id = b.route_id
        left join public.drivers d on d.id = b.driver_id
       where b.status = 'active'
-        and b.driving_status = 'EN_ROUTE'
         and b.driver_id is not null
         and b.last_ping_at > now() - interval '10 minutes'
         and b.seats_available > 0

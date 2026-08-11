@@ -87,11 +87,31 @@ function isDestinationAheadAfterPickup({ direction, pickupProgressM, destination
   return false;
 }
 
+function bearingDegrees(from, to) {
+  if (!from || !to) return null;
+  const lat1 = Number(from.lat) * Math.PI / 180;
+  const lat2 = Number(to.lat) * Math.PI / 180;
+  const deltaLng = (Number(to.lng) - Number(from.lng)) * Math.PI / 180;
+  const y = Math.sin(deltaLng) * Math.cos(lat2);
+  const x = Math.cos(lat1) * Math.sin(lat2)
+    - Math.sin(lat1) * Math.cos(lat2) * Math.cos(deltaLng);
+  return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+}
+
+function resolveEffectiveDirection({ direction, drivingStatus, progressM, routeLengthM, terminalRadiusM = 100 }) {
+  if (drivingStatus !== 'STATIONARY' || !Number.isFinite(progressM) || !Number.isFinite(routeLengthM)) return direction;
+  if (progressM <= terminalRadiusM) return 'forward';
+  if (routeLengthM - progressM <= terminalRadiusM) return 'reverse';
+  return direction;
+}
+
 module.exports = {
   projectOntoRoute,
   deriveMovementState,
   isStopAhead,
   isDestinationAheadAfterPickup,
+  bearingDegrees,
+  resolveEffectiveDirection,
   MIN_DIRECTION_MOVEMENT_M,
   MAX_ROUTE_OFFSET_M,
 };

@@ -1,4 +1,7 @@
-const { projectOntoRoute, deriveMovementState, isStopAhead, isDestinationAheadAfterPickup } = require('../routeProgress');
+const {
+  projectOntoRoute, deriveMovementState, isStopAhead, isDestinationAheadAfterPickup,
+  bearingDegrees, resolveEffectiveDirection,
+} = require('../routeProgress');
 
 const route = [
   { id: 'a', lat: 6.67, lng: -1.57 },
@@ -47,5 +50,12 @@ describe('route progress detection', () => {
     expect(isDestinationAheadAfterPickup({ direction: 'forward', pickupProgressM: 500, destinationProgressM: 200 })).toBe(false);
     expect(isDestinationAheadAfterPickup({ direction: 'reverse', pickupProgressM: 500, destinationProgressM: 200 })).toBe(true);
     expect(isDestinationAheadAfterPickup({ direction: 'unknown', pickupProgressM: 500, destinationProgressM: 900 })).toBe(false);
+  });
+
+  it('calculates course over ground and automatically reverses at a terminal', () => {
+    expect(bearingDegrees({ lat: 6.67, lng: -1.57 }, { lat: 6.68, lng: -1.57 })).toBeCloseTo(0, 1);
+    expect(resolveEffectiveDirection({ direction: 'forward', drivingStatus: 'STATIONARY', progressM: 1950, routeLengthM: 2000 })).toBe('reverse');
+    expect(resolveEffectiveDirection({ direction: 'reverse', drivingStatus: 'STATIONARY', progressM: 50, routeLengthM: 2000 })).toBe('forward');
+    expect(resolveEffectiveDirection({ direction: 'forward', drivingStatus: 'STATIONARY', progressM: 900, routeLengthM: 2000 })).toBe('forward');
   });
 });
