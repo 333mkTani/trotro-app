@@ -5,6 +5,7 @@ const walletModel = require('../models/wallet.model');
 const push = require('./push.service');
 const { ApiError } = require('../utils/ApiError');
 const { emitToBus, emitToRoute, emitToUser } = require('../realtime/io');
+const routeProgressService = require('./routeProgress.service');
 
 const getMyBus = async (driverId) => {
   const { rows } = await query(
@@ -140,7 +141,8 @@ const updateSeats = async (driverId, { availableSeats, totalSeats }) => {
 const updateLocation = async (driverId, { lat, lng }) => {
   const bus = await getMyBus(driverId);
   if (!bus) throw ApiError.notFound('No active bus assigned to this driver');
-  const updated = await busModel.updateLocation(bus.id, { lat, lng });
+  const movementState = await routeProgressService.calculateMovementState(bus, { lat, lng });
+  const updated = await busModel.updateLocation(bus.id, { lat, lng, movementState });
 
   const event = { busId: updated.id, routeId: updated.route_id, lat, lng, driverId, ts: Date.now() };
   emitToBus(updated.id, 'bus:location', event);
@@ -186,7 +188,10 @@ const updateRoute = async (driverId, routeId) => {
   );
   if (!routeRows[0]) throw ApiError.notFound('Route not found');
   const { rows } = await query(
-    `UPDATE buses SET route_id = $1 WHERE id = $2 RETURNING *`,
+    `UPDATE buses
+        SET route_id = $1, route_direction = 'unknown', route_progress_m = null,
+            route_offset_m = null, movement_speed_mps = null, direction_confidence = 0
+      WHERE id = $2 RETURNING *`,
     [routeId, bus.id]
   );
   return rows[0];

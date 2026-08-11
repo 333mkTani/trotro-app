@@ -19,6 +19,7 @@ const NearbyQuery = z.object({
 /** ?stop_id=&route_name= — filters /buses/active to buses approaching a stop */
 const ActiveBusesQuery = z.object({
   stop_id: z.string().uuid().optional(),
+  destination_stop_id: z.string().uuid().optional(),
   route_name: z.string().min(1).max(120).optional(),
 });
 

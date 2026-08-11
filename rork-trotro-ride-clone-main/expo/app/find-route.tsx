@@ -53,6 +53,7 @@ import {
   RouteRecommendation,
 } from "@/utils/routeFinder";
 import { rankRecommendationsByWalkingRoute } from "@/utils/walkingRouteRanker";
+import { recommendationsForClosestApproachingDrivers } from "@/utils/approachingDriverRecommendations";
 const Colors = StaticColors;
 
 const SCREEN_W = Dimensions.get("window").width;
@@ -280,10 +281,11 @@ export default function FindRouteScreen() {
         activeBuses,
         exactDestinationId,
       );
-      const recs = await rankRecommendationsByWalkingRoute(candidates, {
+      const walkingRanked = await rankRecommendationsByWalkingRoute(candidates, {
         latitude: pickupLat,
         longitude: pickupLng,
       });
+      const recs = await recommendationsForClosestApproachingDrivers(walkingRanked);
       setRecommendations(recs);
       setLoading(false);
 
@@ -343,7 +345,7 @@ export default function FindRouteScreen() {
     void rankRecommendationsByWalkingRoute(candidates, {
       latitude: pickupLat,
       longitude: pickupLng,
-    }).then((ranked) => {
+    }).then(recommendationsForClosestApproachingDrivers).then((ranked) => {
       if (!cancelled) setRecommendations(ranked);
     });
     return () => { cancelled = true; };
@@ -1016,13 +1018,16 @@ export default function FindRouteScreen() {
                 <Animated.View style={{ opacity: resultsFade }}>
                   <View style={st.resultsHeader}>
                     <Text style={st.resultsTitle}>
-                      {recommendations.length} route{recommendations.length > 1 ? "s" : ""} to{" "}
+                      {recommendations.filter((item) => item.bestBus).length || recommendations.length}{" "}
+                      {recommendations.some((item) => item.bestBus)
+                        ? `approaching bus${recommendations.length > 1 ? "es" : ""}`
+                        : `route${recommendations.length > 1 ? "s" : ""}`} to{" "}
                       {selectedDest?.name}
                     </Text>
                     <Text style={st.resultsHint}>
                       {selectedDest?.id.startsWith("place-")
                         ? "Showing routes to the nearest stop. The card tells you where to board and alight."
-                        : "Sorted by convenience. Board and alight stops are shown on each card."}
+                        : "Showing drivers approaching your closest walking-ranked pickup stop."}
                     </Text>
                   </View>
                   {recommendations.map((rec, idx) => (

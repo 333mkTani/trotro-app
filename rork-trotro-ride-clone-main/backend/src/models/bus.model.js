@@ -1,7 +1,9 @@
 const { query } = require('../config/db');
 
 const COLUMNS = `id, registration, driver_id, route_id, total_seats, seats_available,
-  current_lat, current_lng, last_ping_at, status, driving_status, created_at`;
+  current_lat, current_lng, last_ping_at, status, driving_status,
+  route_direction, route_progress_m, route_offset_m, movement_speed_mps,
+  direction_confidence, created_at`;
 
 // Only surfaces buses a passenger could actually board: `seats_available > 0`
 // is enforced here so full buses never appear in discovery, matching
@@ -37,13 +39,27 @@ const insert = async ({ registration, driverId, routeId, totalSeats = 14 }) => {
   return rows[0];
 };
 
-const updateLocation = async (id, { lat, lng }) => {
+const updateLocation = async (id, { lat, lng, movementState }) => {
+  const movement = movementState || {};
   const { rows } = await query(
     `update public.buses
-        set current_lat = $1, current_lng = $2, last_ping_at = now()
-      where id = $3
+        set current_lat = $1, current_lng = $2, last_ping_at = now(),
+            route_direction = $3,
+            route_progress_m = $4,
+            route_offset_m = $5,
+            movement_speed_mps = $6,
+            direction_confidence = $7
+      where id = $8
       returning ${COLUMNS}`,
-    [lat, lng, id],
+    [
+      lat, lng,
+      movement.direction || 'unknown',
+      movement.progressM ?? null,
+      movement.offsetM ?? null,
+      movement.speedMps ?? null,
+      movement.confidence ?? 0,
+      id,
+    ],
   );
   return rows[0] || null;
 };
@@ -129,6 +145,8 @@ const listActive = async () => {
   const { rows } = await query(
     `SELECT b.driver_id, b.registration AS bus_registration, b.route_id,
             b.seats_available, b.total_seats, b.current_lat, b.current_lng,
+            b.route_direction, b.route_progress_m, b.route_offset_m,
+            b.movement_speed_mps, b.direction_confidence,
             r.name AS route_name,
             d.full_name AS driver_name
      FROM public.buses b
@@ -150,12 +168,24 @@ const findByDriverId = async (driverId) => {
   return rows[0] || null;
 };
 
+const listRouteStops = async (routeId) => {
+  const { rows } = await query(
+    `select s.id, s.name, s.lat, s.lng, rs.sequence
+       from public.route_stops rs
+       join public.bus_stops s on s.id = rs.stop_id
+      where rs.route_id = $1 and s.status = 'active'
+      order by rs.sequence asc`,
+    [routeId],
+  );
+  return rows;
+};
+
 /**
  * Active buses approaching a specific stop, optionally filtered by route
  * name, ordered nearest-first via PostGIS KNN. One row per bus (driver_id
  * is unique here since a driver can only run one active bus at a time).
  */
-const listApproachingStop = async ({ stopId, routeName, radiusM = 3000, limit = 50 }) => {
+const listApproachingStop = async ({ stopId, routeName, radiusM = 10000, limit = 50 }) => {
   const params = [stopId, radiusM, limit];
   let routeFilter = '';
   if (routeName) {
@@ -165,6 +195,8 @@ const listApproachingStop = async ({ stopId, routeName, radiusM = 3000, limit = 
   const { rows } = await query(
     `select b.driver_id, b.registration as bus_registration, b.route_id,
             b.seats_available, b.total_seats, b.current_lat, b.current_lng,
+            b.route_direction, b.route_progress_m, b.route_offset_m,
+            b.movement_speed_mps, b.direction_confidence,
             r.name as route_name, d.full_name as driver_name,
             ST_Distance(b.geom, s.geom) as distance_m
        from public.buses b
@@ -172,6 +204,7 @@ const listApproachingStop = async ({ stopId, routeName, radiusM = 3000, limit = 
        left join public.routes r on r.id = b.route_id
        left join public.drivers d on d.id = b.driver_id
       where b.status = 'active'
+        and b.driving_status = 'EN_ROUTE'
         and b.driver_id is not null
         and b.last_ping_at > now() - interval '10 minutes'
         and b.seats_available > 0
@@ -188,5 +221,5 @@ const listApproachingStop = async ({ stopId, routeName, radiusM = 3000, limit = 
 
 module.exports = {
   list, findById, insert, updateLocation, adjustSeats, reserveSeat, reserveSeatForAutoAccept, findNearby, listActive,
-  findByDriverId, listApproachingStop,
+  findByDriverId, listApproachingStop, listRouteStops,
 };

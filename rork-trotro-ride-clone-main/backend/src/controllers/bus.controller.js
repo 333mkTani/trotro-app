@@ -28,9 +28,9 @@ const listActive = asyncHandler(async (req, res) => {
   // instead of an ETag-driven 304 that leaves stale map markers in memory.
   res.set('Cache-Control', 'no-store, no-cache, must-revalidate');
   res.set('Pragma', 'no-cache');
-  const { stop_id: stopId, route_name: routeName } = req.query;
+  const { stop_id: stopId, destination_stop_id: destinationStopId, route_name: routeName } = req.query;
   if (stopId) {
-    res.json(await busService.listApproachingStop({ stopId, routeName }));
+    res.json(await busService.listApproachingStop({ stopId, destinationStopId, routeName }));
     return;
   }
   res.json(await busService.listActive());

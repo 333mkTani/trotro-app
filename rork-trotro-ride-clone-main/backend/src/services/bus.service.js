@@ -5,6 +5,8 @@ const push = require('./push.service');
 const { publisher, isReady } = require('../config/redis');
 const { ApiError } = require('../utils/ApiError');
 const { emitToBus, emitToRoute, emitToUser } = require('../realtime/io');
+const routeProgressService = require('./routeProgress.service');
+const { projectOntoRoute, isStopAhead, isDestinationAheadAfterPickup } = require('../utils/routeProgress');
 
 const APPROACH_RADIUS_M = 500;
 const AVG_SPEED_MPS = 6.9; // ~25 km/h average city driving speed, for ETA estimates
@@ -34,7 +36,10 @@ const getById = async (id) => {
 const create = (data) => busModel.insert(data);
 
 const updateLocation = async (id, coords) => {
-  const updated = await busModel.updateLocation(id, coords);
+  const existing = await busModel.findById(id);
+  if (!existing) throw ApiError.notFound('Bus not found');
+  const movementState = await routeProgressService.calculateMovementState(existing, coords);
+  const updated = await busModel.updateLocation(id, { ...coords, movementState });
   if (!updated) throw ApiError.notFound('Bus not found');
 
   // Cache last-known location and broadcast to live subscribers.
@@ -116,16 +121,48 @@ const nearby = ({ lat, lng, radiusM, routeId, limit }) =>
 const listActive = () => busModel.listActive();
 
 /** Active buses approaching a stop, nearest-first, with a real ETA derived from distance. */
-const listApproachingStop = async ({ stopId, routeName }) => {
+const listApproachingStop = async ({ stopId, destinationStopId, routeName }) => {
   const rows = await busModel.listApproachingStop({ stopId, routeName });
+  const routeStopsById = new Map();
+  await Promise.all([...new Set(rows.map((row) => row.route_id).filter(Boolean))].map(async (routeId) => {
+    routeStopsById.set(routeId, await busModel.listRouteStops(routeId));
+  }));
+
   return rows.map((b) => {
+    const stops = routeStopsById.get(b.route_id) || [];
+    const stop = stops.find((item) => item.id === stopId);
+    const stopProgressM = stop ? projectOntoRoute(stop, stops)?.progressM : null;
+    const destination = destinationStopId ? stops.find((item) => item.id === destinationStopId) : null;
+    const destinationProgressM = destination ? projectOntoRoute(destination, stops)?.progressM : null;
+    const hasKnownDirection = ['forward', 'reverse'].includes(b.route_direction)
+      && Number(b.direction_confidence || 0) >= 1;
+    if (!hasKnownDirection) return null;
+    const approaching = isStopAhead({
+      direction: b.route_direction,
+      confidence: Number(b.direction_confidence || 0),
+      busProgressM: b.route_progress_m == null ? null : Number(b.route_progress_m),
+      stopProgressM: stopProgressM == null ? null : Number(stopProgressM),
+    });
+    if (!approaching) return null;
+    if (destinationStopId && !isDestinationAheadAfterPickup({
+      direction: b.route_direction,
+      pickupProgressM: stopProgressM,
+      destinationProgressM,
+    })) return null;
     const distanceM = b.distance_m != null ? Number(b.distance_m) : null;
+    const remainingRouteM = Number.isFinite(stopProgressM) && Number.isFinite(Number(b.route_progress_m))
+      ? Math.abs(stopProgressM - Number(b.route_progress_m))
+      : distanceM;
+    const speedMps = Number(b.movement_speed_mps);
+    const effectiveSpeedMps = Number.isFinite(speedMps) && speedMps >= 2 ? Math.min(speedMps, 20) : AVG_SPEED_MPS;
     return {
       ...b,
       distance_m: distanceM != null ? Math.round(distanceM) : null,
-      eta_minutes: distanceM != null ? Math.max(1, Math.round(distanceM / AVG_SPEED_MPS / 60)) : 5,
+      route_distance_to_stop_m: remainingRouteM != null ? Math.round(remainingRouteM) : null,
+      eta_minutes: remainingRouteM != null ? Math.max(1, Math.round(remainingRouteM / effectiveSpeedMps / 60)) : 5,
+      is_approaching: true,
     };
-  });
+  }).filter(Boolean).sort((a, b) => a.eta_minutes - b.eta_minutes);
 };
 
 /** Returns the latest GPS position for a driver's bus.
