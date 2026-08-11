@@ -35,6 +35,7 @@ import {
 } from "@/services/socket";
 import { useDirections } from "@/hooks/useDirections";
 import { getRouteBounds } from "@/utils/routeGeometry";
+import type { BusStop as BusStopData } from "@/types";
 const Colors = StaticColors;
 
 const { height: SCREEN_HEIGHT, width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -233,9 +234,50 @@ export default function HomeScreen() {
     () => activeBuses.find((bus) => bus.driver_id === activeBooking?.driver_id),
     [activeBuses, activeBooking?.driver_id]
   );
+  const activeTargetStopId = activeBooking
+    ? (activeBooking.boarded_at ? activeBooking.destination_stop_id : activeBooking.pickup_stop_id)
+    : undefined;
+  const [fetchedTargetStop, setFetchedTargetStop] = useState<BusStopData | null>(null);
+
+  useEffect(() => {
+    const catalogueStop = activeTargetStopId ? stopById.get(activeTargetStopId) : undefined;
+    if (!activeTargetStopId || catalogueStop) {
+      setFetchedTargetStop(null);
+      return;
+    }
+
+    let disposed = false;
+    setFetchedTargetStop(null);
+    void api.get(`/stops/${activeTargetStopId}`)
+      .then(({ data }) => {
+        if (disposed) return;
+        const lat = Number(data?.lat);
+        const lng = Number(data?.lng);
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
+        setFetchedTargetStop({
+          id: String(data.id),
+          name: String(data.name),
+          type: data.type ?? "stop",
+          lat,
+          lng,
+          status: data.status ?? "active",
+        });
+      })
+      .catch(() => {
+        // The active ride card will remain in its explicit unavailable state.
+      });
+
+    return () => {
+      disposed = true;
+    };
+  }, [activeTargetStopId, stopById]);
+
   const activeTargetStop = useMemo(
-    () => activeBooking ? stopById.get(activeBooking.boarded_at ? activeBooking.destination_stop_id : activeBooking.pickup_stop_id) : undefined,
-    [activeBooking, stopById]
+    () => activeTargetStopId
+      ? stopById.get(activeTargetStopId) ??
+        (fetchedTargetStop?.id === activeTargetStopId ? fetchedTargetStop : undefined)
+      : undefined,
+    [activeTargetStopId, fetchedTargetStop, stopById]
   );
   const isPassengerOnBoard = Boolean(activeBooking?.boarded_at);
   const [assignedBusPosition, setAssignedBusPosition] = useState<{ lat: number; lng: number } | null>(null);
@@ -288,10 +330,29 @@ export default function HomeScreen() {
   }, [activeBooking?.driver_id, isPassengerOnBoard]);
 
   const assignedBusForMap = useMemo(() => {
-    if (!activeBooking || !activeBookingBus) return undefined;
-    return assignedBusPosition
-      ? { ...activeBookingBus, lat: assignedBusPosition.lat, lng: assignedBusPosition.lng }
-      : activeBookingBus;
+    if (!activeBooking?.driver_id) return undefined;
+
+    // An assigned bus must remain trackable even when it is no longer in the
+    // public discovery feed (for example, after its last seat is reserved).
+    // The booking and driver-location endpoint are the authoritative sources
+    // for an active passenger journey; /buses/active is only optional display
+    // metadata here.
+    if (assignedBusPosition) {
+      return {
+        driver_id: activeBooking.driver_id,
+        bus_registration:
+          activeBooking.bus_registration ?? activeBookingBus?.bus_registration ?? "Assigned bus",
+        driver_name:
+          activeBooking.driver_name ?? activeBookingBus?.driver_name ?? "Driver",
+        seats_available: activeBookingBus?.seats_available ?? 0,
+        eta_minutes: activeBookingBus?.eta_minutes ?? 0,
+        route_name: activeBooking.route_name ?? activeBookingBus?.route_name ?? "",
+        lat: assignedBusPosition.lat,
+        lng: assignedBusPosition.lng,
+      };
+    }
+
+    return activeBookingBus;
   }, [activeBooking, activeBookingBus, assignedBusPosition]);
 
   const busesForMap = useMemo(

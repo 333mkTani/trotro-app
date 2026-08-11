@@ -104,8 +104,9 @@ export default function TrotroDriverLoginPage() {
               </View>
             </View>
 
-            <Pressable onPress={() => router.push('/forgot-password' as Href)} style={ls.forgot} hitSlop={8}>
-              <Text style={ls.forgotTxt}>Forgot password?</Text>
+            <Pressable onPress={() => router.push('/forgot-password' as Href)} style={({ pressed }) => [ls.forgot, pressed && ls.forgotPressed]} testID="forgot-password-link" accessibilityRole="button" accessibilityLabel="Reset forgotten password">
+              <Lock size={15} color="#1565C0" />
+              <Text style={ls.forgotTxt}>Forgot your password? Reset it</Text>
             </Pressable>
 
             <Pressable
@@ -150,7 +151,8 @@ const ls = StyleSheet.create({
   errBox: { backgroundColor: '#FFEBEE', borderRadius: 12, padding: 14, marginBottom: 20, borderLeftWidth: 4, borderLeftColor: '#C62828' },
   errTxt: { fontSize: 14, color: '#C62828', fontWeight: '500' as const, lineHeight: 20 },
   fields: { gap: 14, marginBottom: 28 },
-  forgot: { alignSelf: 'flex-end', marginTop: -16, marginBottom: 22 },
+  forgot: { width: '100%', minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: '#EBF4FF', borderRadius: 12, marginTop: -10, marginBottom: 22, paddingHorizontal: 12 },
+  forgotPressed: { opacity: 0.75 },
   forgotTxt: { color: '#1565C0', fontSize: 14, fontWeight: '700' as const },
   inputRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#FFF', borderRadius: 14, borderWidth: 1, borderColor: '#E2E8F0', height: 56, paddingHorizontal: 4 },
   ic: { width: 44, justifyContent: 'center', alignItems: 'center' },

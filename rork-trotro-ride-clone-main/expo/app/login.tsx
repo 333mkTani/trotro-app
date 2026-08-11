@@ -44,8 +44,9 @@ export default function LoginScreen() {
             <View style={st.inputWrap}><Phone size={18} color={Colors.gray400} /><TextInput style={st.input} placeholder="Phone (+233...)" placeholderTextColor={Colors.gray400} value={phone} onChangeText={setPhone} keyboardType="phone-pad" maxLength={13} testID="login-phone" /></View>
             <View style={st.inputWrap}><Lock size={18} color={Colors.gray400} /><TextInput style={st.input} placeholder="Password" placeholderTextColor={Colors.gray400} value={pw} onChangeText={setPw} secureTextEntry={!showPw} testID="login-pw" /><TouchableOpacity onPress={() => setShowPw((v) => !v)} hitSlop={8} activeOpacity={0.6} testID="login-pw-toggle">{showPw ? <EyeOff size={18} color={Colors.gray400} /> : <Eye size={18} color={Colors.gray400} />}</TouchableOpacity></View>
           </View>
-          <TouchableOpacity style={st.forgotLink} onPress={() => router.push('/forgot-password' as Href)} activeOpacity={0.6}>
-            <Text style={st.forgotText}>Forgot password?</Text>
+          <TouchableOpacity style={st.forgotLink} onPress={() => router.push('/forgot-password' as Href)} activeOpacity={0.7} testID="forgot-password-link" accessibilityRole="button" accessibilityLabel="Reset forgotten password">
+            <Lock size={15} color={Colors.primary} />
+            <Text style={st.forgotText}>Forgot your password? Reset it</Text>
           </TouchableOpacity>
           <Animated.View style={{ transform: [{ scale }] }}>
             <TouchableOpacity style={[st.loginBtn, loginPending && st.loginOff]} onPress={doLogin} activeOpacity={0.8} disabled={loginPending} testID="login-btn">
@@ -74,8 +75,8 @@ const make_st = (Colors: ThemePalette) => StyleSheet.create({
   cardSub: { fontSize: 14, color: Colors.gray500, marginBottom: 20 },
 
   inputs: { gap: 12, marginBottom: 20 },
-  forgotLink: { alignSelf: 'flex-end', marginTop: -10, marginBottom: 16 },
-  forgotText: { color: Colors.primary, fontSize: 13, fontWeight: '700' as const },
+  forgotLink: { minHeight: 44, width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: Colors.primaryFaded, borderRadius: 12, marginBottom: 16, paddingHorizontal: 12 },
+  forgotText: { color: Colors.primary, fontSize: 14, fontWeight: '700' as const },
   inputWrap: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: Colors.gray50, borderWidth: 1, borderColor: Colors.gray200, borderRadius: 14, paddingHorizontal: 14, paddingVertical: Platform.OS === "web" ? 14 : 0, height: Platform.OS === "web" ? undefined : 52 },
   input: { flex: 1, fontSize: 15, color: Colors.gray800 },
   loginBtn: { backgroundColor: Colors.primary, flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 16, borderRadius: 14, gap: 6 },

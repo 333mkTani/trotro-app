@@ -155,8 +155,18 @@ export async function getStopCoordinates(id: string): Promise<{ lat: number; lng
 
 export async function verifyCode(code: string): Promise<VerificationResult> {
   try {
-    await api.post('/bookings/redeem', { code });
-    return { success: true };
+    const { data } = await api.post('/bookings/redeem', { code });
+    const booking = data?.booking ?? data;
+    const remainingBalance = Number(booking?.remaining_balance);
+    return {
+      success: true,
+      source: 'IMMEDIATE',
+      passenger_name: booking?.passenger_name,
+      route_name: booking?.route_name,
+      confirmed_at: booking?.boarded_at,
+      payment_status: booking?.payment_status,
+      remaining_balance: Number.isFinite(remainingBalance) ? remainingBalance : undefined,
+    };
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message.toLowerCase() : '';
     if (message.includes('expired')) return { success: false, error_code: 'CODE_EXPIRED' };
@@ -245,16 +255,26 @@ export async function getWalletBalance(): Promise<WalletBalance> {
 
 export async function getTransactions(): Promise<WalletTransaction[]> {
   const { data } = await api.get('/wallet/transactions');
-  return (data as Record<string, unknown>[]).map((t) => ({
+  return (data as Record<string, unknown>[]).map((t) => {
+    const backendType = String(t.type ?? '');
+    const type: WalletTransaction['type'] = backendType === 'no_show_compensation'
+      ? 'NO_SHOW_COMPENSATION'
+      : backendType === 'withdrawal'
+        ? 'WITHDRAWAL'
+        : backendType === 'refund'
+          ? 'REFUND'
+          : 'TRIP_EARNING';
+    return ({
     id: t.id as string,
-    type: 'TRIP_EARNING' as WalletTransaction['type'],
+    type,
     amount: parseFloat(t.amount as string),
     currency: 'GHS',
     description: (t.description as string) ?? '',
     status: ((t.status as string)?.toUpperCase() ?? 'COMPLETED') as WalletTransaction['status'],
     created_at: t.created_at as string,
     reference: t.reference as string | undefined,
-  }));
+    });
+  });
 }
 
 export interface PayoutBank {

@@ -107,7 +107,7 @@ export default function RidesScreen() {
           routeName: booking.route_name ?? "",
           pickupStop: booking.pickup_stop_name,
           destinationStop: booking.destination_stop_name,
-          suggestedFare: String(booking.ride_fare ?? ""),
+          suggestedFare: String(booking.remaining_balance ?? booking.ride_fare ?? ""),
         },
       });
       return;
@@ -140,7 +140,16 @@ export default function RidesScreen() {
 
   const onCancel = useCallback((id: string) => {
     if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning);
-    Alert.alert("Cancel Ride", "Cancel this scheduled ride?", [
+    const booking = allBookings.find((item) => item.id === id);
+    const beforeDeadline = !booking?.cancellation_deadline
+      || Date.now() <= new Date(booking.cancellation_deadline).getTime();
+    const hasDeposit = booking?.payment_status === 'deposit_paid';
+    const warning = hasDeposit
+      ? beforeDeadline
+        ? 'Cancel this ride? Your deposit will be marked for a refund.'
+        : 'The free-cancellation deadline has passed. Cancelling now releases the seat, but the deposit is retained.'
+      : 'Cancel this ride and release the seat?';
+    Alert.alert("Cancel Ride", warning, [
       { text: "Keep", style: "cancel" },
       {
         text: "Cancel",
@@ -148,8 +157,13 @@ export default function RidesScreen() {
         onPress: async () => {
           setCancellingId(id);
           try {
-            await cancelBooking(id);
-            Alert.alert("Cancelled", "Ride cancelled successfully.");
+            const cancelled = await cancelBooking(id);
+            Alert.alert(
+              "Cancelled",
+              cancelled.payment_status === 'refund_pending'
+                ? 'Your seat was released and the deposit refund is pending.'
+                : 'Your seat was released successfully.',
+            );
           } catch (error) {
             Alert.alert("Cancellation Failed", error instanceof Error ? error.message : "Could not cancel this ride.");
           } finally {
@@ -158,7 +172,7 @@ export default function RidesScreen() {
         },
       },
     ]);
-  }, [cancelBooking]);
+  }, [allBookings, cancelBooking]);
 
   return (
     <View style={st.root}>

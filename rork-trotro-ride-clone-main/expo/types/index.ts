@@ -33,6 +33,8 @@ export interface BusStop {
 }
 
 export interface ApproachingBus {
+  bus_id?: string;
+  route_id?: string;
   driver_id: string;
   bus_registration: string;
   driver_name: string;
@@ -178,7 +180,30 @@ export interface Booking {
   ride_schedule?: RideSchedule;
   verification_code?: string;
   code_valid_until?: string;
+  payment_status?: ReservationPaymentStatus;
+  total_fare?: number;
+  deposit_amount?: number;
+  remaining_balance?: number;
+  hold_expires_at?: string;
+  boarding_deadline?: string;
+  cancellation_deadline?: string;
+  no_show_marked_at?: string;
+  driver_pickup_arrived_at?: string;
+  no_show_compensation_amount?: number;
+  no_show_compensated_at?: string;
 }
+
+export type ReservationPaymentStatus =
+  | 'unpaid'
+  | 'deposit_pending'
+  | 'deposit_paid'
+  | 'deposit_forfeited'
+  | 'balance_pending'
+  | 'fully_paid'
+  | 'refund_pending'
+  | 'partially_refunded'
+  | 'refunded'
+  | 'failed';
 
 export interface VerificationCode {
   code: string;

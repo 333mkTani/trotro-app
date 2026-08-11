@@ -1,6 +1,7 @@
 const { asyncHandler } = require('../utils/asyncHandler');
 const bookingService = require('../services/booking.service');
 const codeService = require('../services/code.service');
+const bookingPaymentService = require('../services/bookingPayment.service');
 
 const list = asyncHandler(async (req, res) => {
   res.json(await bookingService.listForUser(req.user, { status: req.query.status }));
@@ -12,6 +13,36 @@ const getById = asyncHandler(async (req, res) => {
 
 const create = asyncHandler(async (req, res) => {
   res.status(201).json(await bookingService.create(req.user.id, req.body));
+});
+
+const createProvisional = asyncHandler(async (req, res) => {
+  res.status(201).json(await bookingService.createProvisional(req.user.id, req.body));
+});
+
+const initializeDeposit = asyncHandler(async (req, res) => {
+  res.status(201).json(
+    await bookingPaymentService.initializeDeposit(req.user.id, req.params.id, req.body),
+  );
+});
+
+const verifyDeposit = asyncHandler(async (req, res) => {
+  const result = await bookingPaymentService.verifyDeposit(
+    req.user.id, req.params.id, req.body.reference,
+  );
+  res.status(result.success ? 200 : 402).json(result);
+});
+
+const initializeBalance = asyncHandler(async (req, res) => {
+  res.status(201).json(
+    await bookingPaymentService.initializeBalance(req.user.id, req.params.id, req.body),
+  );
+});
+
+const verifyBalance = asyncHandler(async (req, res) => {
+  const result = await bookingPaymentService.verifyBalance(
+    req.user.id, req.params.id, req.body.reference,
+  );
+  res.status(result.success ? 200 : 402).json(result);
 });
 
 const confirm = asyncHandler(async (req, res) => {
@@ -47,4 +78,8 @@ const rate = asyncHandler(async (req, res) => {
   res.status(201).json(await bookingService.rateDriver(req.params.id, req.user.id, req.body));
 });
 
-module.exports = { list, getById, create, confirm, cancel, complete, recordCashPayment, code, redeem, rate };
+module.exports = {
+  list, getById, create, createProvisional, confirm, cancel, complete,
+  initializeDeposit, verifyDeposit, initializeBalance, verifyBalance,
+  recordCashPayment, code, redeem, rate,
+};

@@ -106,6 +106,14 @@ const markTransactionStatus = async (id, status, client) => {
   return rows[0] || null;
 };
 
+const listForBooking = async (bookingId) => {
+  const { rows } = await query(
+    `select * from public.wallet_transactions where booking_id = $1 order by created_at asc`,
+    [bookingId],
+  );
+  return rows;
+};
+
 module.exports = {
   getBalance,
   ensureWallet,
@@ -116,4 +124,5 @@ module.exports = {
   findTransactionByReferenceOnly,
   findBookingTransactionForUpdate,
   markTransactionStatus,
+  listForBooking,
 };

@@ -1,0 +1,2 @@
+-- PostgreSQL enum values are intentionally retained because removing them
+-- requires recreating the enum and every dependent column.

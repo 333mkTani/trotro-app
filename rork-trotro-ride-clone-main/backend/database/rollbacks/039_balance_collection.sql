@@ -1,0 +1,1 @@
+drop index if exists public.booking_payments_one_active_balance_uidx;

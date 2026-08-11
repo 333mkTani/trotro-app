@@ -11,8 +11,9 @@ const findByBookingId = async (bookingId, client) => {
   return rows[0] || null;
 };
 
-const findByCode = async (code) => {
-  const { rows } = await query(
+const findByCode = async (code, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
     `select ${COLUMNS} from public.verification_codes where code = $1`,
     [code],
   );

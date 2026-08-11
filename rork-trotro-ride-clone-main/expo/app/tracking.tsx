@@ -26,7 +26,6 @@ import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
 import { api } from "@/services/api";
 import {
   connectSocket,
-  disconnectSocket,
   getSocket,
   subscribeToBus,
   unsubscribeFromBus,
@@ -57,16 +56,6 @@ function validLongitude(value: unknown): value is number {
   return typeof value === "number" && Number.isFinite(value) && value >= -180 && value <= 180;
 }
 
-function haversineMetres(lat1: number, lng1: number, lat2: number, lng2: number): number {
-  const R = 6371000;
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLng = ((lng2 - lng1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) ** 2 +
-    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLng / 2) ** 2;
-  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-}
-
 export default function TrackingScreen() {
   const { colors: themeColors } = useTheme();
   const Colors = themeColors;
@@ -90,30 +79,35 @@ export default function TrackingScreen() {
     validLongitude(parsedBusLng) &&
     parsedBusLat !== 0 &&
     parsedBusLng !== 0;
-  const busStartLat = busHasLiveFix ? parsedBusLat : stopLat + 0.015;
-  const busStartLng = busHasLiveFix ? parsedBusLng : stopLng + 0.01;
-  const initialEta = Number(p.eta) || 10;
   const seats = Number(p.seats) || 0;
   const stopName = p.stopName || "Bus Stop";
   const driverName = p.driverName || "Driver";
   const busReg = p.busReg || "GR-0000-00";
   const routeName = p.routeName || "Unknown Route";
 
-  const [eta, setEta] = useState(initialEta);
-  const [busPosition, setBusPosition] = useState({ lat: busStartLat, lng: busStartLng });
-  const [progress, setProgress] = useState(0);
+  const [busPosition, setBusPosition] = useState<{ lat: number; lng: number } | null>(
+    busHasLiveFix ? { lat: parsedBusLat, lng: parsedBusLng } : null,
+  );
   const [expanded, setExpanded] = useState(true);
-  const [lastUpdate, setLastUpdate] = useState("Just now");
+  const [lastUpdate, setLastUpdate] = useState(
+    busHasLiveFix ? "Just now" : "Waiting for driver GPS",
+  );
   const [socketLive, setSocketLive] = useState(false);
+  const [gpsStatus, setGpsStatus] = useState<'waiting' | 'live' | 'stale' | 'offline'>(
+    busHasLiveFix ? 'live' : 'waiting',
+  );
   const [mapReady, setMapReady] = useState(false);
   const busIdRef = useRef<string | null>(null);
+  const lastGpsFixAtRef = useRef(0);
+  const initialDistanceRef = useRef<number | null>(null);
+  const arrivalNotifiedRef = useRef(false);
 
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const sheetAnim = useRef(new Animated.Value(0)).current;
   const liveDot = useRef(new Animated.Value(0.4)).current;
 
   const routingOrigin = useMemo(
-    () => ({ latitude: busPosition.lat, longitude: busPosition.lng }),
+    () => busPosition ? { latitude: busPosition.lat, longitude: busPosition.lng } : null,
     [busPosition],
   );
   const routingDestination = useMemo(
@@ -132,11 +126,20 @@ export default function TrackingScreen() {
     [directions.geometry],
   );
   const routeBounds = useMemo(() => getRouteBounds(directions.geometry), [directions.geometry]);
-  const displayedEta = directions.data?.durationSeconds != null
+  const roadDistanceMeters = !directions.isFallback
+    ? directions.data?.distanceMeters ?? null
+    : null;
+  if (roadDistanceMeters != null && initialDistanceRef.current == null) {
+    initialDistanceRef.current = roadDistanceMeters;
+  }
+  const progress = roadDistanceMeters != null && initialDistanceRef.current
+    ? Math.max(0, Math.min(1, 1 - roadDistanceMeters / initialDistanceRef.current))
+    : 0;
+  const displayedEta = busPosition && !directions.isFallback && directions.data?.durationSeconds != null
     ? Math.max(1, Math.ceil(directions.data.durationSeconds / 60))
-    : eta;
+    : null;
   const activeStep = useMemo(
-    () => directions.data
+    () => directions.data && routingOrigin
       ? getActiveRouteStep(directions.data.steps, routingOrigin, directions.data.geometry)
       : null,
     [routingOrigin, directions.data],
@@ -168,29 +171,30 @@ export default function TrackingScreen() {
     };
   }, [liveDot, pulseAnim, sheetAnim]);
 
-  const totalDistM = useMemo(
-    () => haversineMetres(busStartLat, busStartLng, stopLat, stopLng),
-    [busStartLat, busStartLng, stopLat, stopLng]
-  );
-
   const applyRealPosition = useCallback((realLat: number, realLng: number) => {
     if (!validLatitude(realLat) || !validLongitude(realLng)) return;
+    lastGpsFixAtRef.current = Date.now();
     setBusPosition({ lat: realLat, lng: realLng });
-
-    const distToStop = haversineMetres(realLat, realLng, stopLat, stopLng);
-    const etaMins = Math.max(1, Math.round(distToStop / 250)); // ~15 km/h
-    setEta(etaMins);
-
-    const newProgress = totalDistM > 0
-      ? Math.min(1, Math.max(0, 1 - distToStop / totalDistM))
-      : 0;
-    setProgress(newProgress);
+    setGpsStatus('live');
     setLastUpdate("Just now");
+  }, []);
 
-    if (newProgress >= 0.98 && Platform.OS !== "web") {
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  const applyServerGpsStatus = useCallback((data: Record<string, unknown>) => {
+    if (data.location_status === 'stale') {
+      const ageSeconds = Number(data.location_age_seconds);
+      setGpsStatus('stale');
+      setLastUpdate(Number.isFinite(ageSeconds) ? `GPS stale (${Math.ceil(ageSeconds / 60)} min old)` : 'GPS stale');
+    } else if (data.location_status === 'offline') {
+      setGpsStatus('offline');
+      setLastUpdate('Driver GPS offline');
     }
-  }, [stopLat, stopLng, totalDistM]);
+  }, []);
+
+  useEffect(() => {
+    if (progress < 0.98 || arrivalNotifiedRef.current || Platform.OS === "web") return;
+    arrivalNotifiedRef.current = true;
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  }, [progress]);
 
   // Real-time bus position via Socket.IO, subscribed to this bus's room.
   useEffect(() => {
@@ -204,11 +208,23 @@ export default function TrackingScreen() {
       if (!busId || event.busId !== busId) return;
       applyRealPosition(event.lat, event.lng);
     };
+    const onConnect = () => {
+      if (busId) subscribeToBus(busId);
+      setSocketLive(true);
+    };
+    const onDisconnect = () => setSocketLive(false);
 
     const setup = async () => {
       try {
         const { data } = await api.get(`/buses/driver/${driverId}/location`);
         if (cancelled) return;
+
+        // Render the latest persisted GPS fix immediately. Socket connection
+        // and room subscription can take time and there may not be another
+        // movement event while the driver is stationary.
+        applyRealPosition(Number(data?.lat), Number(data?.lng));
+        applyServerGpsStatus(data as Record<string, unknown>);
+
         busId = (data?.bus_id as string | undefined) ?? null;
         if (!busId) return;
         busIdRef.current = busId;
@@ -219,8 +235,8 @@ export default function TrackingScreen() {
         subscribeToBus(busId);
         const socket = getSocket();
         socket?.on("bus:location", onLocation);
-        socket?.on("connect", () => setSocketLive(true));
-        socket?.on("disconnect", () => setSocketLive(false));
+        socket?.on("connect", onConnect);
+        socket?.on("disconnect", onDisconnect);
         setSocketLive(socket?.connected ?? false);
       } catch {
         // No socket connection — REST polling below still covers tracking.
@@ -233,22 +249,22 @@ export default function TrackingScreen() {
       cancelled = true;
       const socket = getSocket();
       socket?.off("bus:location", onLocation);
+      socket?.off("connect", onConnect);
+      socket?.off("disconnect", onDisconnect);
       if (busId) unsubscribeFromBus(busId);
       setSocketLive(false);
     };
-  }, [p.driverId, applyRealPosition]);
+  }, [p.driverId, applyRealPosition, applyServerGpsStatus]);
 
-  useEffect(() => {
-    return () => disconnectSocket();
-  }, []);
-
-  // REST fallback keeps tracking working when the socket is unavailable.
-  // Never fabricate movement: stale or missing GPS must remain visibly stale.
+  // REST fallback is driven by GPS freshness, not transport connectivity. A
+  // connected socket can remain silent when a room subscription or event is
+  // lost, so refresh from the persisted location whenever the last valid fix
+  // becomes stale.
   useEffect(() => {
     const driverId = p.driverId;
 
     const poll = async () => {
-      if (socketLive) return; // socket is delivering live updates already
+      if (Date.now() - lastGpsFixAtRef.current < 15_000) return;
       try {
         if (!driverId) throw new Error("no driverId");
         const { data } = await api.get(`/buses/driver/${driverId}/location`);
@@ -262,30 +278,36 @@ export default function TrackingScreen() {
           realLng !== 0
         ) {
           applyRealPosition(realLat, realLng);
+          applyServerGpsStatus(data as Record<string, unknown>);
           return;
         }
+        setGpsStatus('offline');
+        setLastUpdate('Driver GPS offline');
       } catch {
-        setLastUpdate('Waiting for live GPS');
+        setGpsStatus((current) => current === 'live' ? 'stale' : 'offline');
+        setLastUpdate('Driver GPS unavailable');
       }
     };
 
     poll();
     const interval = setInterval(poll, 5000);
     return () => clearInterval(interval);
-  }, [busStartLat, busStartLng, stopLat, stopLng, initialEta, p.driverId, socketLive, applyRealPosition]);
+  }, [p.driverId, applyRealPosition, applyServerGpsStatus]);
 
   const mapRegion = useMemo(() => {
-    const centerLat = (busStartLat + stopLat) / 2;
-    const centerLng = (busStartLng + stopLng) / 2;
-    const latDelta = Math.abs(busStartLat - stopLat) * 2.2 + 0.005;
-    const lngDelta = Math.abs(busStartLng - stopLng) * 2.2 + 0.005;
+    const busLat = busPosition?.lat ?? stopLat;
+    const busLng = busPosition?.lng ?? stopLng;
+    const centerLat = (busLat + stopLat) / 2;
+    const centerLng = (busLng + stopLng) / 2;
+    const latDelta = Math.abs(busLat - stopLat) * 2.2 + 0.005;
+    const lngDelta = Math.abs(busLng - stopLng) * 2.2 + 0.005;
     return {
       latitude: centerLat,
       longitude: centerLng,
       latitudeDelta: Math.max(latDelta, 0.01),
       longitudeDelta: Math.max(lngDelta, 0.01),
     };
-  }, [busStartLat, busStartLng, stopLat, stopLng]);
+  }, [busPosition, stopLat, stopLng]);
 
   const recenterMap = useCallback(() => {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -313,7 +335,9 @@ export default function TrackingScreen() {
     setExpanded((v) => !v);
   }, []);
 
-  const etaColor = displayedEta <= 3 ? Colors.success : displayedEta <= 7 ? Colors.warning : Colors.primary;
+  const etaColor = displayedEta == null
+    ? Colors.warning
+    : displayedEta <= 3 ? Colors.success : displayedEta <= 7 ? Colors.warning : Colors.primary;
 
   const sheetTranslate = sheetAnim.interpolate({
     inputRange: [0, 1],
@@ -378,14 +402,16 @@ export default function TrackingScreen() {
           </MapLibreGL.MarkerView>
 
           {/* Bus marker */}
-          <MapLibreGL.MarkerView coordinate={[busPosition.lng, busPosition.lat]}>
-            <View style={st.busMarkerWrap}>
-              <View style={st.busMarkerPulse} />
-              <View style={st.busMarkerCore}>
-                <Bus size={18} color={Colors.white} />
+          {busPosition && (
+            <MapLibreGL.MarkerView coordinate={[busPosition.lng, busPosition.lat]}>
+              <View style={st.busMarkerWrap}>
+                <View style={st.busMarkerPulse} />
+                <View style={st.busMarkerCore}>
+                  <Bus size={18} color={Colors.white} />
+                </View>
               </View>
-            </View>
-          </MapLibreGL.MarkerView>
+            </MapLibreGL.MarkerView>
+          )}
         </MapLibreGL.MapView>
       ) : (
         <View style={[StyleSheet.absoluteFillObject, st.webMapFallback]}>
@@ -404,13 +430,13 @@ export default function TrackingScreen() {
               </View>
               <Text style={st.webPinLabel}>{stopName}</Text>
             </View>
-            <View style={[st.webBusPin, { bottom: `${25 + progress * 30}%`, left: `${20 + progress * 30}%` }]}>
+            {busPosition && <View style={[st.webBusPin, { bottom: `${25 + progress * 30}%`, left: `${20 + progress * 30}%` }]}>
               <Animated.View style={[st.webBusPulse, { transform: [{ scale: pulseAnim }] }]} />
               <View style={st.webBusPinInner}>
                 <Bus size={16} color={Colors.white} />
               </View>
               <Text style={st.webPinLabel}>{busReg}</Text>
-            </View>
+            </View>}
             <View style={st.webRouteLine} />
             <View style={st.webLiveBadge}>
               <Radio size={12} color={Colors.white} />
@@ -428,7 +454,9 @@ export default function TrackingScreen() {
           <Animated.View style={[st.liveDotOuter, { opacity: liveDot }]}>
             <View style={st.liveDotInner} />
           </Animated.View>
-          <Text style={st.liveTxt}>LIVE</Text>
+          <Text style={st.liveTxt}>
+            {gpsStatus === 'live' ? 'LIVE' : gpsStatus === 'stale' ? 'STALE GPS' : gpsStatus === 'offline' ? 'GPS OFFLINE' : 'WAITING'}
+          </Text>
         </View>
         <TouchableOpacity style={st.recenterBtn} onPress={recenterMap} activeOpacity={0.8}>
           <Navigation size={16} color={Colors.primary} />
@@ -444,8 +472,16 @@ export default function TrackingScreen() {
           <View style={st.etaLeft}>
             <Text style={st.etaLabel}>Arriving in</Text>
             <View style={st.etaRow}>
-              <Text style={[st.etaNum, { color: etaColor }]}>{displayedEta}</Text>
-              <Text style={[st.etaUnit, { color: etaColor }]}>min</Text>
+              {displayedEta == null ? (
+                <Text style={[st.etaUnit, { color: Colors.warning }]}>
+                  {busPosition ? "Calculating road route" : "Waiting for driver GPS"}
+                </Text>
+              ) : (
+                <>
+                  <Text style={[st.etaNum, { color: etaColor }]}>{displayedEta}</Text>
+                  <Text style={[st.etaUnit, { color: etaColor }]}>min</Text>
+                </>
+              )}
             </View>
           </View>
           <View style={st.etaRight}>

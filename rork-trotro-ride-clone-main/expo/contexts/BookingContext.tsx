@@ -32,6 +32,18 @@ const mapBooking = (b: Record<string, unknown>): Booking => ({
   ride_schedule: b.ride_schedule as RideSchedule | undefined,
   verification_code: b.verification_code as string | undefined,
   code_valid_until: b.code_valid_until as string | undefined,
+  payment_status: b.payment_status as Booking['payment_status'],
+  total_fare: b.total_fare != null ? Number(b.total_fare) : undefined,
+  deposit_amount: b.deposit_amount != null ? Number(b.deposit_amount) : undefined,
+  remaining_balance: b.remaining_balance != null ? Number(b.remaining_balance) : undefined,
+  hold_expires_at: b.hold_expires_at as string | undefined,
+  boarding_deadline: b.boarding_deadline as string | undefined,
+  cancellation_deadline: b.cancellation_deadline as string | undefined,
+  no_show_marked_at: b.no_show_marked_at as string | undefined,
+  driver_pickup_arrived_at: b.driver_pickup_arrived_at as string | undefined,
+  no_show_compensation_amount: b.no_show_compensation_amount != null
+    ? Number(b.no_show_compensation_amount) : undefined,
+  no_show_compensated_at: b.no_show_compensated_at as string | undefined,
 });
 
 export const [BookingProvider, useBookings] = createContextHook(() => {
@@ -141,9 +153,9 @@ export const [BookingProvider, useBookings] = createContextHook(() => {
   });
 
   const cancelBookingMutation = useMutation({
-    mutationFn: async (bookingId: string): Promise<string> => {
-      await api.post(`/bookings/${bookingId}/cancel`);
-      return bookingId;
+    mutationFn: async (bookingId: string): Promise<Booking> => {
+      const { data } = await api.post(`/bookings/${bookingId}/cancel`);
+      return mapBooking(data as Record<string, unknown>);
     },
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['bookings'] });

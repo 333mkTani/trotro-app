@@ -5,7 +5,6 @@ import StaticColors from "@/constants/colors";
 import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
 import { Booking } from "@/types";
 import StatusBadge from "./StatusBadge";
-import { isCancellationWindowLocked } from "@/utils/bookingCancellation";
 const Colors = StaticColors;
 
 interface BookingCardProps {
@@ -27,7 +26,10 @@ export default React.memo(function BookingCard({ booking, onPress, onCancel, onN
   const timeStr = arrivalDate.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
   const dateStr = arrivalDate.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
   const canCancel = booking.status === "pending" || booking.status === "confirmed";
-  const isWithin30Min = isCancellationWindowLocked(booking.desired_arrival_time);
+  const cancellationDeadlinePassed = Boolean(
+    booking.cancellation_deadline
+    && Date.now() > new Date(booking.cancellation_deadline).getTime(),
+  );
 
   return (
     <TouchableOpacity style={styles.card} onPress={onPress} activeOpacity={0.7} testID={`booking-${booking.id}`}>
@@ -116,12 +118,12 @@ export default React.memo(function BookingCard({ booking, onPress, onCancel, onN
         )}
         {canCancel && onCancel && (
           <TouchableOpacity
-            style={[styles.cancelBtn, (isWithin30Min || cancellingRide) && styles.cancelBtnDisabled]}
-            onPress={isWithin30Min || cancellingRide ? undefined : onCancel}
-            activeOpacity={isWithin30Min || cancellingRide ? 1 : 0.6}
+            style={[styles.cancelBtn, cancellingRide && styles.cancelBtnDisabled]}
+            onPress={cancellingRide ? undefined : onCancel}
+            activeOpacity={cancellingRide ? 1 : 0.6}
           >
-            <Text style={[styles.cancelText, (isWithin30Min || cancellingRide) && styles.cancelTextDisabled]}>
-              {cancellingRide ? "Cancelling..." : isWithin30Min ? "Can't cancel < 30 min" : "Cancel Ride"}
+            <Text style={[styles.cancelText, cancellingRide && styles.cancelTextDisabled]}>
+              {cancellingRide ? "Cancelling..." : cancellationDeadlinePassed ? "Cancel (deposit retained)" : "Cancel Ride"}
             </Text>
           </TouchableOpacity>
         )}

@@ -101,6 +101,7 @@ function RootLayoutNav() {
       <Stack.Screen name="book-bus" options={{ title: "Book a Seat", ...headerOpts }} />
       <Stack.Screen name="tracking" options={{ title: "Live Tracking", ...headerOpts }} />
       <Stack.Screen name="find-route" options={{ title: "Find Route", ...headerOpts }} />
+      <Stack.Screen name="booking-deposit" options={{ title: "Reserve Your Seat", ...headerOpts }} />
       <Stack.Screen name="set-bus-alert" options={{ title: "Set Bus Alert", ...headerOpts }} />
       <Stack.Screen name="ride-notification" options={{ title: "Notifications", ...headerOpts }} />
       <Stack.Screen name="verification" options={{ title: "Verification Code", ...headerOpts }} />

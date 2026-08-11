@@ -167,11 +167,13 @@ export interface OverflowRequest {
 }
 
 export interface VerificationResult {
-  success: boolean;
-  source?: 'IMMEDIATE' | 'SCHEDULED';
-  passenger_name?: string;
-  route_name?: string;
-  confirmed_at?: string;
+    success: boolean;
+    source?: 'IMMEDIATE' | 'SCHEDULED';
+    passenger_name?: string;
+    route_name?: string;
+    confirmed_at?: string;
+    payment_status?: 'unpaid' | 'deposit_pending' | 'deposit_paid' | 'balance_pending' | 'fully_paid' | 'refund_pending' | 'refunded';
+    remaining_balance?: number;
   error_code?: 'CODE_NOT_FOUND' | 'CODE_EXPIRED' | 'CODE_ALREADY_USED' | 'BUS_MISMATCH' | 'CODE_INVALIDATED' | 'BOARDING_NOT_OPEN' | 'WRONG_DRIVER';
 }
 
@@ -189,7 +191,7 @@ export interface WalletBalance {
 
 export interface WalletTransaction {
   id: string;
-  type: 'TRIP_EARNING' | 'WITHDRAWAL' | 'BONUS' | 'REFUND';
+  type: 'TRIP_EARNING' | 'NO_SHOW_COMPENSATION' | 'WITHDRAWAL' | 'BONUS' | 'REFUND';
   amount: number;
   currency: string;
   description: string;

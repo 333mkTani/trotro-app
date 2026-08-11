@@ -37,7 +37,8 @@ const listActive = asyncHandler(async (req, res) => {
 });
 
 const getDriverLocation = asyncHandler(async (req, res) => {
-  res.json(await busService.getDriverLocation(req.params.driverId));
+  res.set('Cache-Control', 'no-store');
+  res.json(await busService.getDriverLocation(req.params.driverId, req.user));
 });
 
 module.exports = { list, getById, create, updateLocation, nearby, listActive, getDriverLocation };

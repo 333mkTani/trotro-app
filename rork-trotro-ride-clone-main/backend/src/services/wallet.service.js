@@ -102,6 +102,9 @@ const charge = async (userId, { bookingId }) => {
     if (!booking.boarded_at || booking.code_status !== 'used') {
       throw ApiError.badRequest('Boarding code must be redeemed before payment');
     }
+    if (booking.payment_status === 'balance_pending') {
+      throw ApiError.badRequest('Use the booking balance payment endpoint for this deposit-backed ride');
+    }
     if (!booking.driver_id) throw ApiError.badRequest('Booking has no assigned driver');
 
     const amount = Number(booking.authoritative_fare);

@@ -8,6 +8,7 @@ const { attach: attachSocketIO } = require('./realtime/io');
 const bookingService = require('./services/booking.service');
 const scheduleWorkerService = require('./services/scheduleWorker.service');
 const busAlertWorkerService = require('./services/busAlertWorker.service');
+const refundService = require('./services/refund.service');
 
 const server = http.createServer(app);
 const io = attachSocketIO(server);
@@ -27,6 +28,18 @@ const sweepStaleBookings = async () => {
 };
 const bookingSweepTimer = setInterval(sweepStaleBookings, 10 * 60 * 1000);
 setTimeout(sweepStaleBookings, 15 * 1000);
+
+const reconcileRefunds = async () => {
+  try {
+    const results = await refundService.reconcilePending(50);
+    const changed = results.filter((result) => result.success || result.error).length;
+    if (changed) console.log(`[refund-reconciliation] checked ${changed} pending refund(s)`);
+  } catch (err) {
+    console.error('[refund-reconciliation] failed:', err.message);
+  }
+};
+const refundReconciliationTimer = setInterval(reconcileRefunds, 10 * 60 * 1000);
+setTimeout(reconcileRefunds, 45 * 1000);
 
 const runScheduleCycle = async () => {
   try {
@@ -60,6 +73,7 @@ setTimeout(runBusAlertCycle, 25 * 1000);
 
 const shutdown = async (signal) => {
   clearInterval(bookingSweepTimer);
+  clearInterval(refundReconciliationTimer);
   if (scheduleCycleTimer) clearInterval(scheduleCycleTimer);
   clearInterval(busAlertCycleTimer);
   console.log(`[trotro-api] received ${signal}, shutting down...`);

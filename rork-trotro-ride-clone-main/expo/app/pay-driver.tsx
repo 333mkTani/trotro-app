@@ -20,6 +20,7 @@ import {
   MapPin,
   User,
   ChevronRight,
+  CreditCard,
 } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import StaticColors from "@/constants/colors";
@@ -27,6 +28,8 @@ import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
 import { useWallet } from "@/contexts/WalletContext";
 import { useBookings } from "@/contexts/BookingContext";
 import { RidePaymentMethod } from "@/types";
+import { payBookingBalance } from "@/services/bookingPayment";
+import { createPaymentAttemptKey } from "@/utils/paymentIdempotency";
 const Colors = StaticColors;
 
 type Params = {
@@ -40,6 +43,7 @@ type Params = {
 };
 
 const FARE_PRESETS = [2, 3, 5, 8, 10];
+type PaymentChoice = RidePaymentMethod | "paystack";
 
 export default function PayDriverScreen() {
   const { colors: themeColors } = useTheme();
@@ -49,10 +53,14 @@ export default function PayDriverScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<Params>();
   const { balance, payDriver, payDriverPending } = useWallet();
-  const { recordCashPayment, recordCashPaymentPending } = useBookings();
+  const { bookings, recordCashPayment, recordCashPaymentPending } = useBookings();
+  const booking = bookings.find((item) => item.id === params.bookingId);
+  const depositBacked = booking?.payment_status === "balance_pending";
 
-  const [paymentMethod, setPaymentMethod] = useState<RidePaymentMethod | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentChoice | null>(depositBacked ? "paystack" : null);
   const [fareAmount, setFareAmount] = useState<string>(params.suggestedFare || "");
+  const [onlinePending, setOnlinePending] = useState(false);
+  const balanceAttemptKey = useRef(createPaymentAttemptKey(params.bookingId || "booking"));
   const [showSuccess, setShowSuccess] = useState(false);
   const [successMessage, setSuccessMessage] = useState("");
 
@@ -63,7 +71,14 @@ export default function PayDriverScreen() {
 
   const numericFare = parseFloat(fareAmount) || 0;
   const canPay = paymentMethod !== null && numericFare >= 0.5;
-  const isPending = payDriverPending || recordCashPaymentPending;
+  const isPending = payDriverPending || recordCashPaymentPending || onlinePending;
+
+  useEffect(() => {
+    if (depositBacked && booking?.remaining_balance != null) {
+      setFareAmount(String(booking.remaining_balance));
+      setPaymentMethod("paystack");
+    }
+  }, [booking?.remaining_balance, depositBacked]);
 
   useEffect(() => {
     Animated.parallel([
@@ -77,7 +92,7 @@ export default function PayDriverScreen() {
     setFareAmount(String(val));
   }, []);
 
-  const onSelectMethod = useCallback((method: RidePaymentMethod) => {
+  const onSelectMethod = useCallback((method: PaymentChoice) => {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     setPaymentMethod(method);
   }, []);
@@ -100,6 +115,13 @@ export default function PayDriverScreen() {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     try {
+      if (depositBacked) {
+        setOnlinePending(true);
+        const paid = await payBookingBalance(params.bookingId, balanceAttemptKey.current);
+        if (!paid.success) throw new Error("The remaining balance was not confirmed.");
+        showSuccessAnimation(`GH₵ ${numericFare.toFixed(2)} balance paid securely`);
+        return;
+      }
       if (paymentMethod === "wallet") {
         if (balance < numericFare) {
           Alert.alert(
@@ -125,10 +147,13 @@ export default function PayDriverScreen() {
         : "Cash payment recorded. Your ride remains active until arrival.";
       showSuccessAnimation(msg);
     } catch (e: unknown) {
+      balanceAttemptKey.current = createPaymentAttemptKey(params.bookingId || "booking");
       const msg = e instanceof Error ? e.message : "Payment failed";
       Alert.alert("Error", msg);
+    } finally {
+      setOnlinePending(false);
     }
-  }, [canPay, paymentMethod, numericFare, balance, params, payDriver, recordCashPayment, showSuccessAnimation]);
+  }, [canPay, paymentMethod, numericFare, balance, params, payDriver, recordCashPayment, showSuccessAnimation, depositBacked]);
 
   if (showSuccess) {
     return (
@@ -191,7 +216,7 @@ export default function PayDriverScreen() {
           </View>
         </View>
 
-        <Text style={st.sectionLabel}>FARE AMOUNT</Text>
+        <Text style={st.sectionLabel}>{depositBacked ? "REMAINING BALANCE" : "FARE AMOUNT"}</Text>
         <View style={st.fareCard}>
           <View style={st.fareInputRow}>
             <Text style={st.fareCurrency}>GH₵</Text>
@@ -203,10 +228,11 @@ export default function PayDriverScreen() {
               placeholder="0.00"
               placeholderTextColor={Colors.gray300}
               maxLength={6}
+              editable={!depositBacked}
               testID="fare-input"
             />
           </View>
-          <View style={st.presetsRow}>
+          {!depositBacked && <View style={st.presetsRow}>
             {FARE_PRESETS.map((val) => (
               <TouchableOpacity
                 key={val}
@@ -219,11 +245,29 @@ export default function PayDriverScreen() {
                 </Text>
               </TouchableOpacity>
             ))}
-          </View>
+          </View>}
+          {depositBacked && <Text style={st.balanceDueNote}>Your deposit has already been deducted. This amount completes the fare.</Text>}
         </View>
 
         <Text style={st.sectionLabel}>HOW WOULD YOU LIKE TO PAY?</Text>
 
+        {depositBacked ? <TouchableOpacity
+          style={[st.methodCard, st.methodCardActive]}
+          onPress={() => onSelectMethod("paystack")}
+          activeOpacity={0.7}
+          testID="pay-paystack"
+        >
+          <View style={st.methodLeft}>
+            <View style={[st.methodIcon, { backgroundColor: Colors.primaryFaded }]}>
+              <CreditCard size={22} color={Colors.primary} />
+            </View>
+            <View style={st.methodInfo}>
+              <Text style={st.methodTitle}>Secure online payment</Text>
+              <Text style={st.methodDesc}>Mobile Money or card through Paystack</Text>
+            </View>
+          </View>
+          <View style={[st.radio, st.radioActive]}><View style={st.radioDot} /></View>
+        </TouchableOpacity> : <>
         <TouchableOpacity
           style={[st.methodCard, paymentMethod === "wallet" && st.methodCardActive]}
           onPress={() => onSelectMethod("wallet")}
@@ -266,6 +310,7 @@ export default function PayDriverScreen() {
             {paymentMethod === "cash" && <View style={st.radioDot} />}
           </View>
         </TouchableOpacity>
+        </>}
 
         {paymentMethod === "wallet" && numericFare > balance && (
           <View style={st.warningBanner}>
@@ -291,7 +336,9 @@ export default function PayDriverScreen() {
           ) : (
             <>
               <Text style={st.payBtnText} numberOfLines={1}>
-                {paymentMethod === "wallet"
+                {paymentMethod === "paystack"
+                  ? `Pay GH₵${numericFare > 0 ? numericFare.toFixed(2) : "0.00"} balance`
+                  : paymentMethod === "wallet"
                   ? `Send GH₵${numericFare > 0 ? numericFare.toFixed(2) : "0.00"}`
                   : paymentMethod === "cash"
                     ? "Confirm Cash Payment"
@@ -568,6 +615,7 @@ const make_st = (Colors: ThemePalette) => StyleSheet.create({
     fontWeight: "600" as const,
     lineHeight: 18,
   },
+  balanceDueNote: { fontSize: 12, lineHeight: 18, color: Colors.gray500, marginTop: 6 },
   bottomArea: {
     paddingHorizontal: 16,
     paddingTop: 8,

@@ -114,6 +114,22 @@ const reserveSeatForAutoAccept = async (id, client) => {
   return rows[0] || null;
 };
 
+/** Reserve a paid provisional seat only while its selected bus/driver remains active. */
+const reserveSeatForPaidBooking = async (id, driverId, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
+    `update public.buses
+        set seats_available = seats_available - 1
+      where id = $1
+        and driver_id = $2
+        and status = 'active'
+        and seats_available > 0
+      returning ${COLUMNS}`,
+    [id, driverId],
+  );
+  return rows[0] || null;
+};
+
 /**
  * Active buses with at least one free seat within `radiusM` metres of a
  * coordinate, optionally filtered by `routeId`. Ordered by distance via
@@ -147,7 +163,7 @@ const findNearby = async ({ lat, lng, radiusM = 2000, routeId, limit = 50 }) => 
 
 const listActive = async () => {
   const { rows } = await query(
-    `SELECT b.driver_id, b.registration AS bus_registration, b.route_id,
+    `SELECT b.id AS bus_id, b.driver_id, b.registration AS bus_registration, b.route_id,
             b.seats_available, b.total_seats, b.current_lat, b.current_lng,
             b.route_direction, b.route_progress_m, b.route_offset_m,
             b.movement_speed_mps, b.movement_heading_deg,
@@ -198,7 +214,7 @@ const listApproachingStop = async ({ stopId, routeName, radiusM = 10000, limit =
     routeFilter = `and r.name = $${params.length}`;
   }
   const { rows } = await query(
-    `select b.driver_id, b.registration as bus_registration, b.route_id,
+    `select b.id as bus_id, b.driver_id, b.registration as bus_registration, b.route_id,
             b.seats_available, b.total_seats, b.current_lat, b.current_lng,
             b.route_direction, b.route_progress_m, b.route_offset_m,
             b.movement_speed_mps, b.movement_heading_deg,
@@ -225,6 +241,7 @@ const listApproachingStop = async ({ stopId, routeName, radiusM = 10000, limit =
 };
 
 module.exports = {
-  list, findById, insert, updateLocation, adjustSeats, reserveSeat, reserveSeatForAutoAccept, findNearby, listActive,
+  list, findById, insert, updateLocation, adjustSeats, reserveSeat,
+  reserveSeatForAutoAccept, reserveSeatForPaidBooking, findNearby, listActive,
   findByDriverId, listApproachingStop, listRouteStops,
 };

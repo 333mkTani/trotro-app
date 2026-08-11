@@ -16,6 +16,24 @@ const CreateBookingSchema = z.object({
   rideSchedule: z.any().optional(),
 });
 
+const CreateProvisionalBookingSchema = CreateBookingSchema.extend({
+  routeId: z.string().uuid(),
+  busId: z.string().uuid(),
+  driverId: z.string().uuid(),
+}).omit({ rideFare: true, ridePaymentMethod: true, rideSchedule: true });
+
+const InitializeDepositSchema = z.object({
+  idempotencyKey: z.string().min(8).max(100).regex(/^[A-Za-z0-9_-]+$/),
+  callbackUrl: z.string().url().optional(),
+});
+
+const VerifyDepositSchema = z.object({
+  reference: z.string().min(8).max(100),
+});
+
+const InitializeBalanceSchema = InitializeDepositSchema;
+const VerifyBalanceSchema = VerifyDepositSchema;
+
 const RedeemCodeSchema = z.object({
   code: z.string().min(4).max(16),
 });
@@ -25,4 +43,8 @@ const RateDriverSchema = z.object({
   comment: z.string().max(500).optional(),
 });
 
-module.exports = { CreateBookingSchema, RedeemCodeSchema, RateDriverSchema };
+module.exports = {
+  CreateBookingSchema, CreateProvisionalBookingSchema, RedeemCodeSchema, RateDriverSchema,
+  InitializeDepositSchema, VerifyDepositSchema,
+  InitializeBalanceSchema, VerifyBalanceSchema,
+};

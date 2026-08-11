@@ -32,8 +32,12 @@ export default function ActiveRideCard({ booking, bus, targetStop }: Props) {
     : null;
   const [position, setPosition] = useState(initialPosition);
   const [socketLive, setSocketLive] = useState(false);
+  const [gpsStatus, setGpsStatus] = useState<'waiting' | 'live' | 'stale' | 'offline'>(
+    initialPosition ? 'live' : 'waiting',
+  );
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(initialPosition ? Date.now() : null);
   const initialDistanceRef = useRef<number | null>(null);
+  const lastGpsFixAtRef = useRef(0);
 
   const destination = targetStop
     ? { latitude: targetStop.lat, longitude: targetStop.lng }
@@ -58,8 +62,15 @@ export default function ActiveRideCard({ booking, bus, targetStop }: Props) {
 
   const applyPosition = useCallback((lat: number, lng: number) => {
     if (!validCoordinate(lat, lng)) return;
+    lastGpsFixAtRef.current = Date.now();
     setPosition({ latitude: lat, longitude: lng });
-    setLastUpdatedAt(Date.now());
+    setGpsStatus('live');
+    setLastUpdatedAt(lastGpsFixAtRef.current);
+  }, []);
+
+  const applyServerGpsStatus = useCallback((data: Record<string, unknown>) => {
+    if (data.location_status === 'stale') setGpsStatus('stale');
+    else if (data.location_status === 'offline') setGpsStatus('offline');
   }, []);
 
   useEffect(() => {
@@ -82,6 +93,7 @@ export default function ActiveRideCard({ booking, bus, targetStop }: Props) {
         if (disposed) return;
         busId = data?.bus_id ?? null;
         applyPosition(Number(data?.lat), Number(data?.lng));
+        applyServerGpsStatus(data as Record<string, unknown>);
         if (!busId) return;
         const socket = await connectSocket();
         if (disposed) return;
@@ -92,16 +104,20 @@ export default function ActiveRideCard({ booking, bus, targetStop }: Props) {
         setSocketLive(socket.connected);
       } catch {
         setSocketLive(false);
+        setGpsStatus((current) => current === 'live' ? 'stale' : 'offline');
       }
     };
     void connect();
 
     const poll = setInterval(async () => {
-      if (getSocket()?.connected || !booking.driver_id) return;
+      if (!booking.driver_id || Date.now() - lastGpsFixAtRef.current < 20_000) return;
       try {
         const { data } = await api.get(`/buses/driver/${booking.driver_id}/location`);
         applyPosition(Number(data?.lat), Number(data?.lng));
-      } catch { /* Retain the last truthful fix. */ }
+        applyServerGpsStatus(data as Record<string, unknown>);
+      } catch {
+        setGpsStatus((current) => current === 'live' ? 'stale' : 'offline');
+      }
     }, 10_000);
 
     return () => {
@@ -113,7 +129,7 @@ export default function ActiveRideCard({ booking, bus, targetStop }: Props) {
       socket?.off('disconnect', onDisconnect);
       if (busId) unsubscribeFromBus(busId);
     };
-  }, [applyPosition, booking.driver_id]);
+  }, [applyPosition, applyServerGpsStatus, booking.driver_id]);
 
   const targetName = booking.boarded_at ? booking.destination_stop_name : booking.pickup_stop_name;
   const phaseLabel = booking.boarded_at ? 'Trip in progress' : 'Bus approaching pickup';
@@ -143,9 +159,11 @@ export default function ActiveRideCard({ booking, bus, targetStop }: Props) {
     <View style={styles.card} testID="active-ride-card">
       <View style={styles.header}>
         <View style={styles.titleRow}><Bus size={18} color={colors.primary} /><Text style={styles.title}>{phaseLabel}</Text></View>
-        <View style={[styles.liveBadge, !socketLive && styles.pollingBadge]}>
-          <Radio size={11} color={socketLive ? colors.success : colors.warning} />
-          <Text style={[styles.liveText, { color: socketLive ? colors.success : colors.warning }]}>{socketLive ? 'LIVE' : 'UPDATING'}</Text>
+        <View style={[styles.liveBadge, gpsStatus !== 'live' && styles.pollingBadge]}>
+          <Radio size={11} color={gpsStatus === 'live' ? colors.success : colors.warning} />
+          <Text style={[styles.liveText, { color: gpsStatus === 'live' ? colors.success : colors.warning }]}>
+            {gpsStatus === 'live' ? (socketLive ? 'LIVE' : 'LIVE · POLLING') : gpsStatus === 'stale' ? 'STALE GPS' : gpsStatus === 'offline' ? 'GPS OFFLINE' : 'WAITING FOR GPS'}
+          </Text>
         </View>
       </View>
 
@@ -161,7 +179,7 @@ export default function ActiveRideCard({ booking, bus, targetStop }: Props) {
 
       <View style={styles.track}><View style={[styles.trackFill, { width: `${Math.max(3, progress * 100)}%` }]} /></View>
       <View style={styles.footer}>
-        <View style={styles.updated}><Clock size={12} color={colors.textMuted} /><Text style={styles.updatedText}>{lastUpdatedAt ? 'Location received' : 'No live location yet'}</Text></View>
+        <View style={styles.updated}><Clock size={12} color={colors.textMuted} /><Text style={styles.updatedText}>{gpsStatus === 'stale' ? 'Last location is stale' : gpsStatus === 'offline' ? 'Driver location unavailable' : lastUpdatedAt ? 'Location received' : 'Waiting for driver GPS'}</Text></View>
         <TouchableOpacity style={[styles.button, !trackingAvailable && styles.buttonDisabled]} disabled={!trackingAvailable} onPress={openTracking}>
           <Navigation2 size={14} color={colors.white} /><Text style={styles.buttonText}>Track live</Text>
         </TouchableOpacity>

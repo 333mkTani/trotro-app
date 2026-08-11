@@ -52,6 +52,8 @@ function getTransactionIcon(type: WalletTransaction['type']) {
   switch (type) {
     case 'TRIP_EARNING':
       return <ArrowDownLeft size={18} color="#16A34A" />;
+    case 'NO_SHOW_COMPENSATION':
+      return <Gift size={18} color="#D97706" />;
     case 'WITHDRAWAL':
       return <ArrowUpRight size={18} color="#DC2626" />;
     case 'BONUS':

@@ -145,6 +145,30 @@ describe('paystack.service', () => {
     });
   });
 
+  describe('refunds', () => {
+    it('creates a refund using pesewas and the original transaction reference', async () => {
+      global.fetch = jest.fn().mockResolvedValue(jsonResponse({
+        status: true, data: { id: 9001, status: 'pending', amount: 250 },
+      }));
+      const result = await paystackService.createRefund({
+        transactionReference: 'DEP_1', amountPesewas: 250, merchantNote: 'Cancelled booking',
+      });
+      const request = JSON.parse(global.fetch.mock.calls[0][1].body);
+      expect(request).toMatchObject({ transaction: 'DEP_1', amount: 250, currency: 'GHS' });
+      expect(result).toMatchObject({ id: '9001', status: 'pending', amount: 2.5 });
+    });
+
+    it('reads the authoritative refund status for reconciliation', async () => {
+      global.fetch = jest.fn().mockResolvedValue(jsonResponse({
+        status: true, data: { id: 9001, status: 'processed', amount: 250,
+          transaction: { reference: 'DEP_1' } },
+      }));
+      await expect(paystackService.getRefund('9001')).resolves.toEqual({
+        id: '9001', status: 'processed', amount: 2.5, transactionReference: 'DEP_1',
+      });
+    });
+  });
+
   describe('when PAYSTACK_SECRET_KEY is not configured', () => {
     it('refuses to call Paystack at all', async () => {
       const originalKey = process.env.PAYSTACK_SECRET_KEY;

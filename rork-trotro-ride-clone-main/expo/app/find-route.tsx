@@ -43,7 +43,6 @@ import StaticColors from "@/constants/colors";
 import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
 import { useLocation } from "@/contexts/LocationContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { useBookings } from "@/contexts/BookingContext";
 import QRCode from "@/components/QRCode";
 import { BusStop, BufferMinutes, Booking } from "@/types";
 import {
@@ -54,6 +53,7 @@ import {
 } from "@/utils/routeFinder";
 import { rankRecommendationsByWalkingRoute } from "@/utils/walkingRouteRanker";
 import { recommendationsForClosestApproachingDrivers } from "@/utils/approachingDriverRecommendations";
+import { createProvisionalBooking } from "@/services/bookingPayment";
 const Colors = StaticColors;
 
 const SCREEN_W = Dimensions.get("window").width;
@@ -91,7 +91,6 @@ export default function FindRouteScreen() {
     refreshLocation,
   } = useLocation();
   const { user } = useAuth();
-  const { bookBus } = useBookings();
   const [bookedBooking, setBookedBooking] = useState<Booking | null>(null);
   const currentLat = userLat ?? mapCenter.latitude;
   const currentLng = userLng ?? mapCenter.longitude;
@@ -473,34 +472,41 @@ export default function FindRouteScreen() {
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
     setBooking(true);
     try {
-      const result = await bookBus({
-        bus: {
-          driver_id: selected.bestBus.driver_id,
-          bus_registration: selected.bestBus.bus_registration,
-          driver_name: selected.bestBus.driver_name,
-          seats_available: selected.bestBus.seats_available,
-          eta_minutes: selected.bestBus.eta_minutes,
-          route_name: selected.route.name,
-          lat: selected.bestBus.lat ?? 0,
-          lng: selected.bestBus.lng ?? 0,
-        },
+      if (!selected.bestBus.bus_id || !selected.route.id) {
+        throw new Error("This bus option is outdated. Refresh the route results and try again.");
+      }
+      const result = await createProvisionalBooking({
+        bus: selected.bestBus,
+        routeId: selected.route.id,
+        routeName: selected.route.name,
         pickupStopId: selected.pickupStop.id,
         pickupStopName: selected.pickupStop.name,
         destinationStopId: selected.destinationStop.id,
         destinationStopName: selected.destinationStop.name,
-        rideFare: selected.route.fare,
-        passengerId: user.id,
+        bufferMinutes: buffer,
       });
-      setBookedBooking(result);
-      setBooked(true);
-      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    } catch (err) {
+      router.push({
+        pathname: "/booking-deposit",
+        params: {
+          bookingId: result.booking.id,
+          routeName: selected.route.name,
+          pickupStop: selected.pickupStop.name,
+          destinationStop: selected.destinationStop.name,
+          busRegistration: selected.bestBus.bus_registration,
+          driverName: selected.bestBus.driver_name,
+          totalFare: String(result.payment.totalFare),
+          depositAmount: String(result.payment.depositAmount),
+          remainingBalance: String(result.payment.remainingBalance),
+          holdExpiresAt: result.payment.holdExpiresAt,
+        },
+      } as never);
+    } catch (err: unknown) {
       console.log("[FindRoute] Booking error:", err);
-      Alert.alert("Booking Failed", "Something went wrong. Please try again.");
+      Alert.alert("Could not hold seat", err instanceof Error ? err.message : "Please try again.");
     } finally {
       setBooking(false);
     }
-  }, [selected, user, bookBus]);
+  }, [selected, user, buffer, router]);
 
   const onReset = useCallback(() => {
     if (searchTimer.current) clearTimeout(searchTimer.current);

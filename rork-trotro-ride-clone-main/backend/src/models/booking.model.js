@@ -7,6 +7,9 @@ const COLUMNS = `id, passenger_id, driver_id, bus_id, route_id,
   arrival_near_at, arrived_at, expired_at,
   boarded_at, paid_at,
   route_name, ride_fare, ride_payment_method, ride_schedule, source_occurrence_id,
+  payment_status, total_fare, deposit_amount, remaining_balance,
+  boarding_deadline, cancellation_deadline, no_show_marked_at, hold_expires_at,
+  driver_pickup_arrived_at, no_show_compensation_amount, no_show_compensated_at,
   created_at, updated_at`;
 
 const findById = async (id, client) => {
@@ -90,6 +93,88 @@ const insert = async (data, client) => {
       data.ridePaymentMethod || null,
       data.rideSchedule ? JSON.stringify(data.rideSchedule) : null,
       data.sourceOccurrenceId || null,
+    ],
+  );
+  return rows[0];
+};
+
+const passengerCanTrackDriver = async (passengerId, driverId) => {
+  const { rows } = await query(
+    `select exists(
+       select 1
+         from public.bookings
+        where passenger_id = $1
+          and driver_id = $2
+          and status = 'confirmed'
+     ) as allowed`,
+    [passengerId, driverId],
+  );
+  return rows[0]?.allowed === true;
+};
+
+const lockBusForProvisionalHold = async (busId, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
+    `select id, driver_id, route_id, status, driving_status, seats_available
+       from public.buses
+      where id = $1
+      for update`,
+    [busId],
+  );
+  return rows[0] || null;
+};
+
+const countActiveProvisionalHolds = async (busId, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
+    `select count(*)::integer as count
+       from public.bookings
+      where bus_id = $1
+        and status = 'pending'
+        and payment_status = 'deposit_pending'
+        and hold_expires_at > now()`,
+    [busId],
+  );
+  return rows[0]?.count || 0;
+};
+
+const findActiveProvisionalHold = async (passengerId, busId, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
+    `select ${COLUMNS}
+       from public.bookings
+      where passenger_id = $1
+        and bus_id = $2
+        and status = 'pending'
+        and payment_status = 'deposit_pending'
+        and hold_expires_at > now()
+      order by created_at desc
+      limit 1`,
+    [passengerId, busId],
+  );
+  return rows[0] || null;
+};
+
+const insertProvisional = async (data, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
+    `insert into public.bookings (
+       passenger_id, driver_id, bus_id, route_id,
+       pickup_stop_id, pickup_stop_name, destination_stop_id, destination_stop_name,
+       desired_arrival_time, buffer_minutes, status, route_name,
+       ride_fare, total_fare, deposit_amount, remaining_balance,
+       payment_status, hold_expires_at, boarding_deadline, cancellation_deadline
+     ) values (
+       $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'pending',$11,
+       $12,$12,$13,$14,'deposit_pending',$15,$16,$17
+     ) returning ${COLUMNS}`,
+    [
+      data.passengerId, data.driverId, data.busId, data.routeId,
+      data.pickupStopId, data.pickupStopName,
+      data.destinationStopId, data.destinationStopName,
+      data.desiredArrivalTime, data.bufferMinutes, data.routeName,
+      data.totalFare, data.depositAmount, data.remainingBalance, data.holdExpiresAt,
+      data.boardingDeadline, data.cancellationDeadline,
     ],
   );
   return rows[0];
@@ -218,6 +303,151 @@ const findForPaymentForUpdate = async (id, passengerId, client) => {
   return rows[0] || null;
 };
 
+// Records authoritative GPS evidence that the assigned driver reached the
+// passenger's pickup stop. The first observation is retained for no-show
+// eligibility even if the driver later leaves the stop.
+const detectPickupArrivals = async (driverId, { lat, lng, radiusM = 150 }) => {
+  const { rows } = await query(
+    `update public.bookings b
+        set driver_pickup_arrived_at = coalesce(driver_pickup_arrived_at, now()),
+            updated_at = now()
+       from public.bus_stops s
+      where b.pickup_stop_id = s.id
+        and b.driver_id = $1
+        and b.status = 'confirmed'
+        and b.boarded_at is null
+        and b.driver_pickup_arrived_at is null
+        and (b.boarding_deadline is null or now() <= b.boarding_deadline)
+        and ST_DWithin(
+          s.geom::geography,
+          ST_SetSRID(ST_MakePoint($2, $3), 4326)::geography,
+          $4
+        )
+      returning b.id, b.passenger_id, b.driver_id, b.driver_pickup_arrived_at`,
+    [driverId, lng, lat, radiusM],
+  );
+  return rows;
+};
+
+// Cancels a booking under a row lock. The returned flags are computed from
+// the pre-transition row so the service can release capacity exactly once.
+const cancelForUser = async (id, now, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
+    `with locked as (
+       select * from public.bookings where id = $1 for update
+     ), changed as (
+       update public.bookings b
+          set status = 'cancelled', cancelled_at = coalesce(cancelled_at, $2),
+              hold_expires_at = null,
+              payment_status = case
+                when b.payment_status = 'deposit_pending' then 'failed'::reservation_payment_status
+                when b.payment_status = 'deposit_paid'
+                  and (b.cancellation_deadline is null or $2 <= b.cancellation_deadline)
+                  then 'refund_pending'::reservation_payment_status
+                else b.payment_status end,
+              updated_at = now()
+         from locked l
+        where b.id = l.id
+          and l.status in ('pending', 'confirmed')
+          and l.boarded_at is null
+       returning b.*, l.status as previous_status,
+         (l.payment_status = 'deposit_paid'
+          and (l.cancellation_deadline is null or $2 <= l.cancellation_deadline)) as refund_due
+     ) select * from changed`,
+    [id, now],
+  );
+  return rows[0] || null;
+};
+
+const expireDue = async (now, legacyHours = 4, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
+    `with due as (
+       select id, status as previous_status
+         from public.bookings
+        where (
+          status = 'pending' and payment_status = 'deposit_pending'
+          and hold_expires_at <= $1
+        ) or (
+          status = 'confirmed' and boarded_at is null
+          and coalesce(boarding_deadline, confirmed_at + ($2 * interval '1 hour')) <= $1
+        )
+        for update skip locked
+     )
+     update public.bookings b
+        set status = 'expired', expired_at = coalesce(expired_at, $1),
+            no_show_marked_at = case when due.previous_status = 'confirmed'
+              then coalesce(b.no_show_marked_at, $1) else b.no_show_marked_at end,
+            payment_status = case when b.payment_status = 'deposit_pending'
+              then 'failed'::reservation_payment_status else b.payment_status end,
+            hold_expires_at = null, updated_at = now()
+       from due where b.id = due.id
+     returning b.*, due.previous_status`,
+    [now, legacyHours],
+  );
+  return rows;
+};
+
+const findProvisionalForPaymentForUpdate = async (id, passengerId, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
+    `select ${COLUMNS} from public.bookings
+      where id = $1 and passenger_id = $2
+      for update`,
+    [id, passengerId],
+  );
+  return rows[0] || null;
+};
+
+const markDepositPaid = async (id, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
+    `update public.bookings
+        set payment_status = 'deposit_paid', updated_at = now()
+      where id = $1 and payment_status = 'deposit_pending'
+      returning ${COLUMNS}`,
+    [id],
+  );
+  return rows[0] || null;
+};
+
+const findByIdForUpdate = async (id, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
+    `select ${COLUMNS} from public.bookings where id = $1 for update`,
+    [id],
+  );
+  return rows[0] || null;
+};
+
+const confirmAfterDeposit = async (id, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
+    `update public.bookings
+        set status = 'confirmed', payment_status = 'deposit_paid',
+            confirmed_at = coalesce(confirmed_at, now()),
+            hold_expires_at = null, updated_at = now()
+      where id = $1 and status = 'pending' and payment_status = 'deposit_pending'
+      returning ${COLUMNS}`,
+    [id],
+  );
+  return rows[0] || null;
+};
+
+const markDepositRefundPending = async (id, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
+    `update public.bookings
+        set payment_status = 'refund_pending', hold_expires_at = null,
+            updated_at = now()
+      where id = $1 and payment_status in ('deposit_pending', 'failed')
+      returning ${COLUMNS}`,
+    [id],
+  );
+  return rows[0] || null;
+};
+
 const markBoarded = async (id, client) => {
   const runner = client || { query };
   const { rows } = await runner.query(
@@ -239,9 +469,94 @@ const markPaid = async (id, paymentMethod, client) => {
   return rows[0] || null;
 };
 
+const markBoardedAndOpenBalance = async (id, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
+    `update public.bookings
+        set boarded_at = coalesce(boarded_at, now()),
+            payment_status = case
+              when payment_status = 'deposit_paid' and coalesce(remaining_balance, 0) > 0 then 'balance_pending'::reservation_payment_status
+              when payment_status = 'deposit_paid' then 'fully_paid'::reservation_payment_status
+              else payment_status end,
+            paid_at = case
+              when payment_status = 'deposit_paid' and coalesce(remaining_balance, 0) <= 0 then coalesce(paid_at, now())
+              else paid_at end,
+            updated_at = now()
+      where id = $1 returning ${COLUMNS}`,
+    [id],
+  );
+  return rows[0] || null;
+};
+
+const markBalancePaid = async (id, paymentMethod, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
+    `update public.bookings
+        set payment_status = 'fully_paid', remaining_balance = 0,
+            paid_at = coalesce(paid_at, now()),
+            ride_payment_method = coalesce($2::ride_payment_method, ride_payment_method),
+            updated_at = now()
+      where id = $1 and payment_status = 'balance_pending' and boarded_at is not null
+      returning ${COLUMNS}`,
+    [id, paymentMethod || null],
+  );
+  return rows[0] || null;
+};
+
+const markNoShowCompensated = async (id, amount, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
+    `update public.bookings
+        set payment_status = 'deposit_forfeited',
+            no_show_compensation_amount = $2,
+            no_show_compensated_at = coalesce(no_show_compensated_at, now()),
+            updated_at = now()
+      where id = $1 and status = 'expired' and no_show_marked_at is not null
+        and driver_pickup_arrived_at is not null
+        and payment_status = 'deposit_paid'
+        and no_show_compensated_at is null
+      returning ${COLUMNS}`,
+    [id, amount],
+  );
+  return rows[0] || null;
+};
+
+const markRefunded = async (id, amount, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
+    `update public.bookings
+        set payment_status = case
+              when $2 >= deposit_amount then 'refunded'::reservation_payment_status
+              else 'partially_refunded'::reservation_payment_status end,
+            updated_at = now()
+      where id = $1 and payment_status = 'refund_pending'
+      returning ${COLUMNS}`,
+    [id, amount],
+  );
+  return rows[0] || null;
+};
+
+const listRefundPending = async (limit = 50) => {
+  const { rows } = await query(
+    `select ${COLUMNS} from public.bookings
+      where payment_status = 'refund_pending'
+      order by updated_at asc limit $1`, [limit],
+  );
+  return rows;
+};
+
 module.exports = {
-  findById, listForPassenger, listForDriver, insert, updateStatus,
+  findById, listForPassenger, passengerCanTrackDriver, listForDriver, insert, updateStatus,
+  lockBusForProvisionalHold, countActiveProvisionalHolds,
+  findActiveProvisionalHold, insertProvisional,
   listConfirmedForDriverUnnotified, markNotified,
-  detectDestinationArrivals, expireStaleConfirmed, findForPaymentForUpdate,
-  markBoarded, markPaid,
+  detectDestinationArrivals, detectPickupArrivals,
+  expireStaleConfirmed, cancelForUser, expireDue,
+  findForPaymentForUpdate,
+  findProvisionalForPaymentForUpdate, findByIdForUpdate,
+  markDepositPaid, confirmAfterDeposit, markDepositRefundPending,
+  markBoarded, markBoardedAndOpenBalance, markBalancePaid, markPaid,
+  markNoShowCompensated,
+  markRefunded,
+  listRefundPending,
 };

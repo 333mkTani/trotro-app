@@ -74,6 +74,10 @@ const updateLocation = async (id, coords) => {
   if (updated.driver_id) {
     setImmediate(async () => {
       try {
+        const pickupRadiusM = Math.min(500, Math.max(25, Number(process.env.NO_SHOW_PICKUP_RADIUS_M) || 150));
+        await bookingModel.detectPickupArrivals(updated.driver_id, {
+          lat: coords.lat, lng: coords.lng, radiusM: pickupRadiusM,
+        });
         const bookings = await bookingModel.listConfirmedForDriverUnnotified(updated.driver_id);
         for (const b of bookings) {
           const dist = haversineM(
@@ -189,29 +193,60 @@ const listApproachingStop = async ({ stopId, destinationStopId, routeName }) => 
 
 /** Returns the latest GPS position for a driver's bus.
  *  Checks Redis cache first (updated every GPS ping) then falls back to DB. */
-const getDriverLocation = async (driverId) => {
+const getDriverLocation = async (driverId, user) => {
+  if (!user?.id) throw ApiError.unauthorized('Authentication required');
+  const isDriverSelf = user.role === 'driver' && user.id === driverId;
+  const isAdmin = user.role === 'admin';
+  const hasPassengerBooking = user.role === 'passenger'
+    ? await bookingModel.passengerCanTrackDriver(user.id, driverId)
+    : false;
+  if (!isDriverSelf && !isAdmin && !hasPassengerBooking) {
+    throw ApiError.forbidden('An active confirmed booking is required to track this driver');
+  }
+
   const bus = await busModel.findByDriverId(driverId);
   if (!bus) throw ApiError.notFound('Bus not found for driver');
+
+  const withFreshness = (location) => {
+    const timestamp = location.last_ping_at;
+    const timestampMs = timestamp ? new Date(timestamp).getTime() : NaN;
+    const ageSeconds = Number.isFinite(timestampMs)
+      ? Math.max(0, Math.floor((Date.now() - timestampMs) / 1000))
+      : null;
+    const lat = Number(location.lat);
+    const lng = Number(location.lng);
+    const hasCoordinates = location.lat != null && location.lng != null
+      && Number.isFinite(lat) && Number.isFinite(lng)
+      && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180
+      && (lat !== 0 || lng !== 0);
+    return {
+      ...location,
+      location_age_seconds: ageSeconds,
+      location_status: !hasCoordinates || ageSeconds == null
+        ? 'offline'
+        : ageSeconds > 90 ? 'stale' : 'live',
+    };
+  };
 
   // Try Redis cache for freshest reading
   const cached = await cache.get(LOC_KEY(bus.id));
   if (cached) {
-    return {
+    return withFreshness({
       bus_id: bus.id,
       lat: cached.lat,
       lng: cached.lng,
       seats_available: bus.seats_available,
       last_ping_at: cached.at,
-    };
+    });
   }
 
-  return {
+  return withFreshness({
     bus_id: bus.id,
     lat: bus.current_lat,
     lng: bus.current_lng,
     seats_available: bus.seats_available,
     last_ping_at: bus.last_ping_at,
-  };
+  });
 };
 
 module.exports = {

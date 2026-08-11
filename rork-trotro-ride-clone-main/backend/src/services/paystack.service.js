@@ -56,6 +56,51 @@ const verifyTransaction = async (reference) => {
   };
 };
 
+const createRefund = async ({ transactionReference, amountPesewas, merchantNote }) => {
+  const response = await fetch(`${PAYSTACK_BASE_URL}/refund`, {
+    method: 'POST', headers: authHeaders(),
+    body: JSON.stringify({
+      transaction: transactionReference,
+      amount: amountPesewas,
+      currency: 'GHS',
+      merchant_note: merchantNote,
+    }),
+  });
+  const data = await response.json();
+  if (!response.ok || !data.status) throw ApiError.badRequest(data?.message || 'Failed to create refund');
+  return {
+    id: String(data.data.id), status: data.data.status,
+    amount: Number(data.data.amount) / 100,
+    transactionReference,
+  };
+};
+
+const getRefund = async (refundId) => {
+  const response = await fetch(`${PAYSTACK_BASE_URL}/refund/${encodeURIComponent(refundId)}`, {
+    headers: authHeaders(),
+  });
+  const data = await response.json();
+  if (!response.ok || !data.status) throw ApiError.badRequest(data?.message || 'Failed to fetch refund');
+  return {
+    id: String(data.data.id), status: data.data.status,
+    amount: Number(data.data.amount) / 100,
+    transactionReference: data.data.transaction?.reference || data.data.transaction_reference,
+  };
+};
+
+const listRefundsForTransaction = async (transactionReference) => {
+  const params = new URLSearchParams({ transaction: transactionReference, perPage: '20' });
+  const response = await fetch(`${PAYSTACK_BASE_URL}/refund?${params.toString()}`, {
+    headers: authHeaders(),
+  });
+  const data = await response.json();
+  if (!response.ok || !data.status) throw ApiError.badRequest(data?.message || 'Failed to list refunds');
+  return (data.data || []).map((item) => ({
+    id: String(item.id), status: item.status, amount: Number(item.amount) / 100,
+    transactionReference: item.transaction?.reference || transactionReference,
+  }));
+};
+
 // Ghana bank/mobile-money codes aren't hardcoded here since Paystack can add
 // or change them — instead we fetch the live list and match by name. Cached
 // in-memory per process since the list rarely changes and Paystack rate-limits.
@@ -135,12 +180,17 @@ const initiateTransfer = async ({ amountPesewas, recipientCode, reason, referenc
 const verifyWebhookSignature = (rawBody, signatureHeader) => {
   if (!env.PAYSTACK_SECRET_KEY || !signatureHeader) return false;
   const hash = crypto.createHmac('sha512', env.PAYSTACK_SECRET_KEY).update(rawBody).digest('hex');
-  return hash === signatureHeader;
+  const expected = Buffer.from(hash, 'utf8');
+  const supplied = Buffer.from(String(signatureHeader), 'utf8');
+  return expected.length === supplied.length && crypto.timingSafeEqual(expected, supplied);
 };
 
 module.exports = {
   initializeTransaction,
   verifyTransaction,
+  createRefund,
+  getRefund,
+  listRefundsForTransaction,
   getBanks,
   createTransferRecipient,
   initiateTransfer,

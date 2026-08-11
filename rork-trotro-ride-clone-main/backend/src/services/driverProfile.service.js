@@ -6,6 +6,7 @@ const push = require('./push.service');
 const { ApiError } = require('../utils/ApiError');
 const { emitToBus, emitToRoute, emitToUser } = require('../realtime/io');
 const routeProgressService = require('./routeProgress.service');
+const noShowPickupRadiusM = Math.min(500, Math.max(25, Number(process.env.NO_SHOW_PICKUP_RADIUS_M) || 150));
 
 const getMyBus = async (driverId) => {
   const { rows } = await query(
@@ -146,6 +147,7 @@ const updateLocation = async (driverId, { lat, lng }) => {
   }
   const movementState = await routeProgressService.calculateMovementState(bus, { lat, lng });
   const updated = await busModel.updateLocation(bus.id, { lat, lng, movementState });
+  await bookingModel.detectPickupArrivals(driverId, { lat, lng, radiusM: noShowPickupRadiusM });
 
   const event = { busId: updated.id, routeId: updated.route_id, lat, lng, driverId, ts: Date.now() };
   emitToBus(updated.id, 'bus:location', event);
