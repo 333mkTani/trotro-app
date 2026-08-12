@@ -4,7 +4,7 @@ import {
   KeyboardAvoidingView, Platform, ScrollView, Animated, StyleSheet,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { router, type Href } from 'expo-router';
+import { Redirect, router, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useMutation } from '@tanstack/react-query';
 import { Phone, Lock, Eye, EyeOff, Bus } from 'lucide-react-native';
@@ -27,13 +27,6 @@ export default function TrotroDriverLoginPage() {
       Animated.timing(slideUp, { toValue: 0, duration: 500, delay: 200, useNativeDriver: true }),
     ]).start();
   }, [fadeIn, slideUp]);
-
-  useEffect(() => {
-    if (isAuth && !isBootLoading) {
-      console.log('[Login] Already authenticated, going to dashboard');
-      router.replace('/(tabs)/dashboard');
-    }
-  }, [isAuth, isBootLoading]);
 
   const loginMut = useMutation({
     mutationFn: () => performLogin(ph, pw),
@@ -62,7 +55,7 @@ export default function TrotroDriverLoginPage() {
     );
   }
 
-  if (isAuth) return null;
+  if (isAuth) return <Redirect href="/(tabs)/dashboard" />;
 
   const canSubmit = ph.trim().length > 0 && pw.trim().length > 0;
 
