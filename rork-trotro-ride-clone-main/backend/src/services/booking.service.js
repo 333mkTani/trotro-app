@@ -262,8 +262,17 @@ const cancel = async (bookingId, user) => {
     if (!['pending', 'confirmed'].includes(existing.status)) {
       throw ApiError.badRequest(`Cannot cancel a ${existing.status} booking`);
     }
-    const booking = await bookingModel.cancelForUser(bookingId, new Date(), client);
-    if (!booking) throw ApiError.conflict('Booking was already closed');
+    const cancellationTime = new Date();
+    const updated = await bookingModel.cancelForUser(bookingId, cancellationTime, client);
+    if (!updated) throw ApiError.conflict('Booking was already closed');
+    const refundDue = existing.payment_status === 'deposit_paid'
+      && (!existing.cancellation_deadline
+        || cancellationTime <= new Date(existing.cancellation_deadline));
+    const booking = {
+      ...updated,
+      previous_status: existing.status,
+      refund_due: refundDue,
+    };
     const code = await codeModel.findByBookingId(bookingId, client);
     if (code?.status === 'valid') await codeModel.invalidate(code.id, client);
     if (booking.previous_status === 'confirmed' && booking.bus_id) {

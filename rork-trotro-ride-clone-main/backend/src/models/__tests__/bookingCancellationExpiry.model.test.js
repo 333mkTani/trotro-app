@@ -3,14 +3,14 @@ jest.mock('../../config/db', () => ({ query: jest.fn() }));
 const model = require('../booking.model');
 
 describe('atomic booking cancellation and expiry queries', () => {
-  it('classifies timely paid cancellations for refund under a row lock', async () => {
+  it('guards cancellation after the service has acquired its row lock', async () => {
     const client = { query: jest.fn().mockResolvedValue({ rows: [{ id: 'booking-1' }] }) };
     await model.cancelForUser('booking-1', new Date('2026-08-12T07:00:00Z'), client);
     const sql = client.query.mock.calls[0][0];
-    expect(sql).toContain('for update');
     expect(sql).toContain("then 'refund_pending'::reservation_payment_status");
-    expect(sql).toContain("l.status in ('pending', 'confirmed')");
-    expect(sql).toContain('l.boarded_at is null');
+    expect(sql).toContain("status in ('pending', 'confirmed')");
+    expect(sql).toContain('boarded_at is null');
+    expect(sql).not.toContain('with locked as');
   });
 
   it('sweeps only elapsed holds or confirmed unboarded deadlines', async () => {

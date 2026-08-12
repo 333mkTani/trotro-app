@@ -329,32 +329,24 @@ const detectPickupArrivals = async (driverId, { lat, lng, radiusM = 150 }) => {
   return rows;
 };
 
-// Cancels a booking under a row lock. The returned flags are computed from
-// the pre-transition row so the service can release capacity exactly once.
+// The service locks and validates the booking before calling this update.
+// Keep this statement guarded as a second line of defence, but avoid selecting
+// and locking the same row again through a writable CTE.
 const cancelForUser = async (id, now, client) => {
   const runner = client || { query };
   const { rows } = await runner.query(
-    `with locked as (
-       select * from public.bookings where id = $1 for update
-     ), changed as (
-       update public.bookings b
-          set status = 'cancelled', cancelled_at = coalesce(cancelled_at, $2),
-              hold_expires_at = null,
-              payment_status = case
-                when b.payment_status = 'deposit_pending' then 'failed'::reservation_payment_status
-                when b.payment_status = 'deposit_paid'
-                  and (b.cancellation_deadline is null or $2 <= b.cancellation_deadline)
-                  then 'refund_pending'::reservation_payment_status
-                else b.payment_status end,
-              updated_at = now()
-         from locked l
-        where b.id = l.id
-          and l.status in ('pending', 'confirmed')
-          and l.boarded_at is null
-       returning b.*, l.status as previous_status,
-         (l.payment_status = 'deposit_paid'
-          and (l.cancellation_deadline is null or $2 <= l.cancellation_deadline)) as refund_due
-     ) select * from changed`,
+    `update public.bookings
+        set status = 'cancelled', cancelled_at = coalesce(cancelled_at, $2),
+            hold_expires_at = null,
+            payment_status = case
+              when payment_status = 'deposit_pending' then 'failed'::reservation_payment_status
+              when payment_status = 'deposit_paid'
+                and (cancellation_deadline is null or $2 <= cancellation_deadline)
+                then 'refund_pending'::reservation_payment_status
+              else payment_status end,
+            updated_at = now()
+      where id = $1 and status in ('pending', 'confirmed') and boarded_at is null
+      returning ${COLUMNS}`,
     [id, now],
   );
   return rows[0] || null;
