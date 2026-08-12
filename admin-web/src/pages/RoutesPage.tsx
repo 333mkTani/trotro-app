@@ -20,6 +20,7 @@ const STATUS_FILTERS = [
 export function RoutesPage() {
   const queryClient = useQueryClient();
   const [statusFilter, setStatusFilter] = useState('active');
+  const [search, setSearch] = useState('');
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<RouteRow | null>(null);
   const [archiving, setArchiving] = useState<RouteRow | null>(null);
@@ -41,6 +42,14 @@ export function RoutesPage() {
     () => new Map((performance.data ?? []).map((row) => [row.id, row])),
     [performance.data],
   );
+
+  const filteredRoutes = useMemo(() => {
+    const needle = search.trim().toLocaleLowerCase();
+    if (!needle) return routes.data ?? [];
+    return (routes.data ?? []).filter((route) => [
+      route.name, route.origin, route.destination, route.city,
+    ].some((value) => value?.toLocaleLowerCase().includes(needle)));
+  }, [routes.data, search]);
 
   // Route changes affect the public /routes cache and the dashboard totals,
   // so refresh everything rather than patching a single list in place.
@@ -108,11 +117,26 @@ export function RoutesPage() {
             <button onClick={() => { setError(null); setCreating(true); }}>New route</button>
           </div>
         )}
-        bodyless
       >
+        <div className="field" style={{ maxWidth: 520 }}>
+          <label htmlFor="route-search">Search routes</label>
+          <input
+            id="route-search"
+            type="search"
+            value={search}
+            placeholder="Search by route, origin, destination or city…"
+            onChange={(event) => setSearch(event.target.value)}
+          />
+        </div>
+        <p className="dim" style={{ marginBottom: 0 }}>
+          Showing {filteredRoutes.length} of {(routes.data ?? []).length} route(s) in this status.
+        </p>
+      </Card>
+
+      <Card title="Route catalogue" bodyless>
         {routes.isLoading ? <Loading />
           : routes.isError ? <ErrorState error={routes.error} onRetry={() => routes.refetch()} />
-            : routes.data!.length === 0 ? <Empty label="No routes in this view." />
+            : filteredRoutes.length === 0 ? <Empty label={search.trim() ? 'No routes match your search.' : 'No routes in this view.'} />
               : (
                 <div className="table-wrap">
                   <table>
@@ -131,7 +155,7 @@ export function RoutesPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {routes.data!.map((route) => {
+                      {filteredRoutes.map((route) => {
                         const stats = performanceById.get(route.id);
                         return (
                           <tr key={route.id}>
@@ -144,9 +168,9 @@ export function RoutesPage() {
                             <td className="num">{stats ? count(stats.bookings) : '—'}</td>
                             <td className="num">{stats ? money(stats.revenue) : '—'}</td>
                             <td><Badge value={route.status} kind="entity" /></td>
-                            <td className="nowrap">
+                            <td className="route-actions-cell">
                               {route.status === 'deleted' ? <span className="dim">Archived</span> : (
-                                <div className="row">
+                                <div className="route-actions">
                                   <button
                                     className="ghost small"
                                     onClick={() => { setError(null); setEditing(route); }}

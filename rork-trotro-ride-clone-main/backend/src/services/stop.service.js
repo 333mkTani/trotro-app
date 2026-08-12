@@ -22,6 +22,14 @@ const create = async (data) => {
   return stop;
 };
 
+const update = async (id, data) => {
+  const existing = await stopModel.findById(id);
+  if (!existing || existing.status === 'deleted') throw ApiError.notFound('Stop not found');
+  const stop = await stopModel.update(id, data);
+  await Promise.all([cache.del(LIST_KEY), cache.del(ITEM_KEY(id))]);
+  return stop;
+};
+
 const archive = async (id) => {
   const stop = await stopModel.findById(id);
   if (!stop || stop.status === 'deleted') throw ApiError.notFound('Stop not found');
@@ -44,4 +52,4 @@ const nearby = async ({ lat, lng, radiusM, limit }) => {
   return cache.wrap(key, 30, () => stopModel.findNearby({ lat, lng, radiusM, limit }));
 };
 
-module.exports = { list, getById, create, archive, nearby };
+module.exports = { list, getById, create, update, archive, nearby };

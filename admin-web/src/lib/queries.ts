@@ -93,5 +93,8 @@ export type StopInput = {
 export const createStop = (body: StopInput) =>
   request<BusStop>('/stops', { method: 'POST', body });
 
+export const updateStop = (id: string, body: Partial<StopInput>) =>
+  request<BusStop>(`/stops/${id}`, { method: 'PATCH', body });
+
 export const deleteStop = (id: string) =>
   request<BusStop>(`/stops/${id}`, { method: 'DELETE' });

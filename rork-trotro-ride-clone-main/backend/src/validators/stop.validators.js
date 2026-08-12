@@ -11,4 +11,9 @@ const CreateStopSchema = z.object({
   lng: z.coerce.number().min(-180).max(180),
 });
 
-module.exports = { CreateStopSchema };
+const UpdateStopSchema = CreateStopSchema.partial().refine(
+  (value) => Object.keys(value).length > 0,
+  { message: 'At least one field must be provided' },
+);
+
+module.exports = { CreateStopSchema, UpdateStopSchema };

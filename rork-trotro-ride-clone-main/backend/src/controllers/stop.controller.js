@@ -13,6 +13,10 @@ const create = asyncHandler(async (req, res) => {
   res.status(201).json(await stopService.create(req.body));
 });
 
+const update = asyncHandler(async (req, res) => {
+  res.json(await stopService.update(req.params.id, req.body));
+});
+
 const archive = asyncHandler(async (req, res) => {
   res.json(await stopService.archive(req.params.id));
 });
@@ -22,4 +26,4 @@ const nearby = asyncHandler(async (req, res) => {
   res.json(await stopService.nearby({ lat, lng, radiusM, limit }));
 });
 
-module.exports = { list, getById, create, archive, nearby };
+module.exports = { list, getById, create, update, archive, nearby };

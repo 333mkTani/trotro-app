@@ -39,6 +39,22 @@ const insert = async ({ name, type = 'stop', lat, lng }) => {
   return rows[0];
 };
 
+const FIELD_COLUMNS = { name: 'name', type: 'type', lat: 'lat', lng: 'lng' };
+
+const update = async (id, fields = {}) => {
+  const params = [id];
+  const assignments = Object.entries(fields)
+    .filter(([key]) => FIELD_COLUMNS[key])
+    .map(([key, value]) => `${FIELD_COLUMNS[key]} = $${params.push(value)}`);
+  if (assignments.length === 0) return findById(id);
+  const { rows } = await query(
+    `update public.bus_stops set ${assignments.join(', ')}
+      where id = $1 and status <> 'deleted' returning ${COLUMNS}`,
+    params,
+  );
+  return rows[0] || null;
+};
+
 const activeReferences = async (id) => {
   const { rows } = await query(
     `select
@@ -83,4 +99,4 @@ const findNearby = async ({ lat, lng, radiusM = 1000, limit = 25 }) => {
   return rows;
 };
 
-module.exports = { list, findById, findActiveIds, insert, activeReferences, archive, findNearby };
+module.exports = { list, findById, findActiveIds, insert, update, activeReferences, archive, findNearby };

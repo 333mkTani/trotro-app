@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { createStop, deleteStop, fetchStops } from '../lib/queries';
+import { createStop, deleteStop, fetchStops, updateStop } from '../lib/queries';
 import type { StopInput } from '../lib/queries';
 import type { BusStop } from '../lib/types';
 import { Badge, Card, Empty, ErrorState, Loading, Modal } from '../components/ui';
@@ -10,6 +10,7 @@ export function StopsPage() {
   const qc = useQueryClient();
   const [search, setSearch] = useState('');
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState<BusStop | null>(null);
   const [deleting, setDeleting] = useState<BusStop | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -32,6 +33,11 @@ export function StopsPage() {
   const create = useMutation({
     mutationFn: createStop,
     onSuccess: (stop) => { setCreating(false); setError(null); setNotice(`Stop “${stop.name}” created.`); refresh(); },
+    onError: (err: Error) => { setNotice(null); setError(err.message); },
+  });
+  const edit = useMutation({
+    mutationFn: ({ id, data }: { id: string; data: StopInput }) => updateStop(id, data),
+    onSuccess: (stop) => { setEditing(null); setError(null); setNotice(`Stop “${stop.name}” updated.`); refresh(); },
     onError: (err: Error) => { setNotice(null); setError(err.message); },
   });
   const remove = useMutation({
@@ -58,11 +64,15 @@ export function StopsPage() {
             <td>{stop.name}</td><td><Badge value={stop.type} kind="entity" /></td>
             <td className="mono">{stop.lat}</td><td className="mono">{stop.lng}</td>
             <td><Badge value={stop.status} kind="entity" /></td>
-            <td className="num"><button className="ghost small" onClick={() => setDeleting(stop)}>Delete</button></td>
+            <td className="nowrap"><div className="row">
+              <button className="ghost small" onClick={() => setEditing(stop)}>Edit</button>
+              <button className="ghost small" onClick={() => setDeleting(stop)}>Delete</button>
+            </div></td>
           </tr>)}</tbody>
         </table></div>}
     </Card>
-    {creating && <StopForm busy={create.isPending} onClose={() => setCreating(false)} onSubmit={(data) => create.mutate(data)} />}
+    {creating && <StopForm title="Add stop or station" submitLabel="Add stop" busyLabel="Adding…" busy={create.isPending} onClose={() => setCreating(false)} onSubmit={(data) => create.mutate(data)} />}
+    {editing && <StopForm title={`Edit ${editing.name}`} submitLabel="Save changes" busyLabel="Saving…" initial={editing} busy={edit.isPending} onClose={() => setEditing(null)} onSubmit={(data) => edit.mutate({ id: editing.id, data })} />}
     {deleting && <Modal title={`Delete ${deleting.name}?`} onClose={() => setDeleting(null)}>
       <p style={{ margin: 0 }}>This removes the stop from passenger and driver searches. Historical records are preserved.</p>
       <p className="dim" style={{ margin: 0 }}>If it is still used by an active route, schedule, departure slot or alert, deletion will be rejected.</p>
@@ -71,17 +81,22 @@ export function StopsPage() {
   </>;
 }
 
-function StopForm({ busy, onClose, onSubmit }: { busy: boolean; onClose: () => void; onSubmit: (data: StopInput) => void }) {
-  const [name, setName] = useState(''); const [type, setType] = useState<'stop' | 'station'>('stop');
-  const [lat, setLat] = useState(''); const [lng, setLng] = useState('');
+function StopForm({ title, submitLabel, busyLabel, initial, busy, onClose, onSubmit }: {
+  title: string; submitLabel: string; busyLabel: string; initial?: BusStop;
+  busy: boolean; onClose: () => void; onSubmit: (data: StopInput) => void;
+}) {
+  const [name, setName] = useState(initial?.name ?? '');
+  const [type, setType] = useState<'stop' | 'station'>(initial?.type ?? 'stop');
+  const [lat, setLat] = useState(initial ? String(initial.lat) : '');
+  const [lng, setLng] = useState(initial ? String(initial.lng) : '');
   const latitude = Number(lat); const longitude = Number(lng);
   const valid = name.trim() !== '' && lat !== '' && lng !== '' && Number.isFinite(latitude) && Math.abs(latitude) <= 90 && Number.isFinite(longitude) && Math.abs(longitude) <= 180;
   const submit = (event: FormEvent) => { event.preventDefault(); onSubmit({ name: name.trim(), type, lat: latitude, lng: longitude }); };
-  return <Modal title="Add stop or station" onClose={onClose}><form onSubmit={submit} className="stack" style={{ gap: 12 }}>
+  return <Modal title={title} onClose={onClose}><form onSubmit={submit} className="stack" style={{ gap: 12 }}>
     <div className="field"><label htmlFor="new-stop-name">Name</label><input id="new-stop-name" value={name} required onChange={(e) => setName(e.target.value)} /></div>
     <div className="field"><label htmlFor="new-stop-type">Type</label><select id="new-stop-type" value={type} onChange={(e) => setType(e.target.value as 'stop' | 'station')}><option value="stop">Roadside stop</option><option value="station">Station / terminal</option></select></div>
     <div className="grid grid-2"><div className="field"><label htmlFor="new-stop-lat">Latitude</label><input id="new-stop-lat" type="number" step="0.000001" value={lat} required onChange={(e) => setLat(e.target.value)} /></div><div className="field"><label htmlFor="new-stop-lng">Longitude</label><input id="new-stop-lng" type="number" step="0.000001" value={lng} required onChange={(e) => setLng(e.target.value)} /></div></div>
     <p className="dim" style={{ margin: 0 }}>Use coordinates copied from a map. They determine passenger walking-distance ranking.</p>
-    <div className="row" style={{ justifyContent: 'flex-end' }}><button type="button" className="ghost" onClick={onClose}>Cancel</button><button type="submit" disabled={busy || !valid}>{busy ? 'Adding…' : 'Add stop'}</button></div>
+    <div className="row" style={{ justifyContent: 'flex-end' }}><button type="button" className="ghost" onClick={onClose}>Cancel</button><button type="submit" disabled={busy || !valid}>{busy ? busyLabel : submitLabel}</button></div>
   </form></Modal>;
 }

@@ -128,6 +128,16 @@ tbody tr.clickable:hover { background: var(--surface-alt); }
 .dim { color: var(--muted); }
 .nowrap { white-space: nowrap; }
 
+/* Route actions stay in a compact 2x2 block instead of stretching each table
+   row when the catalogue has many numeric columns. */
+.route-actions-cell { width: 156px; min-width: 156px; }
+.route-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(68px, 1fr));
+  gap: 6px;
+}
+.route-actions button { width: 100%; white-space: nowrap; }
+
 /* ── Badges ─────────────────────────────────────────────────────────────── */
 .badge {
   display: inline-block; padding: 2px 8px; border-radius: 999px;

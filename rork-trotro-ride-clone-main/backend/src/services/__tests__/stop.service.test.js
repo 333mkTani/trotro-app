@@ -28,3 +28,28 @@ describe('admin stop archival', () => {
     expect(cache.del).toHaveBeenCalledWith('stops:item:stop-1');
   });
 });
+
+describe('admin stop editing', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('updates an active stop and invalidates its list and item caches', async () => {
+    const existing = { id: 'stop-1', name: 'Old name', status: 'active' };
+    const updated = { ...existing, name: 'New name', lat: 6.67, lng: -1.57 };
+    stopModel.findById.mockResolvedValue(existing);
+    stopModel.update.mockResolvedValue(updated);
+
+    await expect(service.update('stop-1', { name: 'New name', lat: 6.67, lng: -1.57 }))
+      .resolves.toEqual(updated);
+    expect(stopModel.update).toHaveBeenCalledWith(
+      'stop-1', { name: 'New name', lat: 6.67, lng: -1.57 },
+    );
+    expect(cache.del).toHaveBeenCalledWith('stops:list:active');
+    expect(cache.del).toHaveBeenCalledWith('stops:item:stop-1');
+  });
+
+  it('refuses to edit a deleted stop', async () => {
+    stopModel.findById.mockResolvedValue({ id: 'stop-1', status: 'deleted' });
+    await expect(service.update('stop-1', { name: 'Nope' })).rejects.toMatchObject({ status: 404 });
+    expect(stopModel.update).not.toHaveBeenCalled();
+  });
+});
