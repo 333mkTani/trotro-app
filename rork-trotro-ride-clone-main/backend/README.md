@@ -83,6 +83,17 @@ Clients read the list forwards for the outbound direction and reversed for the r
 - `/api/*` rate limiter switches to a **Redis-backed store** when `REDIS_URL` is set so limits are shared across instances.
 - Set `REDIS_URL=` (empty) to disable; the cache, pub/sub, and limiter all degrade safely.
 
+**`TRUST_PROXY` matters for the limiter.** It is the number of reverse proxies
+in front of the API, and it decides what Express reports as `req.ip` — the key
+the limiter counts against. Left too low, every request appears to come from
+the proxy and all devices share a single 120-req/minute bucket, so a handful of
+active users can rate-limit the entire platform. Set too high, a client can
+forge `X-Forwarded-For` and evade the limit. Use `0` running directly, `1`
+behind Render or a single nginx, `2` behind Render + Cloudflare. `GET /health`
+returns the IP the server resolved for you — if it is not your public address,
+the hop count is wrong. Both Expo apps back off on a `429` and retry safe reads
+after `Retry-After`, but never replay a booking, payment or cancellation.
+
 ### Wallet & Paystack (top-ups and payouts)
 
 Every passenger and driver has a wallet (`GET /api/wallet`, `GET /api/wallet/transactions`). Money moves through Paystack in both directions:

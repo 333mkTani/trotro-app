@@ -2,6 +2,16 @@ const env = {
   PORT: parseInt(process.env.PORT || '4000', 10),
   NODE_ENV: process.env.NODE_ENV || 'development',
   CORS_ORIGIN: process.env.CORS_ORIGIN || '*',
+  // How many reverse proxies sit in front of the API. Express needs this to
+  // resolve the real client IP from X-Forwarded-For; left unset, every request
+  // appears to come from the proxy and the rate limiter buckets the entire
+  // platform into a single counter. Render on its own is 1 hop, Render behind
+  // Cloudflare is 2. GET /health echoes the IP the server resolved, so the
+  // value can be checked against the caller's real address.
+  TRUST_PROXY: (() => {
+    const hops = parseInt(process.env.TRUST_PROXY || '1', 10);
+    return Number.isInteger(hops) && hops >= 0 ? hops : 1;
+  })(),
   DATABASE_URL: process.env.DATABASE_URL || '',
   PGSSL: String(process.env.PGSSL || 'false').toLowerCase() === 'true',
   REDIS_URL: process.env.REDIS_URL || '',

@@ -20,6 +20,12 @@ services:
         value: 7d
       - key: CORS_ORIGIN
         value: "*"
+      # Reverse-proxy hops in front of the API. Render's own load balancer is
+      # one; put Cloudflare (or anything else) ahead of it and this becomes 2.
+      # Getting it wrong makes the rate limiter count proxies instead of
+      # users — GET /health echoes the resolved IP so it can be checked.
+      - key: TRUST_PROXY
+        value: "1"
       - key: CACHE_TTL_SECONDS
         value: "60"
       - key: DATABASE_URL

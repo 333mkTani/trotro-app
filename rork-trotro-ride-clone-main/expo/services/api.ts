@@ -39,11 +39,19 @@ api.interceptors.request.use(async (config) => {
 
 const MAX_503_RETRIES = 3;
 const RETRY_DELAY_MS = 20000;
+
 const MAX_429_RETRIES = 2;
 
 const isIdempotentRequest = (method?: string) =>
   ['get', 'head', 'options'].includes((method ?? 'get').toLowerCase());
 
+/**
+ * `Retry-After` is either a delay in seconds or an HTTP date. Anything missing
+ * or unparseable falls back to a fixed wait rather than 0 — retrying instantly
+ * against a limiter that just rejected us only burns the next window too. The
+ * upper clamp keeps a hostile or mistaken header from parking a screen for
+ * minutes.
+ */
 const retryAfterMs = (value: unknown): number => {
   if (typeof value !== 'string' && typeof value !== 'number') return 1000;
   const seconds = Number(value);

@@ -3,6 +3,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Booking, BookingStatus, RidePaymentMethod, RideSchedule, BufferMinutes } from '@/types';
 import { api } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
+import { connectSocket } from '@/services/socket';
 import { AppState } from 'react-native';
 import { useEffect, useState } from 'react';
 
@@ -84,9 +85,33 @@ export const [BookingProvider, useBookings] = createContextHook(() => {
       return bookings;
     },
     enabled: Boolean(user),
+    // The socket subscription below usually refreshes this list first, but the
+    // poll stays at its original cadence rather than being slowed to match:
+    // the socket is websocket-only, so on a network that blocks websockets it
+    // never attaches and polling is the only path left. Never polls while the
+    // app is backgrounded.
     refetchInterval: appActive ? 30_000 : false,
     refetchIntervalInBackground: false,
   });
+
+  const refetchBookings = bookingsQuery.refetch;
+
+  // The server pushes every change to a passenger's own bookings into their
+  // `user:<id>` room, so refetching on those events surfaces a driver accepting
+  // or arriving within a second instead of on the next poll.
+  useEffect(() => {
+    if (!user) return;
+    let active = true;
+    let cleanup = () => {};
+    const refresh = () => { void refetchBookings(); };
+    const events = ['booking:updated', 'booking:arrived'];
+    void connectSocket().then((socket) => {
+      if (!active) return;
+      events.forEach((event) => socket.on(event, refresh));
+      cleanup = () => events.forEach((event) => socket.off(event, refresh));
+    }).catch(() => {});
+    return () => { active = false; cleanup(); };
+  }, [user, refetchBookings]);
 
   const bookings = bookingsQuery.data ?? [];
 

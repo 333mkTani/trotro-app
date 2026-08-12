@@ -34,12 +34,14 @@ const adminDashboardRoutes = require('./routes/adminDashboard.routes');
 
 const app = express();
 
-app.disable('x-powered-by');
 // Render terminates TLS in front of this process and supplies the original
-// client address in X-Forwarded-For. Trust exactly that first proxy hop so
-// Express and express-rate-limit key requests by the passenger/driver IP,
-// rather than grouping every device under Render's internal proxy address.
-app.set('trust proxy', 1);
+// client address in X-Forwarded-For. Trusting that hop is what lets Express
+// and express-rate-limit key requests by the passenger/driver IP instead of
+// grouping every device under Render's internal proxy address. Must come
+// before the rate limiter, which reads req.ip. The hop count is configurable
+// because it depends on what sits in front — see env.TRUST_PROXY.
+app.set('trust proxy', env.TRUST_PROXY);
+app.disable('x-powered-by');
 app.use(helmet());
 // CORS_ORIGIN accepts '*' or a comma-separated allow-list, so the admin web
 // app can be served from its own origin without opening the API to everyone.
@@ -76,8 +78,14 @@ if (env.REDIS_URL && redisClient) {
 }
 app.use('/api', rateLimit(limiterOptions));
 
-app.get('/health', (_req, res) => {
-  res.json({ ok: true, service: 'trotro-api', time: new Date().toISOString() });
+// `ip` is the address the server resolved for the caller — their own, and
+// nobody else's. It is reported so the TRUST_PROXY hop count can be verified
+// from a browser: if it does not match the caller's public IP, the rate
+// limiter is counting proxies instead of users.
+app.get('/health', (req, res) => {
+  res.json({
+    ok: true, service: 'trotro-api', time: new Date().toISOString(), ip: req.ip,
+  });
 });
 
 app.use('/api/auth', authRoutes);
