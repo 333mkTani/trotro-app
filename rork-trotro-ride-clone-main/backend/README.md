@@ -66,6 +66,15 @@ Health check: `GET /health`.
 
 Both endpoints use a `geography(Point, 4326)` column kept in sync from `lat/lng` via triggers, plus a GIST index for `ST_DWithin` and `<->` (KNN) queries. The migration lives at `database/migrations/012_postgis_spatial.sql`.
 
+### Route stops
+
+- `GET /api/routes/:id/stops` — the route's stops in travel order (`sequence` ascending). Public.
+- `PUT /api/routes/:id/stops` — replace the whole list: `{ "stopIds": ["uuid", …] }`, in order. Admin only.
+
+The replacement is deliberate rather than incremental. `route_stops` is keyed on `(route_id, sequence)` and unique on `(route_id, stop_id)`, so shifting positions row by row collides with one constraint or the other; deleting the route's rows and re-inserting the full ordered list inside a transaction avoids both and makes a repeated save a no-op. Unknown or inactive stop ids are rejected with a 400 before the write, so the foreign key never fires.
+
+Clients read the list forwards for the outbound direction and reversed for the return (`stops_sequence` / `reverse_stops_sequence` on `GET /api/routes`), so each stop appears once, ordered origin → destination.
+
 ### Caching, pub/sub & rate limiting (Redis 7+)
 
 - Read-through cache for `routes` and `stops` lists/items, and bucketed nearby queries (`CACHE_TTL_SECONDS`, default 60s). Writes invalidate the relevant keys.

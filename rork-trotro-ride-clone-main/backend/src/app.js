@@ -30,12 +30,18 @@ const busAlertOperationsRoutes = require('./routes/busAlertOperations.routes');
 const routingRoutes = require('./routes/routing.routes');
 const departureSlotRoutes = require('./routes/departureSlot.routes');
 const paymentOperationsRoutes = require('./routes/paymentOperations.routes');
+const adminDashboardRoutes = require('./routes/adminDashboard.routes');
 
 const app = express();
 
 app.disable('x-powered-by');
 app.use(helmet());
-app.use(cors({ origin: env.CORS_ORIGIN, credentials: true }));
+// CORS_ORIGIN accepts '*' or a comma-separated allow-list, so the admin web
+// app can be served from its own origin without opening the API to everyone.
+const corsOrigin = env.CORS_ORIGIN === '*'
+  ? '*'
+  : env.CORS_ORIGIN.split(',').map((value) => value.trim()).filter(Boolean);
+app.use(cors({ origin: corsOrigin, credentials: true }));
 app.use(express.json({
   limit: '1mb',
   // Paystack webhook signatures are computed over the exact raw request
@@ -88,6 +94,7 @@ app.use('/api/schedule-notifications', scheduleNotificationRoutes);
 app.use('/api/admin/schedules', scheduleOperationsRoutes);
 app.use('/api/admin/bus-alerts', busAlertOperationsRoutes);
 app.use('/api/admin/payments', paymentOperationsRoutes);
+app.use('/api/admin/dashboard', adminDashboardRoutes);
 app.use('/api/routing', routingRoutes);
 app.use('/api/departure-slots', departureSlotRoutes);
 

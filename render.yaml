@@ -66,6 +66,28 @@ services:
       - key: FIREBASE_SERVICE_ACCOUNT
         sync: false
 
+  # ── Admin dashboard (static site) ──────────────────────────────────────────
+  # Set VITE_API_URL to the deployed API's /api base before the first build —
+  # Vite inlines it at build time, so changing it later needs a redeploy.
+  - type: web
+    name: trotro-admin-web
+    runtime: static
+    rootDir: admin-web
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        value: https://trotro-api.onrender.com/api
+    routes:
+      # Single-page app: every unknown path must fall through to index.html.
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: X-Robots-Tag
+        value: noindex, nofollow
+
   # ── Redis ──────────────────────────────────────────────────────────────────
   - type: redis
     name: trotro-redis
