@@ -39,11 +39,28 @@ api.interceptors.request.use(async (config) => {
 
 const MAX_503_RETRIES = 3;
 const RETRY_DELAY_MS = 20000;
+const MAX_429_RETRIES = 2;
+
+const isIdempotentRequest = (method?: string) =>
+  ['get', 'head', 'options'].includes((method ?? 'get').toLowerCase());
+
+const retryAfterMs = (value: unknown): number => {
+  if (typeof value !== 'string' && typeof value !== 'number') return 1000;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds)) return Math.min(Math.max(seconds * 1000, 1000), 30_000);
+  const date = new Date(String(value)).getTime();
+  return Number.isFinite(date) ? Math.min(Math.max(date - Date.now(), 1000), 30_000) : 1000;
+};
 
 api.interceptors.response.use(
   (res) => res,
   async (error) => {
     const status = error.response?.status;
+    const cfg = error.config as (typeof error.config & {
+      _retries?: number;
+      _rateLimitRetries?: number;
+      _timeoutRetries?: number;
+    }) | undefined;
 
     if (status === 401) {
       await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
@@ -52,8 +69,7 @@ api.interceptors.response.use(
 
     // Render.com free tier returns 503 while the server cold-starts (can take ~60s).
     // Retry automatically so the user doesn't have to keep tapping.
-    if (status === 503) {
-      const cfg = error.config as typeof error.config & { _retries?: number };
+    if (status === 503 && cfg && isIdempotentRequest(cfg.method)) {
       cfg._retries = (cfg._retries ?? 0) + 1;
       if (cfg._retries <= MAX_503_RETRIES) {
         await new Promise<void>((resolve) => setTimeout(resolve, RETRY_DELAY_MS));
@@ -64,11 +80,35 @@ api.interceptors.response.use(
       );
     }
 
-    const message =
-      error.response?.data?.message ||
-      error.response?.data?.error ||
-      error.message ||
-      'An error occurred';
+    // Honour the server's reset window, but only repeat safe reads. Booking,
+    // payment and cancellation mutations must never be replayed automatically.
+    if (status === 429 && cfg && isIdempotentRequest(cfg.method)) {
+      cfg._rateLimitRetries = (cfg._rateLimitRetries ?? 0) + 1;
+      if (cfg._rateLimitRetries <= MAX_429_RETRIES) {
+        await new Promise<void>((resolve) => setTimeout(
+          resolve,
+          retryAfterMs(error.response?.headers?.['retry-after']),
+        ));
+        return api.request(cfg);
+      }
+    }
+
+    // A sleeping Render service may stall until Axios times out instead of
+    // returning 503. Retry one safe read after a short pause.
+    if (error.code === 'ECONNABORTED' && cfg && isIdempotentRequest(cfg.method)) {
+      cfg._timeoutRetries = (cfg._timeoutRetries ?? 0) + 1;
+      if (cfg._timeoutRetries <= 1) {
+        await new Promise<void>((resolve) => setTimeout(resolve, 2000));
+        return api.request(cfg);
+      }
+    }
+
+    const message = status === 429
+      ? 'The service is busy. Please wait a moment and try again.'
+      : error.response?.data?.message ||
+        error.response?.data?.error ||
+        error.message ||
+        'An error occurred';
     return Promise.reject(new ApiRequestError(message, status));
   }
 );

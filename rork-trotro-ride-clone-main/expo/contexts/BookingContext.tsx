@@ -3,6 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Booking, BookingStatus, ApproachingBus, RidePaymentMethod, RideSchedule, BufferMinutes } from '@/types';
 import { api } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
+import { AppState } from 'react-native';
+import { useEffect, useState } from 'react';
 
 const mapBooking = (b: Record<string, unknown>): Booking => ({
   id: b.id as string,
@@ -50,6 +52,14 @@ const mapBooking = (b: Record<string, unknown>): Booking => ({
 export const [BookingProvider, useBookings] = createContextHook(() => {
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const [appActive, setAppActive] = useState(AppState.currentState === 'active');
+
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      setAppActive(state === 'active');
+    });
+    return () => subscription.remove();
+  }, []);
 
   const bookingsQuery = useQuery({
     queryKey: ['bookings'],
@@ -74,7 +84,8 @@ export const [BookingProvider, useBookings] = createContextHook(() => {
       return bookings;
     },
     enabled: Boolean(user),
-    refetchInterval: 15000,
+    refetchInterval: appActive ? 30_000 : false,
+    refetchIntervalInBackground: false,
   });
 
   const bookings = bookingsQuery.data ?? [];

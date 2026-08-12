@@ -89,6 +89,7 @@ export const [LocationProvider, useLocation] = createContextHook(() => {
   const [allStops, setAllStops] = useState<BusStop[]>([]);
   const [routes, setRoutes] = useState<RouteType[]>([]);
   const [activeBuses, setActiveBuses] = useState<ApproachingBus[]>([]);
+  const [appActive, setAppActive] = useState(AppState.currentState === 'active');
 
   // Fetch routes filtered by the user's detected city; re-fetches when location resolves
   useEffect(() => {
@@ -129,19 +130,25 @@ export const [LocationProvider, useLocation] = createContextHook(() => {
     }
   }, []);
 
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (state) => {
+      const active = state === 'active';
+      setAppActive(active);
+      if (active) void fetchActiveBuses();
+    });
+    return () => subscription.remove();
+  }, [fetchActiveBuses]);
+
   // Availability is operational state, so it must not be cached for the
   // lifetime of the passenger app. Poll and refresh immediately on resume.
   useEffect(() => {
+    if (!appActive) return;
     void fetchActiveBuses();
     const interval = setInterval(() => { void fetchActiveBuses(); }, 10_000);
-    const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active') void fetchActiveBuses();
-    });
     return () => {
       clearInterval(interval);
-      subscription.remove();
     };
-  }, [fetchActiveBuses]);
+  }, [appActive, fetchActiveBuses]);
 
   // Fetch nearby stops whenever user location changes
   useEffect(() => {

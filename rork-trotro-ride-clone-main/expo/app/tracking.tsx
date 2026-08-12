@@ -5,6 +5,7 @@ import {
   View,
   TouchableOpacity,
   Animated,
+  AppState,
   Platform,
 } from "react-native";
 import { useLocalSearchParams, useRouter, Stack } from "expo-router";
@@ -289,9 +290,26 @@ export default function TrackingScreen() {
       }
     };
 
-    poll();
-    const interval = setInterval(poll, 5000);
-    return () => clearInterval(interval);
+    let interval: ReturnType<typeof setInterval> | null = null;
+    const startPolling = () => {
+      if (interval) return;
+      void poll();
+      interval = setInterval(poll, 5000);
+    };
+    const stopPolling = () => {
+      if (interval) clearInterval(interval);
+      interval = null;
+    };
+
+    if (AppState.currentState === 'active') startPolling();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') startPolling();
+      else stopPolling();
+    });
+    return () => {
+      stopPolling();
+      subscription.remove();
+    };
   }, [p.driverId, applyRealPosition, applyServerGpsStatus]);
 
   const mapRegion = useMemo(() => {

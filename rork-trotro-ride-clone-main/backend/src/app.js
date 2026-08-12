@@ -35,6 +35,11 @@ const adminDashboardRoutes = require('./routes/adminDashboard.routes');
 const app = express();
 
 app.disable('x-powered-by');
+// Render terminates TLS in front of this process and supplies the original
+// client address in X-Forwarded-For. Trust exactly that first proxy hop so
+// Express and express-rate-limit key requests by the passenger/driver IP,
+// rather than grouping every device under Render's internal proxy address.
+app.set('trust proxy', 1);
 app.use(helmet());
 // CORS_ORIGIN accepts '*' or a comma-separated allow-list, so the admin web
 // app can be served from its own origin without opening the API to everyone.
