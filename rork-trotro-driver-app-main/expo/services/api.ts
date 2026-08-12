@@ -32,7 +32,13 @@ api.interceptors.response.use(
 
     if (error.response?.status === 401 && originalRequest && !originalRequest._retry) {
       originalRequest._retry = true;
-      useAuthStore.getState().clearAuth();
+      const currentToken = useAuthStore.getState().accessToken;
+      const requestAuthorization = originalRequest.headers?.Authorization;
+      // A delayed 401 from a request made with an older token must not erase
+      // a newer session established while that request was in flight.
+      if (!currentToken || requestAuthorization === `Bearer ${currentToken}`) {
+        await useAuthStore.getState().clearAuth();
+      }
       return Promise.reject(error);
     }
 

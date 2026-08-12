@@ -26,7 +26,7 @@ async function restoreAuthForBackgroundTask(): Promise<boolean> {
   if (!stored) return false;
   const tokens = JSON.parse(stored) as { accessToken?: string; refreshToken?: string };
   if (!tokens.accessToken || !tokens.refreshToken) return false;
-  useAuthStore.getState().setTokens(tokens.accessToken, tokens.refreshToken);
+  await useAuthStore.getState().setTokens(tokens.accessToken, tokens.refreshToken);
   return true;
 }
 

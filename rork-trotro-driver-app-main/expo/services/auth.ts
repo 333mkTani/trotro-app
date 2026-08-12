@@ -43,8 +43,8 @@ export async function login(phone: string, password: string): Promise<AuthRespon
     const user = await fetchProfile(token);
 
     const store = useAuthStore.getState();
-    store.setTokens(token, '');
-    store.setUser(user);
+    await store.setTokens(token);
+    await store.setUser(user);
 
     return { access_token: token, refresh_token: '', user };
   } catch (error: unknown) {
@@ -70,8 +70,8 @@ export async function register(
     const user = await fetchProfile(token);
 
     const store = useAuthStore.getState();
-    store.setTokens(token, '');
-    store.setUser(user);
+    await store.setTokens(token);
+    await store.setUser(user);
 
     return { access_token: token, refresh_token: '', user };
   } catch (error: unknown) {
@@ -108,8 +108,8 @@ export async function registerVerifiedPhone(idToken: string, payload: RegisterVe
     const user = await fetchProfile(token);
 
     const store = useAuthStore.getState();
-    store.setTokens(token, '');
-    store.setUser(user);
+    await store.setTokens(token);
+    await store.setUser(user);
 
     return { access_token: token, refresh_token: '', user };
   } catch (error: unknown) {
@@ -126,6 +126,6 @@ export async function logout(): Promise<void> {
     // cannot complete because the device is offline.
     console.log('[Auth] Could not mark bus unavailable during logout:', error);
   } finally {
-    useAuthStore.getState().clearAuth();
+    await useAuthStore.getState().clearAuth();
   }
 }
