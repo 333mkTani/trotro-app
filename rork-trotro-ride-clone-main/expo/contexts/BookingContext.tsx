@@ -1,6 +1,6 @@
 import createContextHook from '@nkzw/create-context-hook';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Booking, BookingStatus, ApproachingBus, RidePaymentMethod, RideSchedule, BufferMinutes } from '@/types';
+import { Booking, BookingStatus, RidePaymentMethod, RideSchedule, BufferMinutes } from '@/types';
 import { api } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { AppState } from 'react-native';
@@ -90,82 +90,6 @@ export const [BookingProvider, useBookings] = createContextHook(() => {
 
   const bookings = bookingsQuery.data ?? [];
 
-  const bookBusMutation = useMutation({
-    mutationFn: async ({
-      bus,
-      pickupStopId,
-      pickupStopName,
-      destinationStopId,
-      destinationStopName,
-      rideFare,
-    }: {
-      bus: ApproachingBus;
-      pickupStopId: string;
-      pickupStopName: string;
-      destinationStopId: string;
-      destinationStopName: string;
-      rideFare: number;
-      passengerId: string;
-    }): Promise<Booking> => {
-      const arrivalTime = new Date(Date.now() + bus.eta_minutes * 60 * 1000).toISOString();
-      const { data } = await api.post('/bookings', {
-        pickupStopId,
-        pickupStopName,
-        destinationStopId,
-        destinationStopName,
-        desiredArrivalTime: arrivalTime,
-        bufferMinutes: 10,
-        driverId: bus.driver_id,
-        routeName: bus.route_name,
-        rideFare,
-      });
-      return mapBooking(data as Record<string, unknown>);
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['bookings'] }),
-  });
-
-  const scheduleRideMutation = useMutation({
-    mutationFn: async ({
-      pickupStopId,
-      pickupStopName,
-      destinationStopId,
-      destinationStopName,
-      routeId,
-      routeName,
-      rideFare,
-      desiredArrivalTime,
-      bufferMinutes,
-      rideSchedule,
-    }: {
-      pickupStopId: string;
-      pickupStopName: string;
-      destinationStopId: string;
-      destinationStopName: string;
-      routeId: string;
-      routeName: string;
-      rideFare: number;
-      desiredArrivalTime: string;
-      bufferMinutes: BufferMinutes;
-      passengerId: string;
-      rideSchedule: RideSchedule;
-    }): Promise<Booking> => {
-      const { data } = await api.post('/bookings', {
-        pickupStopId,
-        pickupStopName,
-        destinationStopId,
-        destinationStopName,
-        desiredArrivalTime,
-        bufferMinutes,
-        routeId,
-        routeName,
-        rideFare,
-        rideSchedule,
-      });
-      return mapBooking(data as Record<string, unknown>);
-    },
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['bookings'] }),
-  });
-
   const cancelBookingMutation = useMutation({
     mutationFn: async (bookingId: string): Promise<Booking> => {
       const { data } = await api.post(`/bookings/${bookingId}/cancel`);
@@ -205,10 +129,6 @@ export const [BookingProvider, useBookings] = createContextHook(() => {
 
   return {
     bookings,
-    bookBus: bookBusMutation.mutateAsync,
-    bookBusPending: bookBusMutation.isPending,
-    scheduleRide: scheduleRideMutation.mutateAsync,
-    scheduleRidePending: scheduleRideMutation.isPending,
     cancelBooking: cancelBookingMutation.mutateAsync,
     cancelPending: cancelBookingMutation.isPending,
     completeRide: completeRideMutation.mutateAsync,

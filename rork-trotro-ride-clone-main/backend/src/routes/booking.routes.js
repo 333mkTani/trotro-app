@@ -17,7 +17,7 @@ const {
 router.use(requireAuth);
 
 router.get('/', ctrl.list);
-router.post('/', validate({ body: CreateBookingSchema }), ctrl.create);
+router.post('/', requireRole('passenger'), validate({ body: CreateBookingSchema }), ctrl.create);
 router.post('/provisional', requireRole('passenger'), validate({ body: CreateProvisionalBookingSchema }), ctrl.createProvisional);
 router.post('/redeem', validate({ body: RedeemCodeSchema }), requireRole('driver', 'admin'), ctrl.redeem);
 

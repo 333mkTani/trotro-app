@@ -504,17 +504,7 @@ export default function HomeScreen() {
                             stopName: activeBooking.destination_stop_name,
                           },
                         })
-                      : router.push({
-                      pathname: "/book-bus",
-                      params: {
-                        driverId: bus.driver_id,
-                        driverName: bus.driver_name,
-                        busReg: bus.bus_registration,
-                        routeName: bus.route_name,
-                        seats: String(bus.seats_available),
-                        eta: String(bus.eta_minutes),
-                      },
-                    })}
+                      : router.push("/find-route")}
                     activeOpacity={0.8}
                   >
                     <View style={s.busMarkerOuter}>

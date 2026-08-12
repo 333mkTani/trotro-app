@@ -61,6 +61,7 @@ const createAccount = async ({ phone, fullName, email, passwordHash, role = 'pas
 };
 
 const register = async ({ phone, fullName, email, password, role = 'passenger', busRegistration, routeId, totalSeats = 14 }) => {
+  if (role === 'admin') throw ApiError.forbidden('Administrator accounts cannot be created through public registration');
   const normalizedPhone = toE164Gh(phone);
   const existing = await profileModel.findByPhoneVariants(ghPhoneVariants(phone), normalizedPhone);
   if (existing.length > 0) throw ApiError.conflict('Phone already registered');
@@ -73,6 +74,7 @@ const register = async ({ phone, fullName, email, password, role = 'passenger', 
 // idToken proves the caller controls the phone; we never see or store an
 // OTP code ourselves.
 const registerWithVerifiedPhone = async ({ idToken, fullName, email, password, role = 'passenger', busRegistration, routeId, totalSeats = 14 }) => {
+  if (role === 'admin') throw ApiError.forbidden('Administrator accounts cannot be created through public registration');
   const admin = getAdmin();
   if (!admin) throw ApiError.internal('Phone verification is not configured');
 

@@ -8,6 +8,9 @@ const getForBooking = async (bookingId, user) => {
   if (user.role !== 'admin' && booking.passenger_id !== user.id && booking.driver_id !== user.id) {
     throw ApiError.forbidden();
   }
+  if (!['deposit_paid', 'fully_paid', 'balance_pending'].includes(booking.payment_status)) {
+    throw ApiError.badRequest('A verified deposit is required before a boarding code can be accessed');
+  }
   const code = await codeModel.findByBookingId(bookingId);
   if (!code) throw ApiError.notFound('No code issued yet');
   return code;

@@ -29,6 +29,15 @@ describe('registerWithVerifiedPhone', () => {
     getAdmin.mockReturnValue({ auth: () => ({ verifyIdToken }) });
   };
 
+  it('rejects public administrator self-registration before creating anything', async () => {
+    await expect(authService.registerWithVerifiedPhone({
+      ...basePayload,
+      role: 'admin',
+    })).rejects.toThrow('Administrator accounts cannot be created');
+    expect(getAdmin).not.toHaveBeenCalled();
+    expect(profileModel.findByPhoneVariants).not.toHaveBeenCalled();
+  });
+
   it('creates the account when the Firebase ID token is valid and the phone is new', async () => {
     mockAdmin(jest.fn().mockResolvedValue({ phone_number: '+233555000111' }));
     profileModel.findByPhoneVariants.mockResolvedValue([]);

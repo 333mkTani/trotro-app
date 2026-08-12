@@ -18,6 +18,8 @@ async function fetchBusesAtStop(stopId: string, routeName?: string): Promise<App
     const { data } = await api.get('/buses/active', { params });
     const buses = (data as Record<string, unknown>[])
       .map((b) => ({
+        bus_id: b.bus_id as string | undefined,
+        route_id: b.route_id as string | undefined,
         driver_id: b.driver_id as string,
         bus_registration: b.bus_registration as string,
         driver_name: (b.driver_name as string) ?? 'Driver',

@@ -30,10 +30,10 @@ import * as Haptics from "expo-haptics";
 import StaticColors from "@/constants/colors";
 import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
-import { useBookings } from "@/contexts/BookingContext";
 import { useLocation } from "@/contexts/LocationContext";
 import { BusStop, Booking } from "@/types";
 import { api } from "@/services/api";
+import { createProvisionalBooking } from "@/services/bookingPayment";
 import QRCode from "@/components/QRCode";
 const Colors = StaticColors;
 
@@ -44,6 +44,8 @@ export default function BookBusScreen() {
 
   const router = useRouter();
   const params = useLocalSearchParams<{
+    busId: string;
+    routeId: string;
     driverId: string;
     driverName: string;
     busReg: string;
@@ -55,8 +57,8 @@ export default function BookBusScreen() {
   }>();
 
   const { user } = useAuth();
-  const { bookBus, bookBusPending } = useBookings();
   const { regionStops, regionRoutes } = useLocation();
+  const [bookingPending, setBookingPending] = useState(false);
 
   const [selectedDest, setSelectedDest] = useState<BusStop | null>(null);
   const [showDestPicker, setShowDestPicker] = useState(false);
@@ -143,9 +145,16 @@ export default function BookBusScreen() {
 
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
+    setBookingPending(true);
     try {
-      const result = await bookBus({
+      const routeId = params.routeId || route?.id;
+      if (!params.busId || !routeId || !params.stopId) {
+        throw new Error("This bus option is outdated. Refresh the available buses and try again.");
+      }
+      const result = await createProvisionalBooking({
         bus: {
+          bus_id: params.busId,
+          route_id: routeId,
           driver_id: params.driverId ?? "",
           bus_registration: params.busReg ?? "",
           driver_name: params.driverName ?? "",
@@ -155,29 +164,36 @@ export default function BookBusScreen() {
           lat: 0,
           lng: 0,
         },
+        routeId,
+        routeName: params.routeName ?? route?.name ?? "",
         pickupStopId: params.stopId ?? "",
         pickupStopName: params.stopName ?? "",
         destinationStopId: selectedDest.id,
         destinationStopName: selectedDest.name,
-        rideFare: route?.fare ?? 0,
-        passengerId: user.id,
+        bufferMinutes: 10,
       });
-
-      setBookedBooking(result);
-      setBooked(true);
-      if (Platform.OS !== "web") Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-
-      Animated.spring(successScale, {
-        toValue: 1,
-        friction: 4,
-        tension: 60,
-        useNativeDriver: true,
-      }).start();
+      router.push({
+        pathname: "/booking-deposit",
+        params: {
+          bookingId: result.booking.id,
+          routeName: params.routeName ?? route?.name ?? "",
+          pickupStop: params.stopName ?? "",
+          destinationStop: selectedDest.name,
+          busRegistration: params.busReg ?? "",
+          driverName: params.driverName ?? "",
+          totalFare: String(result.payment.totalFare),
+          depositAmount: String(result.payment.depositAmount),
+          remainingBalance: String(result.payment.remainingBalance),
+          holdExpiresAt: result.payment.holdExpiresAt,
+        },
+      } as never);
     } catch (err) {
       console.log("[BookBus] Error:", err);
-      Alert.alert("Booking Failed", "Something went wrong. Please try again.");
+      Alert.alert("Could not hold seat", err instanceof Error ? err.message : "Please try again.");
+    } finally {
+      setBookingPending(false);
     }
-  }, [selectedDest, user, bookBus, params, route?.fare, successScale]);
+  }, [selectedDest, user, params, route, router]);
 
   const handleGoToRides = useCallback(() => {
     router.replace("/(tabs)/rides");
@@ -500,14 +516,14 @@ export default function BookBusScreen() {
         <TouchableOpacity
           style={[
             st.bookButton,
-            (!selectedDest || bookBusPending) && st.bookButtonDisabled,
+            (!selectedDest || bookingPending) && st.bookButtonDisabled,
           ]}
           onPress={handleBook}
-          disabled={!selectedDest || bookBusPending}
+          disabled={!selectedDest || bookingPending}
           activeOpacity={0.7}
           testID="confirm-book-btn"
         >
-          {bookBusPending ? (
+          {bookingPending ? (
             <ActivityIndicator size="small" color={Colors.white} />
           ) : (
             <>

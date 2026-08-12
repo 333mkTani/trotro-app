@@ -69,6 +69,8 @@ const mapRoute = (r: Record<string, unknown>): RouteType => {
 };
 
 const mapActiveBus = (b: Record<string, unknown>): ApproachingBus => ({
+  bus_id: b.bus_id as string | undefined,
+  route_id: b.route_id as string | undefined,
   driver_id: b.driver_id as string,
   bus_registration: b.bus_registration as string,
   driver_name: (b.driver_name as string) ?? 'Driver',

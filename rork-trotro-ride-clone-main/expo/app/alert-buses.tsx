@@ -37,6 +37,8 @@ function mapActiveBus(b: Record<string, unknown>): ApproachingBus {
   const lng = Number(b.current_lng);
 
   return {
+    bus_id: b.bus_id as string | undefined,
+    route_id: b.route_id as string | undefined,
     driver_id: b.driver_id as string,
     bus_registration: b.bus_registration as string,
     driver_name: (b.driver_name as string) ?? "Driver",
@@ -105,6 +107,8 @@ export default function AlertBusesScreen() {
       router.push({
         pathname: "/book-bus",
         params: {
+          busId: bus.bus_id ?? "",
+          routeId: bus.route_id ?? alert?.route_id ?? "",
           driverId: bus.driver_id,
           driverName: bus.driver_name,
           busReg: bus.bus_registration,

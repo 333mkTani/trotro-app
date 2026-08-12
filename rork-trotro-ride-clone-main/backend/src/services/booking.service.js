@@ -34,6 +34,12 @@ const getById = async (id, user) => {
 };
 
 const create = async (passengerId, data) => {
+  // The original endpoint could confirm a booking, decrement capacity and
+  // issue a boarding code without a verified deposit. Keep the route only to
+  // return an explicit error to older clients; all new bookings must start as
+  // provisional holds through createProvisional().
+  throw ApiError.badRequest('A verified deposit is required. Start the booking through /bookings/provisional.');
+  /* istanbul ignore next -- retained temporarily for rollback archaeology */
   return withTransaction(async (client) => {
     const booking = await bookingModel.insert({ ...data, passengerId }, client);
 
@@ -197,6 +203,9 @@ const confirm = async (bookingId, { driverId, busId } = {}) => {
   return withTransaction(async (client) => {
     const existing = await bookingModel.findById(bookingId, client);
     if (!existing) throw ApiError.notFound('Booking not found');
+    if (existing.payment_status !== 'deposit_paid') {
+      throw ApiError.badRequest('A verified deposit is required before a seat can be confirmed');
+    }
     if (existing.status === 'confirmed') {
       const code = await codeModel.findByBookingId(bookingId);
       return { booking: existing, code };
@@ -335,6 +344,9 @@ const redeemCode = async (code, driverUser) => {
     if (new Date(record.valid_until).getTime() < Date.now()) throw ApiError.badRequest('Code expired');
     const booking = await bookingModel.findByIdForUpdate(record.booking_id, client);
     if (!booking) throw ApiError.notFound('Booking not found');
+    if (!['deposit_paid', 'fully_paid'].includes(booking.payment_status)) {
+      throw ApiError.badRequest('A verified deposit is required before boarding');
+    }
     if (driverUser && driverUser.role === 'driver' && booking.driver_id && booking.driver_id !== driverUser.id) {
       throw ApiError.forbidden('Code is not for this driver');
     }

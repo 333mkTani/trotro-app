@@ -30,7 +30,7 @@ const walletModel = require('../../models/wallet.model');
 const { emitToDriver } = require('../../realtime/io');
 const bookingService = require('../booking.service');
 
-describe('booking creation respects server-side driver state', () => {
+describe('legacy booking creation is payment-gated', () => {
   const data = {
     driverId: 'driver-1',
     busId: 'bus-1',
@@ -42,61 +42,32 @@ describe('booking creation respects server-side driver state', () => {
     desiredArrivalTime: '2026-08-08T08:00:00.000Z',
     bufferMinutes: 10,
   };
-  const pending = {
-    id: 'booking-1',
-    status: 'pending',
-    driver_id: 'driver-1',
-    bus_id: 'bus-1',
-  };
-
   beforeEach(() => {
     jest.clearAllMocks();
-    bookingModel.insert.mockResolvedValue(pending);
-    profileModel.findById.mockResolvedValue(null);
   });
 
-  it('rejects a stale booking when the driver is unavailable', async () => {
-    busModel.findById.mockResolvedValue({
-      id: 'bus-1', driver_id: 'driver-1', status: 'paused',
-      driving_status: 'STATIONARY', seats_available: 5,
-    });
-
+  it('rejects the legacy endpoint before inserting or reserving a seat', async () => {
     await expect(bookingService.create('passenger-1', data)).rejects.toThrow(
-      'This driver is currently unavailable',
+      'A verified deposit is required',
     );
+    expect(bookingModel.insert).not.toHaveBeenCalled();
     expect(busModel.reserveSeatForAutoAccept).not.toHaveBeenCalled();
-    expect(bookingModel.updateStatus).not.toHaveBeenCalled();
-  });
-
-  it('keeps an available stationary driver booking pending without consuming a seat', async () => {
-    busModel.findById.mockResolvedValue({
-      id: 'bus-1', driver_id: 'driver-1', status: 'active',
-      driving_status: 'STATIONARY', seats_available: 5,
-    });
-
-    await expect(bookingService.create('passenger-1', data)).resolves.toEqual(pending);
-    expect(emitToDriver).toHaveBeenCalledWith('driver-1', 'booking:new', pending);
-    expect(busModel.reserveSeatForAutoAccept).not.toHaveBeenCalled();
-    expect(bookingModel.updateStatus).not.toHaveBeenCalled();
     expect(codeModel.insert).not.toHaveBeenCalled();
   });
+});
 
-  it('auto-confirms and reserves a seat only for an available en-route driver', async () => {
-    busModel.findById.mockResolvedValue({
-      id: 'bus-1', driver_id: 'driver-1', status: 'active',
-      driving_status: 'EN_ROUTE', seats_available: 5,
+describe('confirmation requires a verified deposit', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('does not reserve a seat or issue a code for an unpaid pending booking', async () => {
+    bookingModel.findById.mockResolvedValue({
+      id: 'booking-1', status: 'pending', payment_status: 'unpaid', driver_id: 'driver-1',
     });
-    busModel.reserveSeatForAutoAccept.mockResolvedValue({ id: 'bus-1', seats_available: 4 });
-    bookingModel.updateStatus.mockResolvedValue({ ...pending, status: 'confirmed' });
-    codeModel.insert.mockResolvedValue({ code: '123456', valid_until: '2026-08-09T08:00:00.000Z' });
 
-    const result = await bookingService.create('passenger-1', data);
-
-    expect(busModel.reserveSeatForAutoAccept).toHaveBeenCalledWith('bus-1', expect.anything());
-    expect(bookingModel.updateStatus).toHaveBeenCalledWith(
-      'booking-1', 'confirmed', { driverId: 'driver-1', busId: 'bus-1' }, expect.anything(),
-    );
-    expect(result).toMatchObject({ status: 'confirmed', verification_code: '123456' });
+    await expect(bookingService.confirm('booking-1', { driverId: 'driver-1' }))
+      .rejects.toThrow('A verified deposit is required');
+    expect(busModel.reserveSeat).not.toHaveBeenCalled();
+    expect(codeModel.insert).not.toHaveBeenCalled();
   });
 });
 
@@ -110,6 +81,7 @@ describe('boarding verification opens balance collection', () => {
     });
     bookingModel.findByIdForUpdate.mockResolvedValue({
       id: 'booking-1', passenger_id: 'passenger-1', driver_id: 'driver-1',
+      payment_status: 'deposit_paid',
     });
     codeModel.markUsed.mockResolvedValue({ id: 'code-1', status: 'used' });
     bookingModel.markBoardedAndOpenBalance.mockResolvedValue({
@@ -132,11 +104,28 @@ describe('boarding verification opens balance collection', () => {
     });
     bookingModel.findByIdForUpdate.mockResolvedValue({
       id: 'booking-1', passenger_id: 'passenger-1', driver_id: 'driver-1',
+      payment_status: 'deposit_paid',
     });
     codeModel.markUsed.mockResolvedValue(null);
 
     await expect(bookingService.redeemCode('123456', { id: 'driver-1', role: 'driver' }))
       .rejects.toThrow('Code is already used');
+    expect(bookingModel.markBoardedAndOpenBalance).not.toHaveBeenCalled();
+  });
+
+  it('does not consume a valid code when the booking has no verified deposit', async () => {
+    codeModel.findByCode.mockResolvedValue({
+      id: 'code-1', booking_id: 'booking-1', status: 'valid',
+      valid_until: '2099-01-01T00:00:00Z',
+    });
+    bookingModel.findByIdForUpdate.mockResolvedValue({
+      id: 'booking-1', passenger_id: 'passenger-1', driver_id: 'driver-1',
+      payment_status: 'unpaid',
+    });
+
+    await expect(bookingService.redeemCode('123456', { id: 'driver-1', role: 'driver' }))
+      .rejects.toThrow('A verified deposit is required');
+    expect(codeModel.markUsed).not.toHaveBeenCalled();
     expect(bookingModel.markBoardedAndOpenBalance).not.toHaveBeenCalled();
   });
 });
