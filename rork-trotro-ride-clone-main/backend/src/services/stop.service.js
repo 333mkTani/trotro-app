@@ -22,10 +22,26 @@ const create = async (data) => {
   return stop;
 };
 
+const archive = async (id) => {
+  const stop = await stopModel.findById(id);
+  if (!stop || stop.status === 'deleted') throw ApiError.notFound('Stop not found');
+  const references = await stopModel.activeReferences(id);
+  const total = Object.values(references).reduce((sum, value) => sum + Number(value || 0), 0);
+  if (total > 0) {
+    throw ApiError.conflict(
+      'This stop is still in use. Remove it from non-archived routes, schedules, departure slots and active alerts before deleting it.',
+      references,
+    );
+  }
+  const archived = await stopModel.archive(id);
+  await Promise.all([cache.del(LIST_KEY), cache.del(ITEM_KEY(id))]);
+  return archived;
+};
+
 /** Spatial: nearby stops via PostGIS. Cached on (lat, lng, radius) bucket. */
 const nearby = async ({ lat, lng, radiusM, limit }) => {
   const key = `stops:near:${lat.toFixed(4)}:${lng.toFixed(4)}:${radiusM}:${limit}`;
   return cache.wrap(key, 30, () => stopModel.findNearby({ lat, lng, radiusM, limit }));
 };
 
-module.exports = { list, getById, create, nearby };
+module.exports = { list, getById, create, archive, nearby };

@@ -50,6 +50,10 @@ export type RouteInput = {
   name: string;
   origin: string;
   destination: string;
+  originLat?: number;
+  originLng?: number;
+  destinationLat?: number;
+  destinationLng?: number;
   fare: number;
   distanceKm?: number;
   durationMin?: number;
@@ -88,3 +92,6 @@ export type StopInput = {
 
 export const createStop = (body: StopInput) =>
   request<BusStop>('/stops', { method: 'POST', body });
+
+export const deleteStop = (id: string) =>
+  request<BusStop>(`/stops/${id}`, { method: 'DELETE' });

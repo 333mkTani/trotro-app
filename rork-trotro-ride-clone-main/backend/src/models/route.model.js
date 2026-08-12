@@ -1,6 +1,7 @@
 const { query, withTransaction } = require('../config/db');
 
-const COLUMNS = `id, name, origin, destination, distance_km, duration_min, fare, city, status, created_at`;
+const COLUMNS = `id, name, origin, destination, origin_lat, origin_lng,
+  destination_lat, destination_lng, distance_km, duration_min, fare, city, status, created_at`;
 
 /** `status: 'all'` skips the status filter (admin listings only). */
 const list = async ({ status = 'active', city = null } = {}) => {
@@ -8,7 +9,8 @@ const list = async ({ status = 'active', city = null } = {}) => {
   const statusClause = status === 'all' ? '' : `AND r.status = $${params.push(status)}`;
   const cityClause = city ? `AND r.city = $${params.push(city)}` : '';
   const { rows } = await query(
-    `SELECT r.id, r.name, r.origin, r.destination, r.distance_km, r.duration_min, r.fare,
+    `SELECT r.id, r.name, r.origin, r.destination, r.origin_lat, r.origin_lng,
+            r.destination_lat, r.destination_lng, r.distance_km, r.duration_min, r.fare,
             r.city, r.status, r.created_at,
             COALESCE(
               array_agg(s.id::text ORDER BY rs.sequence ASC)  FILTER (WHERE s.id IS NOT NULL),
@@ -71,11 +73,18 @@ const replaceStops = async (routeId, stopIds) => {
   return findStops(routeId);
 };
 
-const insert = async ({ name, origin, destination, distanceKm, durationMin, fare, city }) => {
+const insert = async ({
+  name, origin, destination, originLat, originLng, destinationLat, destinationLng,
+  distanceKm, durationMin, fare, city,
+}) => {
   const { rows } = await query(
-    `insert into public.routes (name, origin, destination, distance_km, duration_min, fare, city)
-     values ($1,$2,$3,$4,$5,$6, coalesce($7, 'accra')) returning ${COLUMNS}`,
-    [name, origin, destination, distanceKm ?? null, durationMin ?? null, fare, city ?? null],
+    `insert into public.routes
+      (name, origin, destination, origin_lat, origin_lng, destination_lat, destination_lng,
+       distance_km, duration_min, fare, city)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,coalesce($11, 'accra')) returning ${COLUMNS}`,
+    [name, origin, destination, originLat ?? null, originLng ?? null,
+      destinationLat ?? null, destinationLng ?? null, distanceKm ?? null,
+      durationMin ?? null, fare, city ?? null],
   );
   return rows[0];
 };
@@ -84,6 +93,10 @@ const FIELD_COLUMNS = {
   name: 'name',
   origin: 'origin',
   destination: 'destination',
+  originLat: 'origin_lat',
+  originLng: 'origin_lng',
+  destinationLat: 'destination_lat',
+  destinationLng: 'destination_lng',
   distanceKm: 'distance_km',
   durationMin: 'duration_min',
   fare: 'fare',

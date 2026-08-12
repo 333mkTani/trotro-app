@@ -12,5 +12,9 @@ router.post(
   '/', requireAuth, requireRole('admin'),
   validate({ body: CreateStopSchema }), ctrl.create,
 );
+router.delete(
+  '/:id', requireAuth, requireRole('admin'),
+  validate({ params: UuidParam }), ctrl.archive,
+);
 
 module.exports = router;

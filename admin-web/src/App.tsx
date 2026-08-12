@@ -8,6 +8,7 @@ import { BookingsPage } from './pages/Bookings';
 import { FleetPage } from './pages/Fleet';
 import { RoutesPage } from './pages/RoutesPage';
 import { OperationsPage } from './pages/Operations';
+import { StopsPage } from './pages/Stops';
 
 export default function App() {
   const { user, loading } = useAuth();
@@ -33,6 +34,7 @@ export default function App() {
         <Route path="bookings" element={<BookingsPage />} />
         <Route path="fleet" element={<FleetPage />} />
         <Route path="routes" element={<RoutesPage />} />
+        <Route path="stops" element={<StopsPage />} />
         <Route path="operations" element={<OperationsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>

@@ -6,6 +6,7 @@ const NAV = [
   { to: '/bookings', label: 'Bookings', icon: '▤' },
   { to: '/fleet', label: 'Fleet', icon: '▣' },
   { to: '/routes', label: 'Routes', icon: '⇄' },
+  { to: '/stops', label: 'Stops', icon: '●' },
   { to: '/operations', label: 'Operations', icon: '◈' },
 ];
 
@@ -14,6 +15,7 @@ const TITLES: Record<string, { title: string; sub: string }> = {
   '/bookings': { title: 'Bookings', sub: 'Every booking across all passengers, with payment tracing' },
   '/fleet': { title: 'Fleet', sub: 'Buses, assigned drivers and GPS freshness' },
   '/routes': { title: 'Routes', sub: 'Create routes, change fares and archive retired ones' },
+  '/stops': { title: 'Stops', sub: 'Search, add and safely remove pickup stops and stations' },
   '/operations': { title: 'Operations', sub: 'Schedule worker and bus-alert delivery health' },
 };
 

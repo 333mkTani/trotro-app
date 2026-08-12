@@ -131,6 +131,10 @@ export type RouteRow = {
   name: string;
   origin: string;
   destination: string;
+  origin_lat: number | null;
+  origin_lng: number | null;
+  destination_lat: number | null;
+  destination_lng: number | null;
   distance_km: number;
   duration_min: number | null;
   fare: number;

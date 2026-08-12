@@ -511,6 +511,10 @@ function RouteFormModal({ title, submitLabel, busy, initial, onClose, onSubmit }
   const [name, setName] = useState(initial?.name ?? '');
   const [origin, setOrigin] = useState(initial?.origin ?? '');
   const [destination, setDestination] = useState(initial?.destination ?? '');
+  const [originLat, setOriginLat] = useState(initial?.origin_lat != null ? String(initial.origin_lat) : '');
+  const [originLng, setOriginLng] = useState(initial?.origin_lng != null ? String(initial.origin_lng) : '');
+  const [destinationLat, setDestinationLat] = useState(initial?.destination_lat != null ? String(initial.destination_lat) : '');
+  const [destinationLng, setDestinationLng] = useState(initial?.destination_lng != null ? String(initial.destination_lng) : '');
   const [fare, setFare] = useState(initial ? String(initial.fare) : '');
   const [distanceKm, setDistanceKm] = useState(initial?.distance_km != null ? String(initial.distance_km) : '');
   const [durationMin, setDurationMin] = useState(initial?.duration_min != null ? String(initial.duration_min) : '');
@@ -527,12 +531,25 @@ function RouteFormModal({ title, submitLabel, busy, initial, onClose, onSubmit }
     };
     if (distanceKm !== '') values.distanceKm = Number(distanceKm);
     if (durationMin !== '') values.durationMin = Number(durationMin);
+    if (originLat !== '') values.originLat = Number(originLat);
+    if (originLng !== '') values.originLng = Number(originLng);
+    if (destinationLat !== '') values.destinationLat = Number(destinationLat);
+    if (destinationLng !== '') values.destinationLng = Number(destinationLng);
     onSubmit(values);
   };
 
   const fareValue = Number(fare);
+  const coordinateValues = [originLat, originLng, destinationLat, destinationLng];
+  const coordinatesPresent = coordinateValues.every((value) => value !== '');
+  const coordinatesBlank = coordinateValues.every((value) => value === '');
+  const coordinatesValid = coordinatesPresent
+    && Number.isFinite(Number(originLat)) && Math.abs(Number(originLat)) <= 90
+    && Number.isFinite(Number(originLng)) && Math.abs(Number(originLng)) <= 180
+    && Number.isFinite(Number(destinationLat)) && Math.abs(Number(destinationLat)) <= 90
+    && Number.isFinite(Number(destinationLng)) && Math.abs(Number(destinationLng)) <= 180;
   const valid = name.trim() && origin.trim() && destination.trim()
-    && fare !== '' && Number.isFinite(fareValue) && fareValue >= 0;
+    && fare !== '' && Number.isFinite(fareValue) && fareValue >= 0
+    && (initial ? (coordinatesBlank || coordinatesValid) : coordinatesValid);
 
   return (
     <Modal title={title} onClose={onClose}>
@@ -562,6 +579,44 @@ function RouteFormModal({ title, submitLabel, busy, initial, onClose, onSubmit }
             />
           </div>
         </div>
+
+        <div className="grid grid-2" style={{ gap: 12 }}>
+          <div className="stack" style={{ gap: 8 }}>
+            <strong>Origin coordinates</strong>
+            <div className="grid grid-2" style={{ gap: 8 }}>
+              <div className="field">
+                <label htmlFor="route-origin-lat">Latitude</label>
+                <input id="route-origin-lat" type="number" step="0.000001" value={originLat}
+                  required={!initial} placeholder="6.674300" onChange={(event) => setOriginLat(event.target.value)} />
+              </div>
+              <div className="field">
+                <label htmlFor="route-origin-lng">Longitude</label>
+                <input id="route-origin-lng" type="number" step="0.000001" value={originLng}
+                  required={!initial} placeholder="-1.571600" onChange={(event) => setOriginLng(event.target.value)} />
+              </div>
+            </div>
+          </div>
+          <div className="stack" style={{ gap: 8 }}>
+            <strong>Destination coordinates</strong>
+            <div className="grid grid-2" style={{ gap: 8 }}>
+              <div className="field">
+                <label htmlFor="route-destination-lat">Latitude</label>
+                <input id="route-destination-lat" type="number" step="0.000001" value={destinationLat}
+                  required={!initial} placeholder="6.690000" onChange={(event) => setDestinationLat(event.target.value)} />
+              </div>
+              <div className="field">
+                <label htmlFor="route-destination-lng">Longitude</label>
+                <input id="route-destination-lng" type="number" step="0.000001" value={destinationLng}
+                  required={!initial} placeholder="-1.548000" onChange={(event) => setDestinationLng(event.target.value)} />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <p className="dim" style={{ margin: 0, fontSize: 12 }}>
+          Copy both endpoint coordinates from a map. The ordered stops still define the road path;
+          these coordinates identify the route's overall origin and destination.
+        </p>
 
         <div className="grid grid-2" style={{ gap: 12 }}>
           <div className="field">
