@@ -15,6 +15,7 @@ import { initPassengerNotifications, registerPushToken, addNotificationListeners
 import { resolveNotificationRoute } from "@/utils/notificationDeepLink";
 import Colors from "@/constants/colors";
 import MapLibreGL from "@maplibre/maplibre-react-native";
+import { isPublicAuthRoute } from "@/utils/authRoute";
 
 // OpenFreeMap tiles don't need an access token
 MapLibreGL.setAccessToken(null);
@@ -46,7 +47,7 @@ function RootLayoutNav() {
   useEffect(() => {
     if (isLoading) return;
 
-    const inAuthGroup = segments[0] === "login" || segments[0] === "register" || segments[0] === "otp-verification";
+    const inAuthGroup = isPublicAuthRoute(segments[0]);
 
     if (!isAuthenticated && !inAuthGroup) {
       router.replace("/login");
