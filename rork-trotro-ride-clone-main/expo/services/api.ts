@@ -8,6 +8,23 @@ export const API_BASE_URL = 'https://trotro-api.onrender.com';
 
 const AUTH_TOKEN_KEY = 'auth_token';
 
+type SessionExpiredListener = () => void;
+const sessionExpiredListeners = new Set<SessionExpiredListener>();
+
+export class ApiRequestError extends Error {
+  constructor(message: string, public readonly status?: number) {
+    super(message);
+    this.name = 'ApiRequestError';
+  }
+}
+
+export const onAuthSessionExpired = (listener: SessionExpiredListener) => {
+  sessionExpiredListeners.add(listener);
+  return () => {
+    sessionExpiredListeners.delete(listener);
+  };
+};
+
 export const api = axios.create({
   baseURL: `${API_BASE_URL}/api`,
   timeout: 60000,
@@ -28,6 +45,11 @@ api.interceptors.response.use(
   async (error) => {
     const status = error.response?.status;
 
+    if (status === 401) {
+      await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
+      sessionExpiredListeners.forEach((listener) => listener());
+    }
+
     // Render.com free tier returns 503 while the server cold-starts (can take ~60s).
     // Retry automatically so the user doesn't have to keep tapping.
     if (status === 503) {
@@ -47,7 +69,7 @@ api.interceptors.response.use(
       error.response?.data?.error ||
       error.message ||
       'An error occurred';
-    return Promise.reject(new Error(message));
+    return Promise.reject(new ApiRequestError(message, status));
   }
 );
 

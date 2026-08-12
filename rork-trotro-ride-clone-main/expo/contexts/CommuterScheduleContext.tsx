@@ -25,6 +25,7 @@ export const [CommuterScheduleProvider, useCommuterSchedules] = createContextHoo
       const { data } = await api.get('/commuter-schedules');
       return data as CommuterSchedule[];
     },
+    enabled: Boolean(user),
   });
 
   const createMutation = useMutation({

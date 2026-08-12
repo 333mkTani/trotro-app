@@ -4,7 +4,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState, useEffect, useCallback } from 'react';
 import auth, { FirebaseAuthTypes } from '@react-native-firebase/auth';
 import { User } from '@/types';
-import { api, setAuthToken, clearAuthToken } from '@/services/api';
+import { api, setAuthToken, clearAuthToken, onAuthSessionExpired, ApiRequestError } from '@/services/api';
 
 const AUTH_USER_KEY = 'trotro_auth_profile';
 
@@ -32,6 +32,12 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const queryClient = useQueryClient();
 
+  useEffect(() => onAuthSessionExpired(() => {
+    setUser(null);
+    void AsyncStorage.removeItem(AUTH_USER_KEY);
+    queryClient.clear();
+  }), [queryClient]);
+
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -48,8 +54,13 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
               setUser(data);
               await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(data));
             }
-          } catch {
-            // Backend unreachable — keep the cached session so the user stays logged in
+          } catch (error) {
+            // Keep the cached profile only for connectivity failures. An expired
+            // token must not leave protected screens looking signed in but empty.
+            if (error instanceof ApiRequestError && error.status === 401) {
+              await AsyncStorage.removeItem(AUTH_USER_KEY);
+              if (mounted) setUser(null);
+            }
           }
         }
       } catch {

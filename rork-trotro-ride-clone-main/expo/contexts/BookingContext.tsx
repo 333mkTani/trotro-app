@@ -2,6 +2,7 @@ import createContextHook from '@nkzw/create-context-hook';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Booking, BookingStatus, ApproachingBus, RidePaymentMethod, RideSchedule, BufferMinutes } from '@/types';
 import { api } from '@/services/api';
+import { useAuth } from '@/contexts/AuthContext';
 
 const mapBooking = (b: Record<string, unknown>): Booking => ({
   id: b.id as string,
@@ -48,6 +49,7 @@ const mapBooking = (b: Record<string, unknown>): Booking => ({
 
 export const [BookingProvider, useBookings] = createContextHook(() => {
   const queryClient = useQueryClient();
+  const { user } = useAuth();
 
   const bookingsQuery = useQuery({
     queryKey: ['bookings'],
@@ -71,6 +73,7 @@ export const [BookingProvider, useBookings] = createContextHook(() => {
 
       return bookings;
     },
+    enabled: Boolean(user),
     refetchInterval: 15000,
   });
 
@@ -202,5 +205,7 @@ export const [BookingProvider, useBookings] = createContextHook(() => {
     recordCashPayment: recordCashPaymentMutation.mutateAsync,
     recordCashPaymentPending: recordCashPaymentMutation.isPending,
     isLoading: bookingsQuery.isLoading,
+    bookingsError: bookingsQuery.error,
+    refreshBookings: bookingsQuery.refetch,
   };
 });

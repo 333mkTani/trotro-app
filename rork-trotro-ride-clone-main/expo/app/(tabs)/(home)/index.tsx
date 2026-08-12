@@ -12,7 +12,7 @@ import {
   PanResponder,
 } from "react-native";
 import { useRouter } from "expo-router";
-import { MapPin, Search, Bell, BellRing, ChevronUp, Locate, Bus, Clock } from "lucide-react-native";
+import { AlertCircle, MapPin, Search, Bell, BellRing, ChevronUp, Locate, Bus, Clock } from "lucide-react-native";
 import * as Haptics from "expo-haptics";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import MapLibreGL from "@maplibre/maplibre-react-native";
@@ -52,7 +52,7 @@ export default function HomeScreen() {
   const { activeAlerts, triggeredAlerts } = useBusAlerts();
   const { activeBuses, regionStops, mapCenter, refreshLocation } = useLocation();
   const { user } = useAuth();
-  const { bookings } = useBookings();
+  const { bookings, bookingsError, refreshBookings } = useBookings();
   const [refreshing, setRefreshing] = useState(false);
   const [offline] = useState(false);
   const cameraRef = useRef<React.ComponentRef<typeof MapLibreGL.Camera>>(null);
@@ -140,9 +140,12 @@ export default function HomeScreen() {
   const doRefresh = useCallback(async () => {
     setRefreshing(true);
     if (Platform.OS !== "web") Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-    await new Promise((r) => setTimeout(r, 1200));
-    setRefreshing(false);
-  }, []);
+    try {
+      await Promise.all([refreshLocation(), refreshBookings()]);
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refreshLocation, refreshBookings]);
 
   const onMapPress = useCallback(() => {
     if (lastSnap.current < SNAP_MID) {
@@ -667,14 +670,21 @@ export default function HomeScreen() {
             <Text style={s.secCount}>{recentDestinations.length} recent</Text>
           </View>
 
-          {recentDestinations.length === 0 ? (
+          {bookingsError ? (
+            <TouchableOpacity style={s.historyError} onPress={() => void refreshBookings()} activeOpacity={0.8}>
+              <AlertCircle size={16} color={Colors.danger} />
+              <Text style={s.historyErrorText}>Could not load recent destinations. Tap to retry.</Text>
+            </TouchableOpacity>
+          ) : null}
+
+          {!bookingsError && recentDestinations.length === 0 ? (
             <View style={s.historyEmpty}>
               <Clock size={28} color={Colors.gray300} />
               <Text style={s.historyEmptyText}>
                 Your recent destinations will show up here
               </Text>
             </View>
-          ) : (
+          ) : !bookingsError ? (
             recentDestinations.map((b) => (
               <TouchableOpacity
                 key={b.id}
@@ -693,7 +703,7 @@ export default function HomeScreen() {
                 </View>
               </TouchableOpacity>
             ))
-          )}
+          ) : null}
           <View style={{ height: 100 }} />
         </ScrollView>
       </Animated.View>
@@ -961,6 +971,21 @@ const make_s = (Colors: ThemePalette) => StyleSheet.create({
     paddingVertical: 32,
     paddingHorizontal: 40,
     gap: 8,
+  },
+  historyError: {
+    marginHorizontal: 16,
+    padding: 12,
+    borderRadius: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: Colors.dangerLight,
+  },
+  historyErrorText: {
+    flex: 1,
+    color: Colors.danger,
+    fontSize: 13,
+    fontWeight: "600" as const,
   },
   historyEmptyText: {
     fontSize: 13,

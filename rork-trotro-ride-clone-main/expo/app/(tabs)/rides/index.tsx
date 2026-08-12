@@ -2,7 +2,7 @@ import React, { useState, useMemo, useCallback, memo } from "react";
 import { StyleSheet, Text, View, ScrollView, TouchableOpacity, RefreshControl, Alert, Platform } from "react-native";
 import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
-import { Filter } from "lucide-react-native";
+import { AlertCircle, Filter } from "lucide-react-native";
 import StaticColors from "@/constants/colors";
 import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -27,7 +27,7 @@ export default function RidesScreen() {
 
   const router = useRouter();
   const { user } = useAuth();
-  const { bookings: allBookings, completeRide, cancelBooking } = useBookings();
+  const { bookings: allBookings, completeRide, cancelBooking, bookingsError, refreshBookings } = useBookings();
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<BookingStatus | "all">("all");
   const [endingId, setEndingId] = useState<string | null>(null);
@@ -38,7 +38,14 @@ export default function RidesScreen() {
     return filter === "all" ? mine : mine.filter((b) => b.status === filter);
   }, [user?.id, filter, allBookings]);
 
-  const refresh = useCallback(async () => { setRefreshing(true); await new Promise((r) => setTimeout(r, 1000)); setRefreshing(false); }, []);
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await refreshBookings();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refreshBookings]);
 
   const onBookingPress = useCallback((id: string) => {
     const booking = allBookings.find((b) => b.id === id);
@@ -182,6 +189,12 @@ export default function RidesScreen() {
         </ScrollView>
       </View>
       <ScrollView style={st.list} contentContainerStyle={st.listInner} showsVerticalScrollIndicator={false} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={Colors.primary} colors={[Colors.primary]} />}>
+        {bookingsError ? (
+          <TouchableOpacity style={st.errorBar} onPress={() => void refresh()} activeOpacity={0.8}>
+            <AlertCircle size={16} color={Colors.danger} />
+            <Text style={st.errorText}>Could not load your ride history. Tap to retry.</Text>
+          </TouchableOpacity>
+        ) : null}
         {bookings.length === 0 ? (
           <View style={st.empty}><Filter size={48} color={Colors.gray300} /><Text style={st.emptyTitle}>No rides found</Text><Text style={st.emptySub}>{filter === "all" ? "Schedule your first ride!" : `No ${filter} rides.`}</Text>
             {filter === "all" && <TouchableOpacity style={st.schedBtn} onPress={() => router.push("/(tabs)/schedule")} activeOpacity={0.7}><Text style={st.schedTxt}>Schedule a Ride</Text></TouchableOpacity>}
@@ -205,6 +218,8 @@ const make_st = (Colors: ThemePalette) => StyleSheet.create({
   filterTxtOn: { color: Colors.white },
   list: { flex: 1 },
   listInner: { paddingTop: 16 },
+  errorBar: { marginHorizontal: 16, marginBottom: 12, padding: 12, borderRadius: 12, flexDirection: "row", alignItems: "center", gap: 8, backgroundColor: Colors.dangerLight },
+  errorText: { flex: 1, color: Colors.danger, fontSize: 13, fontWeight: "600" as const },
   empty: { alignItems: "center" as const, paddingTop: 80, paddingHorizontal: 40 },
   emptyTitle: { fontSize: 18, fontWeight: "700" as const, color: Colors.gray700, marginTop: 16 },
   emptySub: { fontSize: 14, color: Colors.gray400, textAlign: "center" as const, marginTop: 8 },
