@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import NetInfo, { NetInfoState } from '@react-native-community/netinfo';
 import { useDriverStore } from '@/store/driverStore';
 import { useAuthStore } from '@/store/authStore';
+import { isOfflineSyncEnabled } from '@/services/offlineFeatureFlag';
 import {
   clearLocalSync,
   initializeLocalSync,
@@ -19,16 +20,17 @@ export function useConnectivity() {
   const setStoreSyncStatus = useDriverStore((s) => s.setSyncStatus);
   const userId = useAuthStore((s) => s.user?.id);
   const previousUserId = useRef<string | undefined>(undefined);
+  const enabled = isOfflineSyncEnabled(userId);
 
   const syncIfPossible = useCallback(async (online: boolean) => {
-    if (!userId || !online) return;
+    if (!enabled || !userId || !online) return;
     try {
       await migrateLegacyGpsQueue(userId);
       await syncNow(userId);
     } catch (err) {
       console.log('[Connectivity] Sync deferred:', err);
     }
-  }, [userId]);
+  }, [enabled, userId]);
 
   const handleConnectivityChange = useCallback(
     (state: NetInfoState) => {
@@ -44,10 +46,11 @@ export function useConnectivity() {
   );
 
   useEffect(() => {
-    setStoreSyncStatus(syncStatus);
-  }, [setStoreSyncStatus, syncStatus]);
+    setStoreSyncStatus(enabled ? syncStatus : 'synced');
+  }, [enabled, setStoreSyncStatus, syncStatus]);
 
   useEffect(() => {
+    if (!enabled) return;
     const previous = previousUserId.current;
     if (previous && previous !== userId) void clearLocalSync(previous);
     previousUserId.current = userId;
@@ -59,11 +62,11 @@ export function useConnectivity() {
       unsubscribeSync();
       unsubscribe();
     };
-  }, [handleConnectivityChange, userId]);
+  }, [enabled, handleConnectivityChange, userId]);
 
   useEffect(() => {
-    if (userId && isConnected) void syncIfPossible(true);
-  }, [isConnected, syncIfPossible, userId]);
+    if (enabled && userId && isConnected) void syncIfPossible(true);
+  }, [enabled, isConnected, syncIfPossible, userId]);
 
-  return { isConnected, syncStatus };
+  return { isConnected, syncStatus: enabled ? syncStatus : 'synced' };
 }

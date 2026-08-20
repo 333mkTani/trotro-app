@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { openDatabaseSync, type SQLiteDatabase } from 'expo-sqlite';
 import { API_BASE_URL, getAuthToken } from '@/services/api';
+import { recordSyncMetric } from '@/services/syncTelemetry';
 
 export type SyncStatus = 'offline' | 'stale' | 'pending' | 'syncing' | 'synced' | 'conflict';
 export type MutationState = 'pending' | 'conflict' | 'rejected';
@@ -141,6 +142,7 @@ export async function queueMutation(input: {
     JSON.stringify(input.payload),
     new Date().toISOString(),
   );
+  recordSyncMetric('queue_mutation');
   notify('pending');
   return eventId;
 }
@@ -239,6 +241,7 @@ export async function syncNow(userId: string): Promise<SyncStatus> {
   await purgeLocalSync(userId);
   if (syncing) return status;
   syncing = true;
+  recordSyncMetric('sync_start');
   notify('syncing');
   try {
     const queued = await listQueuedMutations(userId);
@@ -263,16 +266,19 @@ export async function syncNow(userId: string): Promise<SyncStatus> {
       const body = await response.json().catch(() => ({}));
       if (response.ok && ['accepted', 'duplicate'].includes(body.status)) {
         await removeMutation(mutation.id);
+        recordSyncMetric(body.status === 'duplicate' ? 'mutation_duplicate' : 'mutation_accepted');
         continue;
       }
       if (response.status === 401) throw new Error('Authentication expired; sign in again to synchronize.');
       if (response.status === 409 || body.status === 'conflict') {
         await markMutation(mutation.id, 'conflict', body.errorMessage || body.message || 'Server state conflict.');
+        recordSyncMetric('mutation_conflict');
         notify('conflict');
         continue;
       }
       if (response.status >= 400 && response.status < 500) {
         await markMutation(mutation.id, 'rejected', body.errorMessage || body.message || 'Mutation was rejected.');
+        recordSyncMetric('mutation_rejected');
         continue;
       }
       await markMutation(mutation.id, 'pending', body.errorMessage || body.message || `Sync failed with HTTP ${response.status}.`);
@@ -297,8 +303,10 @@ export async function syncNow(userId: string): Promise<SyncStatus> {
     }
     const remaining = await listQueuedMutations(userId);
     notify(remaining.some((item) => item.status === 'conflict') ? 'conflict' : remaining.length ? 'pending' : 'synced');
+    recordSyncMetric('sync_success');
     return status;
   } catch (error) {
+    recordSyncMetric('sync_error', error instanceof Error ? error.message : 'sync_error');
     notify(status === 'syncing' ? 'stale' : status);
     throw error;
   } finally {

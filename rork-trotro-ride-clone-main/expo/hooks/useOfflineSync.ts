@@ -2,21 +2,23 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import NetInfo, { type NetInfoState } from '@react-native-community/netinfo';
 import { useAuth } from '@/contexts/AuthContext';
 import { clearLocalSync, initializeLocalSync, getSyncStatus, subscribeSyncStatus, syncNow, type SyncStatus } from '@/services/localSync';
+import { isOfflineSyncEnabled } from '@/services/offlineFeatureFlag';
 
 export function useOfflineSync() {
   const { user } = useAuth();
   const [isConnected, setIsConnected] = useState(true);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(getSyncStatus());
   const previousUserId = useRef<string | undefined>(undefined);
+  const enabled = isOfflineSyncEnabled(user?.id);
 
   const syncIfPossible = useCallback(async (online: boolean) => {
-    if (!user?.id || !online) return;
+    if (!enabled || !user?.id || !online) return;
     try {
       await syncNow(user.id);
     } catch (error) {
       console.log('[OfflineSync] Passenger sync deferred:', error);
     }
-  }, [user?.id]);
+  }, [enabled, user?.id]);
 
   const handleConnectivityChange = useCallback((state: NetInfoState) => {
     const online = state.isConnected === true && state.isInternetReachable !== false;
@@ -26,6 +28,10 @@ export function useOfflineSync() {
   }, [syncIfPossible]);
 
   useEffect(() => {
+    if (!enabled) {
+      setSyncStatus('synced');
+      return;
+    }
     const previous = previousUserId.current;
     if (previous && previous !== user?.id) void clearLocalSync(previous);
     previousUserId.current = user?.id;
@@ -37,11 +43,11 @@ export function useOfflineSync() {
       unsubscribeSync();
       unsubscribeNetInfo();
     };
-  }, [handleConnectivityChange, user?.id]);
+  }, [enabled, handleConnectivityChange, user?.id]);
 
   useEffect(() => {
-    if (user?.id && isConnected) void syncIfPossible(true);
-  }, [isConnected, syncIfPossible, user?.id]);
+    if (enabled && user?.id && isConnected) void syncIfPossible(true);
+  }, [enabled, isConnected, syncIfPossible, user?.id]);
 
-  return { isConnected, syncStatus };
+  return { isConnected, syncStatus: enabled ? syncStatus : 'synced' };
 }
