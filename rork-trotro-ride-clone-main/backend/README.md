@@ -130,6 +130,10 @@ Room conventions:
 
 Drivers emit `bus:location` (`{ busId, routeId?, lat, lng, heading?, speed?, ts? }`); the server re-broadcasts it to the `bus:` and `route:` rooms and publishes it on the `bus:location` Redis channel so other API instances stay in sync. When `REDIS_URL` is set, the Socket.IO Redis adapter fans events out across multiple Node instances behind Nginx; without it, the server runs in single-instance mode. Server-side code elsewhere in the app can push events via `emitToUser` / `emitToDriver` / `emitToBus` / `emitToRoute` exported from `realtime/io.js`.
 
+## Offline-first synchronization
+
+The proposed controlled offline-first contract is documented in [`docs/offline-sync-protocol.md`](docs/offline-sync-protocol.md). It defines cacheable data, safe queued intents, server-authoritative booking and payment boundaries, idempotency requirements, conflict states, retention, migration, and the required test matrix. Implementation is tracked in [issue #14](https://github.com/333mkTani/trotro-app/issues/14) and its linked child issues.
+
 ## Testing
 
 ```bash
