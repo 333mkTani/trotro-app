@@ -57,9 +57,28 @@ export function Badge({ value, kind = 'plain' }: {
   return <span className={`badge ${tone === 'neutral' ? '' : tone}`}>{titleCase(value)}</span>;
 }
 
+export function Skeleton({ width = '100%', height = 16, radius = 8, className = '' }: {
+  width?: string; height?: number; radius?: number; className?: string;
+}) {
+  return <span
+    className={`skeleton ${className}`}
+    aria-hidden="true"
+    style={{ width, height, borderRadius: radius }}
+  />;
+}
+
+export function DashboardSkeleton() {
+  return <div className="skeleton-page" role="status" aria-label="Loading dashboard">
+    <div className="grid grid-4">{[1, 2, 3, 4].map((item) => <div className="card stat" key={item}><Skeleton width="58%" height={12} /><Skeleton width="46%" height={28} className="skeleton-gap" /><Skeleton width="72%" height={12} className="skeleton-gap-small" /></div>)}</div>
+    <div className="grid grid-4">{[1, 2, 3, 4].map((item) => <div className="card stat" key={item}><Skeleton width="48%" height={12} /><Skeleton width="40%" height={28} className="skeleton-gap" /><Skeleton width="68%" height={12} className="skeleton-gap-small" /></div>)}</div>
+    <div className="grid grid-2"><div className="card skeleton-card"><Skeleton width="35%" height={18} /><Skeleton width="100%" height={150} className="skeleton-gap" /></div><div className="card skeleton-card"><Skeleton width="34%" height={18} /><Skeleton width="100%" height={150} className="skeleton-gap" /></div></div>
+    <div className="card skeleton-card"><Skeleton width="24%" height={18} /><div className="skeleton-table">{[1, 2, 3, 4, 5].map((item) => <div className="skeleton-table-row" key={item}><Skeleton width="20%" height={13} /><Skeleton width="28%" height={13} /><Skeleton width="15%" height={13} /><Skeleton width="12%" height={13} /><Skeleton width="10%" height={13} /></div>)}</div></div>
+  </div>;
+}
+
 export function Loading({ label = 'Loading…' }: { label?: string }) {
   return (
-    <div className="state">
+    <div className="state" role="status" aria-live="polite">
       <span className="spinner" /> <span style={{ marginLeft: 8 }}>{label}</span>
     </div>
   );

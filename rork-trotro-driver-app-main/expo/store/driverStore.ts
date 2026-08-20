@@ -15,6 +15,7 @@ interface DriverState {
   currentLat: number | null;
   currentLng: number | null;
   isOnline: boolean;
+  syncStatus: 'offline' | 'stale' | 'pending' | 'syncing' | 'synced' | 'conflict';
   schedulingHours: { start_time: string; end_time: string } | null;
   drivingStatus: DrivingStatus;
   autoAcceptedBookings: AutoAcceptedBooking[];
@@ -28,6 +29,7 @@ interface DriverState {
   setRoute: (route: Route | null) => void;
   setLocation: (lat: number, lng: number) => void;
   setOnlineStatus: (isOnline: boolean) => void;
+  setSyncStatus: (status: DriverState['syncStatus']) => void;
   setDashboardData: (data: Partial<DriverState>) => void;
   setProSubscription: (isPro: boolean, expiresAt?: string | null) => void;
 }
@@ -45,6 +47,7 @@ export const useDriverStore = create<DriverState>((set) => ({
   currentLat: null,
   currentLng: null,
   isOnline: true,
+  syncStatus: 'stale',
   schedulingHours: null,
   drivingStatus: 'STATIONARY' as DrivingStatus,
   autoAcceptedBookings: [],
@@ -75,6 +78,7 @@ export const useDriverStore = create<DriverState>((set) => ({
   setRoute: (route: Route | null) => set({ assignedRoute: route }),
   setLocation: (lat: number, lng: number) => set({ currentLat: lat, currentLng: lng }),
   setOnlineStatus: (isOnline: boolean) => set({ isOnline }),
+  setSyncStatus: (syncStatus) => set({ syncStatus }),
   setDashboardData: (data: Partial<DriverState>) => set(data),
   setProSubscription: (isPro: boolean, expiresAt?: string | null) => {
     set({ isProSubscriber: isPro, proExpiresAt: expiresAt ?? null });

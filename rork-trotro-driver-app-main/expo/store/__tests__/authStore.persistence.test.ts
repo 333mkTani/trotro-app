@@ -1,17 +1,27 @@
 jest.mock('@react-native-async-storage/async-storage', () => ({
-  multiGet: jest.fn(),
+  getItem: jest.fn(),
   setItem: jest.fn(),
+  removeItem: jest.fn(),
+  multiGet: jest.fn(),
   multiRemove: jest.fn(),
 }));
+jest.mock('expo-secure-store', () => ({
+  getItemAsync: jest.fn(),
+  setItemAsync: jest.fn(),
+  deleteItemAsync: jest.fn(),
+}));
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
 import { useAuthStore } from '@/store/authStore';
 
-const storage = AsyncStorage as jest.Mocked<typeof AsyncStorage>;
+const secureStorage = SecureStore as jest.Mocked<typeof SecureStore>;
 
 describe('driver auth persistence', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    secureStorage.getItemAsync.mockResolvedValue(null);
+    secureStorage.setItemAsync.mockResolvedValue(undefined);
+    secureStorage.deleteItemAsync.mockResolvedValue(undefined);
     useAuthStore.setState({
       accessToken: null,
       refreshToken: null,
@@ -22,10 +32,9 @@ describe('driver auth persistence', () => {
   });
 
   it('restores a backend session that has an access token without a refresh token', async () => {
-    storage.multiGet.mockResolvedValue([
-      ['auth_tokens', JSON.stringify({ accessToken: 'jwt-token', refreshToken: null })],
-      ['auth_user', JSON.stringify({ id: 'driver-1', role: 'driver' })],
-    ]);
+    secureStorage.getItemAsync
+      .mockResolvedValueOnce(JSON.stringify({ accessToken: 'jwt-token', refreshToken: null }))
+      .mockResolvedValueOnce(JSON.stringify({ id: 'driver-1', role: 'driver' }));
 
     await useAuthStore.getState().loadStoredAuth();
 
@@ -37,9 +46,9 @@ describe('driver auth persistence', () => {
     });
   });
 
-  it('waits for token persistence before marking the session authenticated', async () => {
+  it('waits for secure token persistence before marking the session authenticated', async () => {
     let finishWrite!: () => void;
-    storage.setItem.mockImplementation(() => new Promise<void>((resolve) => {
+    secureStorage.setItemAsync.mockImplementation(() => new Promise<void>((resolve) => {
       finishWrite = resolve;
     }));
 

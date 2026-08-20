@@ -4,8 +4,16 @@ import { Booking, BookingStatus, RidePaymentMethod, RideSchedule, BufferMinutes 
 import { api } from '@/services/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { connectSocket } from '@/services/socket';
+import { getCachedRecords, replaceCachedRecords } from '@/services/localSync';
 import { AppState } from 'react-native';
 import { useEffect, useState } from 'react';
+
+const ACTIVE_RIDE_STALE_MS = 5 * 60 * 1000;
+
+const cachedRecordIsStale = (updatedAt: string): boolean => {
+  const timestamp = Date.parse(updatedAt);
+  return !Number.isFinite(timestamp) || Date.now() - timestamp > ACTIVE_RIDE_STALE_MS;
+};
 
 const mapBooking = (b: Record<string, unknown>): Booking => ({
   id: b.id as string,
@@ -54,6 +62,7 @@ export const [BookingProvider, useBookings] = createContextHook(() => {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const [appActive, setAppActive] = useState(AppState.currentState === 'active');
+  const [activeRideStale, setActiveRideStale] = useState(false);
 
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (state) => {
@@ -65,24 +74,43 @@ export const [BookingProvider, useBookings] = createContextHook(() => {
   const bookingsQuery = useQuery({
     queryKey: ['bookings'],
     queryFn: async (): Promise<Booking[]> => {
-      const { data } = await api.get('/bookings');
-      const bookings: Booking[] = (data as Record<string, unknown>[]).map(mapBooking);
+      const cachedRecords = user?.id ? await getCachedRecords(user.id, 'active_ride') : [];
+      const cachedBookings = cachedRecords
+        .filter((record) => record.operation === 'upsert')
+        .map((record) => mapBooking(record.payload));
+      setActiveRideStale(cachedRecords.some((record) => cachedRecordIsStale(record.updatedAt)));
+      try {
+        const { data } = await api.get('/bookings');
+        const rawBookings = (data as Record<string, unknown>[]).filter((booking) => !!booking.id);
+        const bookings: Booking[] = rawBookings.map(mapBooking);
 
-      // Fetch verification codes for confirmed bookings that don't have one yet
-      const needsCode = bookings.filter((b) => b.status === 'confirmed' && !b.verification_code);
-      await Promise.allSettled(
-        needsCode.map(async (b) => {
-          try {
-            const { data: code } = await api.get(`/bookings/${b.id}/code`);
-            b.verification_code = code.code;
-            b.code_valid_until = code.valid_until;
-          } catch {
-            // code not yet generated — driver hasn't confirmed yet
-          }
-        })
-      );
+        // Fetch verification codes for confirmed bookings that don't have one yet
+        const needsCode = bookings.filter((b) => b.status === 'confirmed' && !b.verification_code);
+        await Promise.allSettled(
+          needsCode.map(async (b) => {
+            try {
+              const { data: code } = await api.get(`/bookings/${b.id}/code`);
+              b.verification_code = code.code;
+              b.code_valid_until = code.valid_until;
+            } catch {
+              // code not yet generated — driver hasn't confirmed yet
+            }
+          })
+        );
 
-      return bookings;
+        if (user?.id) {
+          const activeBookings = bookings.filter((booking) => booking.status === 'pending' || booking.status === 'confirmed');
+          await replaceCachedRecords(user.id, 'active_ride', activeBookings as unknown as Record<string, unknown>[]);
+        }
+        setActiveRideStale(false);
+        return bookings;
+      } catch (error) {
+        if (cachedBookings.length > 0) {
+          setActiveRideStale(true);
+          return cachedBookings;
+        }
+        throw error;
+      }
     },
     enabled: Boolean(user),
     // The socket subscription below usually refreshes this list first, but the
@@ -95,6 +123,20 @@ export const [BookingProvider, useBookings] = createContextHook(() => {
   });
 
   const refetchBookings = bookingsQuery.refetch;
+
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    void getCachedRecords(user.id, 'active_ride').then((records) => {
+      if (cancelled || records.length === 0) return;
+      const cachedBookings = records
+        .filter((record) => record.operation === 'upsert')
+        .map((record) => mapBooking(record.payload));
+      setActiveRideStale(records.some((record) => cachedRecordIsStale(record.updatedAt)));
+      queryClient.setQueryData<Booking[]>(['bookings'], cachedBookings);
+    });
+    return () => { cancelled = true; };
+  }, [queryClient, user?.id]);
 
   // The server pushes every change to a passenger's own bookings into their
   // `user:<id>` room, so refetching on those events surfaces a driver accepting
@@ -163,5 +205,6 @@ export const [BookingProvider, useBookings] = createContextHook(() => {
     isLoading: bookingsQuery.isLoading,
     bookingsError: bookingsQuery.error,
     refreshBookings: bookingsQuery.refetch,
+    activeRideStale,
   };
 });

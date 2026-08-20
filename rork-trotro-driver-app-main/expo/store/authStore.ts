@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { clearProfile, clearTokens, getProfile, getTokens, setProfile, setTokens as persistTokens } from '@/services/secureAuthStorage';
 import { User } from '@/types';
 
 interface AuthState {
@@ -24,20 +24,17 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   setTokens: async (accessToken: string, refreshToken?: string | null) => {
     const storedRefreshToken = refreshToken || null;
-    await AsyncStorage.setItem(
-      'auth_tokens',
-      JSON.stringify({ accessToken, refreshToken: storedRefreshToken }),
-    );
+    await persistTokens({ accessToken, refreshToken: storedRefreshToken });
     set({ accessToken, refreshToken: storedRefreshToken, isAuthenticated: true });
   },
 
   setUser: async (user: User) => {
-    await AsyncStorage.setItem('auth_user', JSON.stringify(user));
+    await setProfile(user);
     set({ user });
   },
 
   clearAuth: async () => {
-    await AsyncStorage.multiRemove(['auth_tokens', 'auth_user']);
+    await Promise.all([clearTokens(), clearProfile()]);
     set({
       accessToken: null,
       refreshToken: null,
@@ -48,9 +45,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   loadStoredAuth: async () => {
     try {
-      const [tokensJson, userJson] = await AsyncStorage.multiGet(['auth_tokens', 'auth_user']);
-      const tokens = tokensJson[1] ? JSON.parse(tokensJson[1]) : null;
-      const user = userJson[1] ? JSON.parse(userJson[1]) : null;
+      const [tokens, user] = await Promise.all([getTokens(), getProfile<User>()]);
       // The current backend issues a single JWT rather than an access/refresh
       // pair. A persisted access token is therefore sufficient to restore the
       // session after Android removes the app from Recents or restarts it.

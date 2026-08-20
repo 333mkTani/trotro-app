@@ -30,6 +30,7 @@ const busAlertOperationsRoutes = require('./routes/busAlertOperations.routes');
 const routingRoutes = require('./routes/routing.routes');
 const departureSlotRoutes = require('./routes/departureSlot.routes');
 const paymentOperationsRoutes = require('./routes/paymentOperations.routes');
+const syncRoutes = require('./routes/sync.routes');
 const adminDashboardRoutes = require('./routes/adminDashboard.routes');
 
 const app = express();
@@ -110,6 +111,7 @@ app.use('/api/admin/payments', paymentOperationsRoutes);
 app.use('/api/admin/dashboard', adminDashboardRoutes);
 app.use('/api/routing', routingRoutes);
 app.use('/api/departure-slots', departureSlotRoutes);
+app.use('/api/sync', syncRoutes);
 
 app.use(notFound);
 app.use(errorHandler);

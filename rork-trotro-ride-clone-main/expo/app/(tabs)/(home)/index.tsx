@@ -52,7 +52,7 @@ export default function HomeScreen() {
   const { activeAlerts, triggeredAlerts } = useBusAlerts();
   const { activeBuses, regionStops, mapCenter, refreshLocation } = useLocation();
   const { user } = useAuth();
-  const { bookings, bookingsError, refreshBookings } = useBookings();
+  const { bookings, bookingsError, refreshBookings, activeRideStale } = useBookings();
   const [refreshing, setRefreshing] = useState(false);
   const [offline] = useState(false);
   const cameraRef = useRef<React.ComponentRef<typeof MapLibreGL.Camera>>(null);
@@ -602,6 +602,14 @@ export default function HomeScreen() {
             </View>
             <Text style={s.searchPH}>Where are you going?</Text>
           </TouchableOpacity>
+
+          {activeRideStale && (
+            <View style={{ backgroundColor: '#FFF4D6', borderRadius: 10, padding: 10, marginBottom: 10 }}>
+              <Text style={{ color: '#7A4D00', fontSize: 12, fontWeight: '600' }}>
+                Showing your last saved ride details. Live booking and driver status may be out of date.
+              </Text>
+            </View>
+          )}
 
           {activeBooking && (
             <ActiveRideCard booking={activeBooking} bus={activeBookingBus} targetStop={activeTargetStop} />

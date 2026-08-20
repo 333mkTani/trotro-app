@@ -1,11 +1,11 @@
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getTokens } from './secureAuthStorage';
 import { Platform } from 'react-native';
 import { useDriverStore } from '@/store/driverStore';
 import { useAuthStore } from '@/store/authStore';
 import { postLocation } from './driverApi';
-import { enqueueLocation } from './offlineQueue';
+import { initializeLocalSync, queueMutation } from './localSync';
 import { haversineDistance } from '@/utils/helpers';
 
 let gpsInterval: ReturnType<typeof setInterval> | null = null;
@@ -22,12 +22,28 @@ type BackgroundLocationData = { locations?: Location.LocationObject[] };
 
 async function restoreAuthForBackgroundTask(): Promise<boolean> {
   if (useAuthStore.getState().accessToken) return true;
-  const stored = await AsyncStorage.getItem('auth_tokens');
-  if (!stored) return false;
-  const tokens = JSON.parse(stored) as { accessToken?: string; refreshToken?: string };
-  if (!tokens.accessToken || !tokens.refreshToken) return false;
+  const tokens = await getTokens();
+  if (!tokens?.accessToken) return false;
   await useAuthStore.getState().setTokens(tokens.accessToken, tokens.refreshToken);
   return true;
+}
+
+async function queueLocation(lat: number, lng: number): Promise<void> {
+  const userId = useAuthStore.getState().user?.id;
+  if (!userId) {
+    console.log('[GPS] Cannot queue location without an authenticated driver');
+    return;
+  }
+  await initializeLocalSync();
+  const eventKey = `gps:${userId}:${Date.now()}:${lat}:${lng}`;
+  await queueMutation({
+    userId,
+    entity: 'driver_location',
+    operation: 'update',
+    payload: { lat, lng },
+    eventId: eventKey,
+    idempotencyKey: eventKey,
+  });
 }
 
 async function sendLocation(lat: number, lng: number, isOnline: boolean): Promise<void> {
@@ -43,7 +59,7 @@ async function sendLocation(lat: number, lng: number, isOnline: boolean): Promis
 
   if (!isOnline) {
     console.log('[GPS] Offline, queueing location');
-    await enqueueLocation(lat, lng);
+    await queueLocation(lat, lng);
     return;
   }
 
@@ -55,7 +71,7 @@ async function sendLocation(lat: number, lng: number, isOnline: boolean): Promis
     console.log('[GPS] Location posted:', lat.toFixed(6), lng.toFixed(6));
   } catch (err) {
     console.log('[GPS] Post failed, queueing:', err);
-    await enqueueLocation(lat, lng);
+    await queueLocation(lat, lng);
   }
 }
 

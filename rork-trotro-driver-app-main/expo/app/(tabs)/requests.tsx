@@ -42,6 +42,7 @@ import {
 import { useBookingStore } from '@/store/bookingStore';
 import { useDriverStore } from '@/store/driverStore';
 import { OverflowRequest, AutoAcceptedBooking } from '@/types';
+import { DriverListSkeleton } from '@/components/Skeleton';
 import { formatTimeAgo, formatDistance, getTimeRemaining } from '@/utils/helpers';
 import {
   checkForNewRequests,
@@ -512,7 +513,7 @@ export default function TrotroOverflowRequests() {
   const Empty = useMemo(
     () =>
       oQ.isLoading || cQ.isLoading ? (
-        <ActivityIndicator size="large" color={Colors.primary} style={{ marginTop: 60 }} />
+        <DriverListSkeleton />
       ) : oQ.isError || cQ.isError ? (
         <View style={rs.empty}>
           <View style={rs.emptyIcon}>

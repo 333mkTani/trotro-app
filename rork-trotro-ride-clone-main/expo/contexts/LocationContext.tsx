@@ -4,6 +4,8 @@ import * as Location from 'expo-location';
 import createContextHook from '@nkzw/create-context-hook';
 import { ApproachingBus, BusStop, Route as RouteType } from '@/types';
 import { api } from '@/services/api';
+import { useAuth } from '@/contexts/AuthContext';
+import { getCachedRecords, replaceCachedRecords } from '@/services/localSync';
 
 export interface RegionData {
   id: string;
@@ -68,6 +70,13 @@ const mapRoute = (r: Record<string, unknown>): RouteType => {
   };
 };
 
+const CACHE_STALE_MS = 5 * 60 * 1000;
+
+const isStale = (updatedAt: string): boolean => {
+  const timestamp = Date.parse(updatedAt);
+  return !Number.isFinite(timestamp) || Date.now() - timestamp > CACHE_STALE_MS;
+};
+
 const mapActiveBus = (b: Record<string, unknown>): ApproachingBus => ({
   bus_id: b.bus_id as string | undefined,
   route_id: b.route_id as string | undefined,
@@ -91,24 +100,62 @@ export const [LocationProvider, useLocation] = createContextHook(() => {
   const [allStops, setAllStops] = useState<BusStop[]>([]);
   const [routes, setRoutes] = useState<RouteType[]>([]);
   const [activeBuses, setActiveBuses] = useState<ApproachingBus[]>([]);
+  const [routesStale, setRoutesStale] = useState(false);
+  const [stopsStale, setStopsStale] = useState(false);
   const [appActive, setAppActive] = useState(AppState.currentState === 'active');
+  const { user } = useAuth();
 
-  // Fetch routes filtered by the user's detected city; re-fetches when location resolves
+  // Route discovery is cache-first. Cached route metadata is safe to display
+  // offline; a successful server response replaces it and refreshes the cache.
   useEffect(() => {
-    api.get('/routes', { params: { city: region.id } })
-      .then(({ data }) => setRoutes((data as Record<string, unknown>[]).map(mapRoute)))
-      .catch(() => { /* routes stay empty until API responds */ });
-  }, [region.id]);
+    let cancelled = false;
+    const loadRoutes = async () => {
+      const cached = user?.id ? await getCachedRecords(user.id, `route:${region.id}`) : [];
+      if (cancelled) return;
+      if (cached.length > 0) {
+        setRoutes(cached.filter((record) => record.operation === 'upsert').map((record) => mapRoute(record.payload)));
+        setRoutesStale(cached.some((record) => isStale(record.updatedAt)));
+      }
+      try {
+        const { data } = await api.get('/routes', { params: { city: region.id } });
+        const records = (data as Record<string, unknown>[]).filter((route) => !!route.id);
+        if (cancelled) return;
+        setRoutes(records.map(mapRoute));
+        setRoutesStale(false);
+        if (user?.id) await replaceCachedRecords(user.id, `route:${region.id}`, records);
+      } catch {
+        if (!cancelled && cached.length === 0) setRoutesStale(true);
+      }
+    };
+    void loadRoutes();
+    return () => { cancelled = true; };
+  }, [region.id, user?.id]);
 
-  // Route discovery needs the complete stop catalogue. Nearby stops remain a
-  // separate location-scoped collection used only for pickup convenience.
+  // The complete stop catalogue powers route search and booking stop labels.
+  // It is also cached independently from nearby-stop operational queries.
   useEffect(() => {
-    api.get('/stops')
-      .then(({ data }) => setAllStops(
-        (data as Record<string, unknown>[]).filter((s) => !!s.id).map(mapStop),
-      ))
-      .catch(() => { /* keep the last successful catalogue */ });
-  }, []);
+    let cancelled = false;
+    const loadStops = async () => {
+      const cached = user?.id ? await getCachedRecords(user.id, 'stop') : [];
+      if (cancelled) return;
+      if (cached.length > 0) {
+        setAllStops(cached.filter((record) => record.operation === 'upsert').map((record) => mapStop(record.payload)));
+        setStopsStale(cached.some((record) => isStale(record.updatedAt)));
+      }
+      try {
+        const { data } = await api.get('/stops');
+        const records = (data as Record<string, unknown>[]).filter((stop) => !!stop.id);
+        if (cancelled) return;
+        setAllStops(records.map(mapStop));
+        setStopsStale(false);
+        if (user?.id) await replaceCachedRecords(user.id, 'stop', records);
+      } catch {
+        if (!cancelled && cached.length === 0) setStopsStale(true);
+      }
+    };
+    void loadStops();
+    return () => { cancelled = true; };
+  }, [user?.id]);
 
   const fetchActiveBuses = useCallback(async () => {
     try {
@@ -251,7 +298,7 @@ export const [LocationProvider, useLocation] = createContextHook(() => {
     regionId: region.id,
     regionName: region.name,
     regionStops,
-    nearbyStops,
+    allStops,
     regionRoutes,
     activeBuses,
     refreshActiveBuses: fetchActiveBuses,
@@ -261,5 +308,8 @@ export const [LocationProvider, useLocation] = createContextHook(() => {
     allRegions: ALL_REGIONS,
     refreshLocation: fetchLocation,
     switchRegion,
+    routesStale,
+    stopsStale,
+    offlineDataStale: routesStale || stopsStale,
   };
 });

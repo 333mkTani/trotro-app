@@ -89,6 +89,7 @@ export default function FindRouteScreen() {
     locationLoading,
     locationError,
     refreshLocation,
+    offlineDataStale,
   } = useLocation();
   const { user } = useAuth();
   const [bookedBooking, setBookedBooking] = useState<Booking | null>(null);
@@ -545,6 +546,13 @@ export default function FindRouteScreen() {
     return (
       <View style={st.root}>
         <Stack.Screen options={{ headerShown: false }} />
+        {offlineDataStale && (
+          <View style={{ backgroundColor: '#FFF4D6', paddingHorizontal: 16, paddingVertical: 9 }}>
+            <Text style={{ color: '#7A4D00', fontSize: 12, fontWeight: '600' }}>
+              Showing saved routes and stops. They may be out of date until you reconnect.
+            </Text>
+          </View>
+        )}
         <ScrollView
           style={st.flex}
           contentContainerStyle={st.bookedWrap}
@@ -557,7 +565,7 @@ export default function FindRouteScreen() {
             </View>
             <Text style={st.bookedTitle}>Seat Reserved!</Text>
             <Text style={st.bookedSub}>
-              Your trotro ride has been booked. We'll notify you when the bus is approaching.
+              Your trotro ride has been booked. We&apos;ll notify you when the bus is approaching.
             </Text>
 
             {bookedBooking?.verification_code && (
@@ -655,6 +663,13 @@ export default function FindRouteScreen() {
           headerTintColor: Colors.primary,
         }}
       />
+      {offlineDataStale && (
+        <View style={{ backgroundColor: '#FFF4D6', paddingHorizontal: 16, paddingVertical: 9 }}>
+          <Text style={{ color: '#7A4D00', fontSize: 12, fontWeight: '600' }}>
+            Showing saved routes and stops. They may be out of date until you reconnect.
+          </Text>
+        </View>
+      )}
       <KeyboardAvoidingView
         style={st.flex}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -852,7 +867,7 @@ export default function FindRouteScreen() {
                       {!pickupGeocoding && pickupResults.length === 0 && pickupPlaceResults.length === 0 && (
                         <View style={st.emptySearch}>
                           <AlertTriangle size={28} color={Colors.gray300} />
-                          <Text style={st.emptyText}>No results for "{pickupQuery}"</Text>
+                          <Text style={st.emptyText}>No results for &quot;{pickupQuery}&quot;</Text>
                           <Text style={st.emptyHint}>Try a landmark, neighbourhood, or bus stop name</Text>
                         </View>
                       )}
@@ -964,7 +979,7 @@ export default function FindRouteScreen() {
                   {!geocoding && searchResults.length === 0 && placeResults.length === 0 && (
                     <View style={st.emptySearch}>
                       <AlertTriangle size={28} color={Colors.gray300} />
-                      <Text style={st.emptyText}>No results for "{query}"</Text>
+                      <Text style={st.emptyText}>No results for &quot;{query}&quot;</Text>
                       <Text style={st.emptyHint}>Try a landmark, neighbourhood, or bus stop name</Text>
                     </View>
                   )}
@@ -1182,7 +1197,7 @@ export default function FindRouteScreen() {
                   ))}
                 </View>
                 <Text style={st.bufferHint}>
-                  We'll notify you {buffer} minutes before the bus arrives.
+                  We&apos;ll notify you {buffer} minutes before the bus arrives.
                 </Text>
 
                 <TouchableOpacity

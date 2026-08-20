@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { fetchOverview, fetchSeries } from '../lib/queries';
 import { count, dateTime, money } from '../lib/format';
-import { Badge, Card, Empty, ErrorState, Loading, Stat } from '../components/ui';
+import { Badge, Card, DashboardSkeleton, Empty, ErrorState, Loading, Stat } from '../components/ui';
 import { RevenueChart } from '../components/RevenueChart';
 
 const RANGES = [7, 30, 90];
@@ -23,7 +23,7 @@ export function OverviewPage() {
     queryFn: () => fetchSeries(days),
   });
 
-  if (overview.isLoading) return <Loading label="Loading dashboard…" />;
+  if (overview.isLoading) return <DashboardSkeleton />;
   if (overview.isError) return <ErrorState error={overview.error} onRetry={() => overview.refetch()} />;
 
   const data = overview.data!;
