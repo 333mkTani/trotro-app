@@ -14,8 +14,9 @@ import {
 
 export function useConnectivity() {
   const [isConnected, setIsConnected] = useState<boolean>(true);
-  const [syncStatus, setSyncStatus] = useState<SyncStatus>(getSyncStatus());
+  const [syncStatus, setLocalSyncStatus] = useState<SyncStatus>(getSyncStatus());
   const setOnlineStatus = useDriverStore((s) => s.setOnlineStatus);
+  const setStoreSyncStatus = useDriverStore((s) => s.setSyncStatus);
   const userId = useAuthStore((s) => s.user?.id);
   const previousUserId = useRef<string | undefined>(undefined);
 
@@ -37,17 +38,21 @@ export function useConnectivity() {
       setOnlineStatus(online);
 
       if (online) void syncIfPossible(true);
-      else setSyncStatus('offline');
+      else setLocalSyncStatus('offline');
     },
     [setOnlineStatus, syncIfPossible]
   );
+
+  useEffect(() => {
+    setStoreSyncStatus(syncStatus);
+  }, [setStoreSyncStatus, syncStatus]);
 
   useEffect(() => {
     const previous = previousUserId.current;
     if (previous && previous !== userId) void clearLocalSync(previous);
     previousUserId.current = userId;
     void initializeLocalSync();
-    const unsubscribeSync = subscribeSyncStatus(setSyncStatus);
+    const unsubscribeSync = subscribeSyncStatus(setLocalSyncStatus);
     const unsubscribe = NetInfo.addEventListener(handleConnectivityChange);
     NetInfo.fetch().then(handleConnectivityChange);
     return () => {

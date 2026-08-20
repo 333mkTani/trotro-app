@@ -46,7 +46,7 @@ function AppWithNotifications() {
   const isAuthLoading = useAuthStore((s) => s.isLoading);
   useNotifications(isAuthenticated);
   useDriverSocket(isAuthenticated);
-  const { isConnected } = useConnectivity();
+  const { isConnected, syncStatus } = useConnectivity();
 
   useEffect(() => {
     if (isAuthLoading) return;
@@ -63,7 +63,7 @@ function AppWithNotifications() {
 
   return (
     <View style={{ flex: 1 }}>
-      <OfflineBanner visible={!isConnected} />
+      <OfflineBanner visible={!isConnected} syncStatus={syncStatus} />
       <RootLayoutNav isAuthenticated={isAuthenticated} />
     </View>
   );

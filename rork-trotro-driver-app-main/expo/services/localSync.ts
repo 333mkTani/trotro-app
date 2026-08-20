@@ -38,6 +38,9 @@ const LEGACY_GPS_KEY = 'gps_offline_queue';
 const LEGACY_MIGRATED_KEY = 'gps_offline_queue_migrated_v1';
 const SCHEMA_VERSION = 1;
 const MAX_ATTEMPTS = 6;
+const MAX_QUEUE_ROWS = 500;
+const MAX_GPS_QUEUE_ROWS = 200;
+const GPS_MAX_AGE_MS = 15 * 60 * 1000;
 const db: SQLiteDatabase = openDatabaseSync(DB_NAME);
 let initialized = false;
 let syncing = false;
@@ -117,6 +120,17 @@ export async function queueMutation(input: {
   const eventId = input.eventId ?? randomId();
   const idempotencyKey = input.idempotencyKey ?? `${input.entity}:${eventId}`;
   const deviceId = await getDeviceId();
+  const now = new Date();
+  if (input.entity === 'driver_location') {
+    const gpsCutoff = new Date(now.getTime() - GPS_MAX_AGE_MS).toISOString();
+    await db.runAsync(
+      `DELETE FROM sync_queue
+       WHERE user_id = ? AND entity = 'driver_location' AND client_created_at < ?`,
+      input.userId,
+      gpsCutoff,
+    );
+  }
+
   await db.runAsync(
     `INSERT OR IGNORE INTO sync_queue
       (user_id, event_id, idempotency_key, device_id, entity, operation, payload, client_created_at)
@@ -130,8 +144,49 @@ export async function queueMutation(input: {
     JSON.stringify(input.payload),
     new Date().toISOString(),
   );
+  const queueLimit = input.entity === 'driver_location' ? MAX_GPS_QUEUE_ROWS : MAX_QUEUE_ROWS;
+  await db.runAsync(
+    `DELETE FROM sync_queue
+     WHERE id IN (
+       SELECT id FROM sync_queue
+       WHERE user_id = ? AND status = 'pending'
+       ORDER BY id DESC LIMIT -1 OFFSET ?
+     )`,
+    input.userId,
+    queueLimit,
+  );
   notify('pending');
   return eventId;
+}
+
+export async function queueDriverAvailability(userId: string, isAvailable: boolean): Promise<string> {
+  return queueMutation({
+    userId,
+    entity: 'driver_availability',
+    operation: 'set',
+    payload: { isAvailable },
+    idempotencyKey: `driver_availability:${userId}:${isAvailable}:${Date.now()}`,
+  });
+}
+
+export async function queueDriverDrivingStatus(userId: string, drivingStatus: string): Promise<string> {
+  return queueMutation({
+    userId,
+    entity: 'driver_driving_status',
+    operation: 'set',
+    payload: { drivingStatus },
+    idempotencyKey: `driver_status:${userId}:${drivingStatus}:${Date.now()}`,
+  });
+}
+
+export async function queueDriverSeatCount(userId: string, availableSeats: number, totalSeats: number): Promise<string> {
+  return queueMutation({
+    userId,
+    entity: 'driver_seats',
+    operation: 'set',
+    payload: { availableSeats, totalSeats },
+    idempotencyKey: `driver_seats:${userId}:${availableSeats}:${totalSeats}:${Date.now()}`,
+  });
 }
 
 async function listQueuedMutations(userId: string): Promise<QueuedMutation[]> {
@@ -326,6 +381,13 @@ export async function purgeLocalSync(userId: string, now = new Date()): Promise<
   const cacheCutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
   const failedMutationCutoff = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString();
   await db.runAsync('DELETE FROM sync_cache WHERE user_id = ? AND updated_at < ?', userId, cacheCutoff);
+  const gpsCutoff = new Date(now.getTime() - GPS_MAX_AGE_MS).toISOString();
+  await db.runAsync(
+    `DELETE FROM sync_queue
+     WHERE user_id = ? AND entity = 'driver_location' AND client_created_at < ?`,
+    userId,
+    gpsCutoff,
+  );
   await db.runAsync(
     `DELETE FROM sync_queue WHERE user_id = ? AND status = 'rejected' AND created_at < ?`,
     userId,

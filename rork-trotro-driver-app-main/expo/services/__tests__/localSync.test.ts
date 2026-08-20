@@ -17,7 +17,7 @@ jest.doMock('@/store/authStore', () => ({
   useAuthStore: { getState: () => ({ accessToken: 'token', user: { id: 'driver-1' } }) },
 }));
 
-const { initializeLocalSync, migrateLegacyGpsQueue, purgeLocalSync, queueMutation, getSyncStatus } = require('@/services/localSync') as typeof import('@/services/localSync');
+const { initializeLocalSync, migrateLegacyGpsQueue, purgeLocalSync, queueDriverAvailability, queueDriverDrivingStatus, queueMutation, getSyncStatus } = require('@/services/localSync') as typeof import('@/services/localSync');
 
 describe('driver local sync', () => {
   beforeEach(() => jest.clearAllMocks());
@@ -39,6 +39,17 @@ describe('driver local sync', () => {
       'driver_location', 'update', JSON.stringify({ lat: 5.56, lng: -0.2 }), expect.any(String),
     );
     expect(getSyncStatus()).toBe('pending');
+  });
+
+  it('queues safe availability and driving-status intents with backend-supported entities', async () => {
+    await queueDriverAvailability('driver-1', true);
+    await queueDriverDrivingStatus('driver-1', 'EN_ROUTE');
+
+    const inserts = mockDb.runAsync.mock.calls.filter(([query]) => String(query).includes('INSERT OR IGNORE INTO sync_queue'));
+    expect(inserts).toEqual(expect.arrayContaining([
+      expect.arrayContaining(['driver-1', expect.any(String), expect.any(String), expect.any(String), 'driver_availability', 'set', JSON.stringify({ isAvailable: true }), expect.any(String)]),
+      expect.arrayContaining(['driver-1', expect.any(String), expect.any(String), expect.any(String), 'driver_driving_status', 'set', JSON.stringify({ drivingStatus: 'EN_ROUTE' }), expect.any(String)]),
+    ]));
   });
 
   it('imports the legacy GPS queue once and removes the old storage key', async () => {
@@ -70,6 +81,11 @@ describe('driver local sync', () => {
       expect.stringContaining("status = 'rejected'"),
       'driver-1',
       '2026-05-22T00:00:00.000Z',
+    );
+    expect(mockDb.runAsync).toHaveBeenCalledWith(
+      expect.stringContaining("entity = 'driver_location'"),
+      'driver-1',
+      '2026-08-19T23:45:00.000Z',
     );
   });
 });

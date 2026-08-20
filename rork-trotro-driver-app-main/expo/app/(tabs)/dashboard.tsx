@@ -16,6 +16,7 @@ import { SeatProgressBar } from '@/components/SeatProgressBar';
 import { StatCard } from '@/components/StatCard';
 import { DrivingStatusToggle } from '@/components/DrivingStatusToggle';
 import { DemandStop as DStop, DrivingStatus, AutoAcceptedBooking } from '@/types';
+import { queueDriverAvailability, queueDriverDrivingStatus } from '@/services/localSync';
 
 export default function TrotroDriverDashboard() {
   const qc = useQueryClient();
@@ -38,15 +39,24 @@ export default function TrotroDriverDashboard() {
   }, [dashQ.data]);
 
   const availMut = useMutation({
-    mutationFn: toggleAvailability,
-    onSuccess: (_data: void, confirmedValue: boolean) => {
+    mutationFn: async (value: boolean): Promise<{ queued: boolean; value: boolean }> => {
+      if (!store.isOnline) {
+        if (!user?.id) throw new Error('Sign in again before changing availability offline.');
+        await queueDriverAvailability(user.id, value);
+        return { queued: true, value };
+      }
+      await toggleAvailability(value);
+      return { queued: false, value };
+    },
+    onSuccess: (result) => {
+      const confirmedValue = result.value;
       store.setAvailability(confirmedValue);
       if (confirmedValue) void startGpsService();
       else {
         store.setDrivingStatus('STATIONARY');
         stopGpsService();
       }
-      qc.invalidateQueries({ queryKey: ['dashboard'] });
+      if (!result.queued) void qc.invalidateQueries({ queryKey: ['dashboard'] });
     },
     onError: (error: Error) => {
       Alert.alert('Availability Not Updated', error.message || 'Failed to update availability.');
@@ -64,9 +74,17 @@ export default function TrotroDriverDashboard() {
   }, [availMut, requestLocationPermission]);
 
   const drivingMut = useMutation({
-    mutationFn: updateDrivingStatus,
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['dashboard'] });
+    mutationFn: async (status: DrivingStatus): Promise<{ queued: boolean }> => {
+      if (!store.isOnline) {
+        if (!user?.id) throw new Error('Sign in again before changing driving status offline.');
+        await queueDriverDrivingStatus(user.id, status);
+        return { queued: true };
+      }
+      await updateDrivingStatus(status);
+      return { queued: false };
+    },
+    onSuccess: (result) => {
+      if (!result.queued) void qc.invalidateQueries({ queryKey: ['dashboard'] });
     },
     onError: () => Alert.alert('Error', 'Failed to update driving status.'),
   });
@@ -77,7 +95,10 @@ export default function TrotroDriverDashboard() {
       store.updateSeats(data.available, data.total);
       console.log('[Dashboard] Seat count updated:', data.available, '/', data.total);
     },
-    onError: () => Alert.alert('Error', 'Failed to update seat count.'),
+    onError: () => {
+      void qc.invalidateQueries({ queryKey: ['dashboard'] });
+      Alert.alert('Seat Count Not Updated', 'Seat capacity requires an internet connection and remains server-authoritative.');
+    },
   });
 
   const onSeatDecrement = useCallback(() => {
@@ -171,7 +192,7 @@ export default function TrotroDriverDashboard() {
             onDecrement={onSeatDecrement}
             onIncrement={onSeatIncrement}
             onSeatSet={onSeatSet}
-            disabled={seatMut.isPending}
+            disabled={seatMut.isPending || !store.isOnline}
             isSyncing={seatSync.isSyncing}
             hasSystemUpdate={seatSync.hasSystemUpdate}
             recentEvents={seatSync.recentEvents}
