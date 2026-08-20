@@ -20,6 +20,14 @@ export type QueuedMutation = {
   lastError: string | null;
 };
 
+export type CachedRecord = {
+  id: string;
+  operation: 'upsert' | 'delete';
+  payload: Record<string, unknown>;
+  serverSequence: number;
+  updatedAt: string;
+};
+
 type SyncChange = {
   sequenceId: number;
   entity: string;
@@ -298,7 +306,44 @@ export async function syncNow(userId: string): Promise<SyncStatus> {
   }
 }
 
-export async function getCachedRecords(userId: string, entity: string): Promise<Record<string, unknown>[]> {
+export async function cacheRecords(
+  userId: string,
+  entity: string,
+  records: Record<string, unknown>[],
+  updatedAt = new Date().toISOString(),
+): Promise<void> {
+  await initializeLocalSync();
+  for (const record of records) {
+    const id = String(record.id ?? record.entity_id ?? '');
+    if (!id) continue;
+    await db.runAsync(
+      `INSERT INTO sync_cache (user_id, entity, entity_id, operation, payload, server_sequence, updated_at)
+       VALUES (?, ?, ?, 'upsert', ?, ?, ?)
+       ON CONFLICT(user_id, entity, entity_id) DO UPDATE SET
+         operation = 'upsert', payload = excluded.payload,
+         server_sequence = excluded.server_sequence, updated_at = excluded.updated_at`,
+      userId,
+      entity,
+      id,
+      JSON.stringify(record),
+      Number(record.server_sequence ?? 0),
+      updatedAt,
+    );
+  }
+}
+
+export async function replaceCachedRecords(
+  userId: string,
+  entity: string,
+  records: Record<string, unknown>[],
+  updatedAt = new Date().toISOString(),
+): Promise<void> {
+  await initializeLocalSync();
+  await db.runAsync('DELETE FROM sync_cache WHERE user_id = ? AND entity = ?', userId, entity);
+  await cacheRecords(userId, entity, records, updatedAt);
+}
+
+export async function getCachedRecords(userId: string, entity: string): Promise<CachedRecord[]> {
   await initializeLocalSync();
   const rows = await db.getAllAsync<Record<string, unknown>>(
     `SELECT entity_id, operation, payload, server_sequence, updated_at
@@ -308,8 +353,8 @@ export async function getCachedRecords(userId: string, entity: string): Promise<
   );
   return rows.map((row) => ({
     id: String(row.entity_id),
-    operation: String(row.operation),
     payload: JSON.parse(String(row.payload)),
+    operation: String(row.operation) as CachedRecord['operation'],
     serverSequence: Number(row.server_sequence),
     updatedAt: String(row.updated_at),
   }));

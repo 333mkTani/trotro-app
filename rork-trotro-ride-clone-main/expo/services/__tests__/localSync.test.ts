@@ -16,7 +16,7 @@ jest.doMock('@/services/api', () => ({
   getAuthToken: jest.fn().mockResolvedValue('token'),
 }));
 
-const { initializeLocalSync, purgeLocalSync, queueMutation, getSyncStatus } = require('@/services/localSync') as typeof import('@/services/localSync');
+const { cacheRecords, initializeLocalSync, purgeLocalSync, queueMutation, getSyncStatus } = require('@/services/localSync') as typeof import('@/services/localSync');
 
 describe('passenger local sync', () => {
   beforeEach(() => jest.clearAllMocks());
@@ -39,6 +39,20 @@ describe('passenger local sync', () => {
       'draft_trip', 'upsert', JSON.stringify({ routeId: 'route-1' }), expect.any(String),
     );
     expect(getSyncStatus()).toBe('pending');
+  });
+
+  it('persists server read records in the per-user cache', async () => {
+    await cacheRecords('passenger-1', 'stop', [{ id: 'stop-1', name: 'Kejetia' }], '2026-08-20T00:00:00.000Z');
+
+    expect(mockDb.runAsync).toHaveBeenCalledWith(
+      expect.stringContaining('INSERT INTO sync_cache'),
+      'passenger-1',
+      'stop',
+      'stop-1',
+      JSON.stringify({ id: 'stop-1', name: 'Kejetia' }),
+      0,
+      '2026-08-20T00:00:00.000Z',
+    );
   });
 
   it('purges expired cache records and rejected mutations only for the current user', async () => {

@@ -57,7 +57,7 @@ export default function BookBusScreen() {
   }>();
 
   const { user } = useAuth();
-  const { regionStops, regionRoutes } = useLocation();
+  const { regionStops, allStops, regionRoutes } = useLocation();
   const [bookingPending, setBookingPending] = useState(false);
 
   const [selectedDest, setSelectedDest] = useState<BusStop | null>(null);
@@ -107,15 +107,16 @@ export default function BookBusScreen() {
   const destinationStops = useMemo(() => {
     if (!route || !params.stopId) return [];
     const seq = route.stops_sequence;
-    // Use the full route stop list when available; fall back to nearby stops.
-    const stopPool = allRouteStops.length > 0 ? allRouteStops : regionStops;
+    // Use the live route detail when available; fall back to the cached complete
+    // catalogue before using the region-scoped list.
+    const stopPool = allRouteStops.length > 0 ? allRouteStops : allStops.length > 0 ? allStops : regionStops;
     // Show all stops on the route except the boarding stop. Both forward and
     // reverse stops are valid destinations since the route is bidirectional.
     return seq
       .filter((id: string) => id !== params.stopId)
       .map((id: string) => stopPool.find((s) => s.id === id))
       .filter((s): s is BusStop => !!s && s.status === "active");
-  }, [route, allRouteStops, regionStops, params.stopId]);
+  }, [route, allRouteStops, allStops, regionStops, params.stopId]);
 
   const estimatedTravelMin = useMemo(() => {
     if (!route || !selectedDest || !params.stopId) return null;
