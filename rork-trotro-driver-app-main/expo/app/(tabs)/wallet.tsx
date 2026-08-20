@@ -28,6 +28,7 @@ import * as Haptics from 'expo-haptics';
 import Colors from '@/constants/colors';
 import { getWalletBalance, getTransactions } from '@/services/driverApi';
 import { WalletTransaction } from '@/types';
+import { DriverListSkeleton } from '@/components/Skeleton';
 
 function formatCurrency(amount: number, currency: string): string {
   const abs = Math.abs(amount);
@@ -250,9 +251,7 @@ export default function WalletScreen() {
         </View>
 
         {txQ.isLoading ? (
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyText}>Loading transactions...</Text>
-          </View>
+          <DriverListSkeleton />
         ) : txQ.data && txQ.data.length > 0 ? (
           <View style={styles.txList}>
             {txQ.data.map((tx) => (

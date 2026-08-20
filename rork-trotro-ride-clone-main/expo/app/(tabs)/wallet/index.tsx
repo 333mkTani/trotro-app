@@ -29,6 +29,7 @@ import { useTheme, type ThemePalette } from "@/contexts/ThemeContext";
 import { useWallet } from "@/contexts/WalletContext";
 import { useBookings } from "@/contexts/BookingContext";
 import { WalletTransaction } from "@/types";
+import { PassengerPageSkeleton } from "@/components/Skeleton";
 const Colors = StaticColors;
 
 const formatCurrency = (amount: number): string => {
@@ -169,11 +170,7 @@ export default function WalletScreen() {
   }, [recentTransactions]);
 
   if (isLoading) {
-    return (
-      <View style={st.loadingRoot}>
-        <ActivityIndicator size="large" color={Colors.primary} />
-      </View>
-    );
+    return <PassengerPageSkeleton />;
   }
 
   return (

@@ -17,6 +17,7 @@ import { StatCard } from '@/components/StatCard';
 import { DrivingStatusToggle } from '@/components/DrivingStatusToggle';
 import { DemandStop as DStop, DrivingStatus, AutoAcceptedBooking } from '@/types';
 import { queueDriverAvailability, queueDriverDrivingStatus } from '@/services/localSync';
+import { DriverDashboardSkeleton } from '@/components/Skeleton';
 
 export default function TrotroDriverDashboard() {
   const qc = useQueryClient();
@@ -157,8 +158,8 @@ export default function TrotroDriverDashboard() {
 
   const seatSync = useSeatSync(store.isAvailable);
 
-  const recentAutoBookings = store.autoAcceptedBookings.slice(-3);
-
+    const recentAutoBookings = store.autoAcceptedBookings.slice(-3);
+  if (dashQ.isLoading && !dashQ.data) return <DriverDashboardSkeleton />;
   return (
     <Animated.View style={[ds.container, { opacity: fade }]}>
       <ScrollView style={ds.scroll} contentContainerStyle={ds.scrollPad} showsVerticalScrollIndicator={false}
