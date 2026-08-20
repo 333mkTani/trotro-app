@@ -1,11 +1,31 @@
 import { useState, useEffect, useCallback } from 'react';
 import NetInfo, { NetInfoState } from '@react-native-community/netinfo';
 import { useDriverStore } from '@/store/driverStore';
-import { flushQueue } from '@/services/offlineQueue';
+import { useAuthStore } from '@/store/authStore';
+import {
+  initializeLocalSync,
+  migrateLegacyGpsQueue,
+  subscribeSyncStatus,
+  syncNow,
+  getSyncStatus,
+  type SyncStatus,
+} from '@/services/localSync';
 
 export function useConnectivity() {
   const [isConnected, setIsConnected] = useState<boolean>(true);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>(getSyncStatus());
   const setOnlineStatus = useDriverStore((s) => s.setOnlineStatus);
+  const userId = useAuthStore((s) => s.user?.id);
+
+  const syncIfPossible = useCallback(async (online: boolean) => {
+    if (!userId || !online) return;
+    try {
+      await migrateLegacyGpsQueue(userId);
+      await syncNow(userId);
+    } catch (err) {
+      console.log('[Connectivity] Sync deferred:', err);
+    }
+  }, [userId]);
 
   const handleConnectivityChange = useCallback(
     (state: NetInfoState) => {
@@ -14,20 +34,26 @@ export function useConnectivity() {
       setIsConnected(online);
       setOnlineStatus(online);
 
-      if (online) {
-        flushQueue().catch((err) =>
-          console.log('[Connectivity] Failed to flush queue on reconnect:', err)
-        );
-      }
+      if (online) void syncIfPossible(true);
+      else setSyncStatus('offline');
     },
-    [setOnlineStatus]
+    [setOnlineStatus, syncIfPossible]
   );
 
   useEffect(() => {
+    void initializeLocalSync();
+    const unsubscribeSync = subscribeSyncStatus(setSyncStatus);
     const unsubscribe = NetInfo.addEventListener(handleConnectivityChange);
     NetInfo.fetch().then(handleConnectivityChange);
-    return () => unsubscribe();
+    return () => {
+      unsubscribeSync();
+      unsubscribe();
+    };
   }, [handleConnectivityChange]);
 
-  return { isConnected };
+  useEffect(() => {
+    if (userId && isConnected) void syncIfPossible(true);
+  }, [isConnected, syncIfPossible, userId]);
+
+  return { isConnected, syncStatus };
 }

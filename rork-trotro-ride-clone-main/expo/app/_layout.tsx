@@ -16,6 +16,7 @@ import { resolveNotificationRoute } from "@/utils/notificationDeepLink";
 import Colors from "@/constants/colors";
 import MapLibreGL from "@maplibre/maplibre-react-native";
 import { isPublicAuthRoute } from "@/utils/authRoute";
+import { useOfflineSync } from "@/hooks/useOfflineSync";
 
 // OpenFreeMap tiles don't need an access token
 MapLibreGL.setAccessToken(null);
@@ -31,6 +32,7 @@ const queryClient = new QueryClient();
 function RootLayoutNav() {
   const { isAuthenticated, isLoading } = useAuth();
   const { colors } = useTheme();
+  useOfflineSync();
   const router = useRouter();
   const segments = useSegments();
   const notifInitialized = useRef(false);

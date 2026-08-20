@@ -5,7 +5,7 @@ import { Platform } from 'react-native';
 import { useDriverStore } from '@/store/driverStore';
 import { useAuthStore } from '@/store/authStore';
 import { postLocation } from './driverApi';
-import { enqueueLocation } from './offlineQueue';
+import { initializeLocalSync, queueMutation } from './localSync';
 import { haversineDistance } from '@/utils/helpers';
 
 let gpsInterval: ReturnType<typeof setInterval> | null = null;
@@ -30,6 +30,24 @@ async function restoreAuthForBackgroundTask(): Promise<boolean> {
   return true;
 }
 
+async function queueLocation(lat: number, lng: number): Promise<void> {
+  const userId = useAuthStore.getState().user?.id;
+  if (!userId) {
+    console.log('[GPS] Cannot queue location without an authenticated driver');
+    return;
+  }
+  await initializeLocalSync();
+  const eventKey = `gps:${userId}:${Date.now()}:${lat}:${lng}`;
+  await queueMutation({
+    userId,
+    entity: 'driver_location',
+    operation: 'update',
+    payload: { lat, lng },
+    eventId: eventKey,
+    idempotencyKey: eventKey,
+  });
+}
+
 async function sendLocation(lat: number, lng: number, isOnline: boolean): Promise<void> {
   if (lastPostedLat !== null && lastPostedLng !== null) {
     const distKm = haversineDistance(lastPostedLat, lastPostedLng, lat, lng);
@@ -43,7 +61,7 @@ async function sendLocation(lat: number, lng: number, isOnline: boolean): Promis
 
   if (!isOnline) {
     console.log('[GPS] Offline, queueing location');
-    await enqueueLocation(lat, lng);
+    await queueLocation(lat, lng);
     return;
   }
 
@@ -55,7 +73,7 @@ async function sendLocation(lat: number, lng: number, isOnline: boolean): Promis
     console.log('[GPS] Location posted:', lat.toFixed(6), lng.toFixed(6));
   } catch (err) {
     console.log('[GPS] Post failed, queueing:', err);
-    await enqueueLocation(lat, lng);
+    await queueLocation(lat, lng);
   }
 }
 
