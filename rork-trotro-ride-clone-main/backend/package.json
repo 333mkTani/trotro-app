@@ -11,6 +11,7 @@
     "verify:database": "node scripts/verify-database.mjs",
     "acceptance:live": "node scripts/acceptance-live.mjs",
     "verify:concurrency": "node scripts/verify-concurrency.mjs",
+    "test:e2e:staging": "playwright test --config=e2e/playwright.config.mjs",
     "dev": "nodemon src/server.js",
     "migrate": "node database/migrate.js",
     "test": "jest"
@@ -34,6 +35,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "jest": "^30.4.2",
     "nodemon": "^3.1.4"
   }
