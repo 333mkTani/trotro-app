@@ -56,6 +56,7 @@ The schema lives at `expo/supabase/schema.sql`. Apply it once to your database (
 | Wallet | `/api/wallet` |
 | Driver Ratings | `/api/ratings` |
 | Webhooks | `/api/webhooks` |
+| Offline sync | `/api/sync` |
 
 Health check: `GET /health`.
 
@@ -133,6 +134,8 @@ Drivers emit `bus:location` (`{ busId, routeId?, lat, lng, heading?, speed?, ts?
 ## Offline-first synchronization
 
 The proposed controlled offline-first contract is documented in [`docs/offline-sync-protocol.md`](docs/offline-sync-protocol.md). It defines cacheable data, safe queued intents, server-authoritative booking and payment boundaries, idempotency requirements, conflict states, retention, migration, and the required test matrix. Implementation is tracked in [issue #14](https://github.com/333mkTani/trotro-app/issues/14) and its linked child issues.
+
+The first backend slice exposes authenticated `POST /api/sync/mutations` and `GET /api/sync/changes`. Mutation receipts are scoped to the authenticated user and deduplicated by `idempotencyKey`/`eventId`; pull responses advance an opaque server sequence cursor. The initial supported mutations are driver location, availability, and driving-status intents. Booking, seat, payment, wallet, refund, and assignment state remain server-authoritative and are rejected from this queue.
 
 ## Testing
 
