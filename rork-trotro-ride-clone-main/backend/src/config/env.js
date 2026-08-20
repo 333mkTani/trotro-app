@@ -82,6 +82,9 @@ const validateProductionConfig = () => {
     failures.push('JWT_SECRET must be a generated, non-placeholder value of at least 32 characters');
   }
   if (!env.DATABASE_URL) failures.push('DATABASE_URL is required');
+  if (!env.CORS_ORIGIN || env.CORS_ORIGIN === '*') {
+    failures.push('CORS_ORIGIN must be an explicit comma-separated origin allow-list');
+  }
   if (!env.PAYSTACK_SECRET_KEY) failures.push('PAYSTACK_SECRET_KEY is required');
   if (!env.MAPBOX_ACCESS_TOKEN) failures.push('MAPBOX_ACCESS_TOKEN is required');
   if (!process.env.FIREBASE_SERVICE_ACCOUNT && !process.env.FIREBASE_SERVICE_ACCOUNT_PATH) {

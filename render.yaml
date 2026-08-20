@@ -19,8 +19,10 @@ services:
         value: 7d
       - key: REQUIRE_REDIS
         value: "true"
+      # Comma-separated passenger, driver, and admin web origins. Set this
+      # in Render secret/configuration storage; wildcard is rejected in production.
       - key: CORS_ORIGIN
-        value: "*"
+        sync: false
       # Reverse-proxy hops in front of the API. Render's own load balancer is
       # one; put Cloudflare (or anything else) ahead of it and this becomes 2.
       # Getting it wrong makes the rate limiter count proxies instead of

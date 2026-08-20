@@ -7,6 +7,7 @@ describe('production configuration validation', () => {
       ...originalEnv,
       NODE_ENV: 'production',
       DATABASE_URL: 'postgresql://staging.example/trotro',
+      CORS_ORIGIN: 'https://passenger.example,https://driver.example,https://admin.example',
       PAYSTACK_SECRET_KEY: 'sk_test_provider_value',
       MAPBOX_ACCESS_TOKEN: 'pk.server-test-value',
       FIREBASE_SERVICE_ACCOUNT: '{"project_id":"trotro-test"}',
@@ -32,6 +33,11 @@ describe('production configuration validation', () => {
     try { load(); } catch (caught) { error = caught; }
     expect(error.message).toMatch(/JWT_SECRET must be a generated/);
     expect(error.message).not.toContain(secret);
+  });
+
+  it('rejects wildcard CORS in production', () => {
+    const load = loadEnv({ JWT_SECRET: 'a'.repeat(64), CORS_ORIGIN: '*' });
+    expect(load).toThrow(/CORS_ORIGIN must be an explicit/);
   });
 
   it('rejects missing production provider configuration without printing values', () => {

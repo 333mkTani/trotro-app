@@ -6,6 +6,7 @@ const rateLimit = require('express-rate-limit');
 const { RedisStore } = require('rate-limit-redis');
 
 const { env } = require('./config/env');
+const { createOriginChecker } = require('./config/cors');
 const { pool } = require('./config/db');
 const { client: redisClient, isReady: redisReady } = require('./config/redis');
 const { notFound, errorHandler } = require('./middleware/error');
@@ -45,12 +46,9 @@ const app = express();
 app.set('trust proxy', env.TRUST_PROXY);
 app.disable('x-powered-by');
 app.use(helmet());
-// CORS_ORIGIN accepts '*' or a comma-separated allow-list, so the admin web
-// app can be served from its own origin without opening the API to everyone.
-const corsOrigin = env.CORS_ORIGIN === '*'
-  ? '*'
-  : env.CORS_ORIGIN.split(',').map((value) => value.trim()).filter(Boolean);
-app.use(cors({ origin: corsOrigin, credentials: true }));
+// Browser origins are checked against an explicit comma-separated allow-list.
+// Requests without an Origin header remain valid for native and server clients.
+app.use(cors({ origin: createOriginChecker(env.CORS_ORIGIN), credentials: true }));
 app.use(express.json({
   limit: '1mb',
   // Paystack webhook signatures are computed over the exact raw request

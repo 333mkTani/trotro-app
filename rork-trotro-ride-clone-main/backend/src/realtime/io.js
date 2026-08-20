@@ -21,6 +21,7 @@ const { Server } = require('socket.io');
 const { createAdapter } = require('@socket.io/redis-adapter');
 
 const { env } = require('../config/env');
+const { createOriginChecker } = require('../config/cors');
 const {
   publisher: redisPub,
   subscriber: redisSub,
@@ -76,7 +77,7 @@ const attach = (server) => {
   io = new Server(server, {
     path: '/socket.io',
     cors: {
-      origin: env.CORS_ORIGIN === '*' ? true : env.CORS_ORIGIN,
+      origin: createOriginChecker(env.CORS_ORIGIN),
       credentials: true,
     },
     transports: ['websocket', 'polling'],
