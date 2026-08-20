@@ -1,3 +1,11 @@
+const INSECURE_JWT_SECRETS = new Set([
+  '',
+  'dev-secret-change-me',
+  'replace_with_long_random_string',
+]);
+const productionLike = ['production', 'staging'].includes(process.env.NODE_ENV || 'development');
+const rawJwtSecret = String(process.env.JWT_SECRET || '').trim();
+
 const env = {
   PORT: parseInt(process.env.PORT || '4000', 10),
   NODE_ENV: process.env.NODE_ENV || 'development',
@@ -17,7 +25,7 @@ const env = {
   REDIS_URL: process.env.REDIS_URL || '',
   REQUIRE_REDIS: String(process.env.REQUIRE_REDIS || 'false').toLowerCase() === 'true',
   CACHE_TTL_SECONDS: parseInt(process.env.CACHE_TTL_SECONDS || '60', 10),
-  JWT_SECRET: process.env.JWT_SECRET || 'dev-secret-change-me',
+  JWT_SECRET: rawJwtSecret || 'dev-secret-change-me',
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '7d',
   SUPABASE_URL: process.env.SUPABASE_URL || '',
   SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY || '',
@@ -67,4 +75,23 @@ if (!env.PAYSTACK_SECRET_KEY) {
   console.warn('[trotro-api] WARNING: PAYSTACK_SECRET_KEY is not set — wallet top-ups will fail');
 }
 
-module.exports = { env };
+const validateProductionConfig = () => {
+  if (!productionLike) return;
+  const failures = [];
+  if (INSECURE_JWT_SECRETS.has(rawJwtSecret) || rawJwtSecret.length < 32) {
+    failures.push('JWT_SECRET must be a generated, non-placeholder value of at least 32 characters');
+  }
+  if (!env.DATABASE_URL) failures.push('DATABASE_URL is required');
+  if (!env.PAYSTACK_SECRET_KEY) failures.push('PAYSTACK_SECRET_KEY is required');
+  if (!env.MAPBOX_ACCESS_TOKEN) failures.push('MAPBOX_ACCESS_TOKEN is required');
+  if (!process.env.FIREBASE_SERVICE_ACCOUNT && !process.env.FIREBASE_SERVICE_ACCOUNT_PATH) {
+    failures.push('FIREBASE_SERVICE_ACCOUNT or FIREBASE_SERVICE_ACCOUNT_PATH is required');
+  }
+  if (failures.length) {
+    throw new Error(`[trotro-api] Production configuration invalid: ${failures.join('; ')}`);
+  }
+};
+
+validateProductionConfig();
+
+module.exports = { env, validateProductionConfig, INSECURE_JWT_SECRETS };

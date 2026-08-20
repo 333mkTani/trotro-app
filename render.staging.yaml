@@ -14,14 +14,13 @@ services:
     startCommand: npm start
     healthCheckPath: /ready
     envVars:
+      - fromGroup: trotro-staging-backend-secrets
       - key: NODE_ENV
         value: staging
       - key: PGSSL
         value: "true"
       - key: REQUIRE_REDIS
         value: "true"
-      - key: JWT_SECRET
-        generateValue: true
       - key: JWT_EXPIRES_IN
         value: 7d
       - key: CORS_ORIGIN
@@ -37,12 +36,6 @@ services:
           type: keyvalue
           name: trotro-staging-redis
           property: connectionString
-      - key: PAYSTACK_SECRET_KEY
-        sync: false
-      - key: FIREBASE_SERVICE_ACCOUNT
-        sync: false
-      - key: MAPBOX_ACCESS_TOKEN
-        sync: false
       - key: MAPBOX_DIRECTIONS_BASE_URL
         value: https://api.mapbox.com
       - key: SCHEDULED_RESERVATIONS_ENABLED
@@ -63,6 +56,7 @@ services:
     buildCommand: npm install
     startCommand: npm run worker:schedule
     envVars:
+      - fromGroup: trotro-staging-backend-secrets
       - key: NODE_ENV
         value: staging
       - key: PGSSL
@@ -84,9 +78,6 @@ services:
         value: "true"
       - key: SCHEDULED_RESERVATIONS_ROLLOUT_PERCENT
         value: "100"
-      - key: FIREBASE_SERVICE_ACCOUNT
-        sync: false
-
   - type: web
     name: trotro-staging-admin-web
     runtime: static
@@ -121,3 +112,15 @@ databases:
     plan: free
     postgresMajorVersion: "16"
     ipAllowList: []
+
+envVarGroups:
+  - name: trotro-staging-backend-secrets
+    envVars:
+      - key: JWT_SECRET
+        generateValue: true
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+      - key: MAPBOX_ACCESS_TOKEN
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false
