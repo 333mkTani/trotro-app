@@ -24,6 +24,7 @@ const env = {
   PGSSL: String(process.env.PGSSL || 'false').toLowerCase() === 'true',
   REDIS_URL: process.env.REDIS_URL || '',
   REQUIRE_REDIS: String(process.env.REQUIRE_REDIS || 'false').toLowerCase() === 'true',
+  METRICS_TOKEN: process.env.METRICS_TOKEN || '',
   CACHE_TTL_SECONDS: parseInt(process.env.CACHE_TTL_SECONDS || '60', 10),
   JWT_SECRET: rawJwtSecret || 'dev-secret-change-me',
   JWT_EXPIRES_IN: process.env.JWT_EXPIRES_IN || '7d',

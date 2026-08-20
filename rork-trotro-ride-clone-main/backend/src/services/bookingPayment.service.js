@@ -11,6 +11,7 @@ const { ApiError } = require('../utils/ApiError');
 const { generateBoardingCode, buildQrPayload } = require('../utils/codes');
 const { emitToDriver, emitToUser } = require('../realtime/io');
 const refundService = require('./refund.service');
+const { increment, recordEvent } = require('../observability/metrics');
 
 const checkoutResponse = (payment, extra = {}) => ({
   paymentId: payment.id,
@@ -145,6 +146,8 @@ const applyVerifiedDeposit = async (reference, verification) => {
     const payment = await paymentModel.findByProviderReferenceForUpdate('paystack', reference, client);
     if (!payment || payment.type !== 'deposit') return { ignored: true };
     if (payment.status === 'succeeded') {
+      increment('trotro_payment_duplicate_callbacks_total', 1, { type: payment.type });
+      recordEvent('payment.duplicate_callback', { type: payment.type });
       const booking = await bookingModel.findByIdForUpdate(payment.booking_id, client);
       const existingCode = booking?.status === 'confirmed'
         ? await codeModel.findByBookingId(payment.booking_id, client)
@@ -164,6 +167,8 @@ const applyVerifiedDeposit = async (reference, verification) => {
     const amountMatches = verification.currency === payment.currency
       && Math.abs(Number(verification.amount) - Number(payment.amount)) < 0.01;
     if (!verification.success || !amountMatches) {
+      increment(amountMatches ? 'trotro_payment_not_successful_total' : 'trotro_payment_mismatches_total');
+      recordEvent(amountMatches ? 'payment.not_successful' : 'payment.mismatch', { type: payment.type });
       const failed = await paymentModel.markFailed(payment.id, {
         code: amountMatches ? 'PAYMENT_NOT_SUCCESSFUL' : 'PAYMENT_MISMATCH',
         message: amountMatches ? 'Paystack did not confirm the payment' : 'Payment amount or currency did not match',
@@ -303,6 +308,8 @@ const applyVerifiedBalance = async (reference, verification) => {
     const payment = await paymentModel.findByProviderReferenceForUpdate('paystack', reference, client);
     if (!payment || payment.type !== 'balance') return { ignored: true };
     if (payment.status === 'succeeded') {
+      increment('trotro_payment_duplicate_callbacks_total', 1, { type: payment.type });
+      recordEvent('payment.duplicate_callback', { type: payment.type });
       const booking = await bookingModel.findByIdForUpdate(payment.booking_id, client);
       return { success: true, alreadyProcessed: true, payment, booking };
     }
@@ -310,6 +317,8 @@ const applyVerifiedBalance = async (reference, verification) => {
     const amountMatches = verification.currency === payment.currency
       && Math.abs(Number(verification.amount) - Number(payment.amount)) < 0.01;
     if (!verification.success || !amountMatches) {
+      increment(amountMatches ? 'trotro_payment_not_successful_total' : 'trotro_payment_mismatches_total');
+      recordEvent(amountMatches ? 'payment.not_successful' : 'payment.mismatch', { type: payment.type });
       const failed = await paymentModel.markFailed(payment.id, {
         code: amountMatches ? 'PAYMENT_NOT_SUCCESSFUL' : 'PAYMENT_MISMATCH',
         message: amountMatches ? 'Paystack did not confirm the payment' : 'Payment amount or currency did not match',
