@@ -11,6 +11,7 @@
     "verify:database": "node scripts/verify-database.mjs",
     "acceptance:live": "node scripts/acceptance-live.mjs",
     "verify:concurrency": "node scripts/verify-concurrency.mjs",
+    "verify:recovery": "node scripts/verify-recovery.mjs",
     "test:e2e:staging": "playwright test --config=e2e/playwright.config.mjs",
     "dev": "nodemon src/server.js",
     "migrate": "node database/migrate.js",
