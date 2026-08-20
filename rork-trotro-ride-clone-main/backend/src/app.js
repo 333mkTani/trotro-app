@@ -6,6 +6,7 @@ const rateLimit = require('express-rate-limit');
 const { RedisStore } = require('rate-limit-redis');
 
 const { env } = require('./config/env');
+const { pool } = require('./config/db');
 const { client: redisClient, isReady: redisReady } = require('./config/redis');
 const { notFound, errorHandler } = require('./middleware/error');
 
@@ -86,6 +87,24 @@ app.use('/api', rateLimit(limiterOptions));
 app.get('/health', (req, res) => {
   res.json({
     ok: true, service: 'trotro-api', time: new Date().toISOString(), ip: req.ip,
+  });
+});
+
+// Liveness and readiness are intentionally separate. Render can keep a process
+// running while a dependency is unavailable, but traffic should only be sent to
+// an instance that can reach its database and, when configured, Redis.
+app.get('/ready', async (_req, res) => {
+  const checks = { database: false, redis: !env.REQUIRE_REDIS };
+  try {
+    await pool.query('select 1');
+    checks.database = true;
+  } catch (error) {
+    console.error('[ready] database check failed:', error.message);
+  }
+  if (env.REQUIRE_REDIS) checks.redis = Boolean(redisReady());
+  const ok = checks.database && checks.redis;
+  res.status(ok ? 200 : 503).json({
+    ok, service: 'trotro-api', checks, time: new Date().toISOString(),
   });
 });
 

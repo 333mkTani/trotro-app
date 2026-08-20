@@ -1,0 +1,123 @@
+# Staging-only Render Blueprint.
+# Deploy this file explicitly from Render's Blueprint Path; it intentionally uses
+# separate resource names so it cannot silently replace the production stack in
+# render.yaml.
+services:
+  - type: web
+    name: trotro-staging-api
+    runtime: node
+    region: frankfurt
+    plan: starter
+    rootDir: rork-trotro-ride-clone-main/backend
+    buildCommand: npm install
+    preDeployCommand: npm run migrate
+    startCommand: npm start
+    healthCheckPath: /ready
+    envVars:
+      - key: NODE_ENV
+        value: staging
+      - key: PGSSL
+        value: "true"
+      - key: REQUIRE_REDIS
+        value: "true"
+      - key: JWT_SECRET
+        generateValue: true
+      - key: JWT_EXPIRES_IN
+        value: 7d
+      - key: CORS_ORIGIN
+        sync: false
+      - key: TRUST_PROXY
+        value: "1"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: trotro-staging-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: trotro-staging-redis
+          property: connectionString
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false
+      - key: MAPBOX_ACCESS_TOKEN
+        sync: false
+      - key: MAPBOX_DIRECTIONS_BASE_URL
+        value: https://api.mapbox.com
+      - key: SCHEDULED_RESERVATIONS_ENABLED
+        value: "true"
+      - key: SCHEDULED_RESERVATIONS_ROLLOUT_PERCENT
+        value: "100"
+      - key: SCHEDULE_WORKER_IN_WEB
+        value: "false"
+      - key: BUS_ALERTS_ENABLED
+        value: "true"
+
+  - type: worker
+    name: trotro-staging-schedule-worker
+    runtime: node
+    region: frankfurt
+    plan: starter
+    rootDir: rork-trotro-ride-clone-main/backend
+    buildCommand: npm install
+    startCommand: npm run worker:schedule
+    envVars:
+      - key: NODE_ENV
+        value: staging
+      - key: PGSSL
+        value: "true"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: trotro-staging-db
+          property: connectionString
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: trotro-staging-redis
+          property: connectionString
+      - key: REQUIRE_REDIS
+        value: "true"
+      - key: SCHEDULE_WORKER_INTERVAL_MS
+        value: "60000"
+      - key: SCHEDULED_RESERVATIONS_ENABLED
+        value: "true"
+      - key: SCHEDULED_RESERVATIONS_ROLLOUT_PERCENT
+        value: "100"
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false
+
+  - type: web
+    name: trotro-staging-admin-web
+    runtime: static
+    rootDir: admin-web
+    buildCommand: npm install && npm run build
+    staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
+    headers:
+      - path: /*
+        name: X-Robots-Tag
+        value: noindex, nofollow
+
+  - type: keyvalue
+    name: trotro-staging-redis
+    region: frankfurt
+    plan: starter
+    maxmemoryPolicy: allkeys-lru
+    persistenceMode: journal-snapshot
+    ipAllowList:
+      - source: 0.0.0.0/0
+        description: Render private network and health access
+
+databases:
+  - name: trotro-staging-db
+    databaseName: trotro_staging
+    plan: free
+    postgresMajorVersion: "16"
+    ipAllowList: []
