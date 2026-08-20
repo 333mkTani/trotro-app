@@ -1,12 +1,10 @@
 import axios from 'axios';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { clearAccessToken, getAccessToken, setAccessToken } from '@/services/secureAuthStorage';
 
 // Change this to your deployed backend URL when deploying to production.
 // For local development with a device on the same network, use your machine's LAN IP:
 //   e.g. http://192.168.1.100:4000
 export const API_BASE_URL = 'https://trotro-api.onrender.com';
-
-const AUTH_TOKEN_KEY = 'auth_token';
 
 type SessionExpiredListener = () => void;
 const sessionExpiredListeners = new Set<SessionExpiredListener>();
@@ -32,7 +30,7 @@ export const api = axios.create({
 });
 
 api.interceptors.request.use(async (config) => {
-  const token = await AsyncStorage.getItem(AUTH_TOKEN_KEY);
+  const token = await getAccessToken();
   if (token) config.headers.Authorization = `Bearer ${token}`;
   return config;
 });
@@ -71,7 +69,7 @@ api.interceptors.response.use(
     }) | undefined;
 
     if (status === 401) {
-      await AsyncStorage.removeItem(AUTH_TOKEN_KEY);
+      await clearAccessToken();
       sessionExpiredListeners.forEach((listener) => listener());
     }
 
@@ -121,6 +119,6 @@ api.interceptors.response.use(
   }
 );
 
-export const setAuthToken = (token: string) => AsyncStorage.setItem(AUTH_TOKEN_KEY, token);
-export const clearAuthToken = () => AsyncStorage.removeItem(AUTH_TOKEN_KEY);
-export const getAuthToken = () => AsyncStorage.getItem(AUTH_TOKEN_KEY);
+export const setAuthToken = setAccessToken;
+export const clearAuthToken = clearAccessToken;
+export const getAuthToken = getAccessToken;

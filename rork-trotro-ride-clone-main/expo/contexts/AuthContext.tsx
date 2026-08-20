@@ -1,12 +1,10 @@
 import createContextHook from '@nkzw/create-context-hook';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { clearProfile, getProfile, setProfile } from '@/services/secureAuthStorage';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useState, useEffect, useCallback } from 'react';
 import auth, { FirebaseAuthTypes } from '@react-native-firebase/auth';
 import { User } from '@/types';
 import { api, setAuthToken, clearAuthToken, onAuthSessionExpired, ApiRequestError } from '@/services/api';
-
-const AUTH_USER_KEY = 'trotro_auth_profile';
 
 // Ghana numbers only for now: strips spaces/dashes, maps a leading 0 or bare
 // 233 to +233, leaves an already-E.164 number untouched.
@@ -34,7 +32,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
 
   useEffect(() => onAuthSessionExpired(() => {
     setUser(null);
-    void AsyncStorage.removeItem(AUTH_USER_KEY);
+    void clearProfile();
     queryClient.clear();
   }), [queryClient]);
 
@@ -42,30 +40,29 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     let mounted = true;
     (async () => {
       try {
-        const raw = await AsyncStorage.getItem(AUTH_USER_KEY);
+        const cached = await getProfile<User>();
         if (!mounted) return;
-        if (raw) {
-          const cached = JSON.parse(raw) as User;
+        if (cached) {
           if (mounted) setUser(cached);
           // Re-validate with backend; keep cached session on network failure
           try {
             const { data } = await api.get('/profiles/me');
             if (mounted) {
               setUser(data);
-              await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(data));
+              await setProfile(data);
             }
           } catch (error) {
             // Keep the cached profile only for connectivity failures. An expired
             // token must not leave protected screens looking signed in but empty.
             if (error instanceof ApiRequestError && error.status === 401) {
-              await AsyncStorage.removeItem(AUTH_USER_KEY);
+              await clearProfile();
               if (mounted) setUser(null);
             }
           }
         }
       } catch {
         await clearAuthToken();
-        await AsyncStorage.removeItem(AUTH_USER_KEY);
+        await clearProfile();
         if (mounted) setUser(null);
       } finally {
         if (mounted) setIsLoading(false);
@@ -80,7 +77,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       await setAuthToken(data.token);
       const profileRes = await api.get('/profiles/me');
       const profile: User = profileRes.data;
-      await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(profile));
+      await setProfile(profile);
       return profile;
     },
     onSuccess: (u: User) => {
@@ -100,7 +97,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       await setAuthToken(data.token);
       const profileRes = await api.get('/profiles/me');
       const profile: User = profileRes.data;
-      await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(profile));
+      await setProfile(profile);
       return profile;
     },
     onSuccess: (u: User) => {
@@ -128,7 +125,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       await setAuthToken(data.token);
       const profileRes = await api.get('/profiles/me');
       const profile: User = profileRes.data;
-      await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(profile));
+      await setProfile(profile);
       return profile;
     },
     onSuccess: (u: User) => {
@@ -146,7 +143,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
       if (updates.email !== undefined) patch.email = updates.email;
       if (updates.avatar_url !== undefined) patch.avatarUrl = updates.avatar_url;
       const { data } = await api.patch('/profiles/me', patch);
-      await AsyncStorage.setItem(AUTH_USER_KEY, JSON.stringify(data));
+      await setProfile(data);
       return data as User;
     },
     onSuccess: (updated: User) => {
@@ -157,7 +154,7 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
 
   const logout = useCallback(async () => {
     await clearAuthToken();
-    await AsyncStorage.removeItem(AUTH_USER_KEY);
+    await clearProfile();
     setUser(null);
     queryClient.clear();
   }, [queryClient]);

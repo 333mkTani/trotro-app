@@ -59,7 +59,8 @@
           "cameraPermission": "Allow Trotro Driver to scan passenger boarding QR codes."
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true

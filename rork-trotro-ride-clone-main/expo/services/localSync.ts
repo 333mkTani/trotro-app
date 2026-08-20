@@ -228,6 +228,7 @@ async function applyChanges(userId: string, changes: SyncChange[]): Promise<void
 
 export async function syncNow(userId: string): Promise<SyncStatus> {
   await initializeLocalSync();
+  await purgeLocalSync(userId);
   if (syncing) return status;
   syncing = true;
   notify('syncing');
@@ -297,7 +298,7 @@ export async function syncNow(userId: string): Promise<SyncStatus> {
   }
 }
 
-export async function getCachedRecords(userId: string, entity: string): Promise<Array<Record<string, unknown>>> {
+export async function getCachedRecords(userId: string, entity: string): Promise<Record<string, unknown>[]> {
   await initializeLocalSync();
   const rows = await db.getAllAsync<Record<string, unknown>>(
     `SELECT entity_id, operation, payload, server_sequence, updated_at
@@ -312,6 +313,18 @@ export async function getCachedRecords(userId: string, entity: string): Promise<
     serverSequence: Number(row.server_sequence),
     updatedAt: String(row.updated_at),
   }));
+}
+
+export async function purgeLocalSync(userId: string, now = new Date()): Promise<void> {
+  await initializeLocalSync();
+  const cacheCutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const failedMutationCutoff = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString();
+  await db.runAsync('DELETE FROM sync_cache WHERE user_id = ? AND updated_at < ?', userId, cacheCutoff);
+  await db.runAsync(
+    `DELETE FROM sync_queue WHERE user_id = ? AND status = 'rejected' AND created_at < ?`,
+    userId,
+    failedMutationCutoff,
+  );
 }
 
 export async function clearLocalSync(userId: string): Promise<void> {

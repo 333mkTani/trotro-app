@@ -41,7 +41,8 @@
       "expo-notifications",
       "@maplibre/maplibre-react-native",
       "@react-native-firebase/app",
-      "expo-sqlite"
+      "expo-sqlite",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true

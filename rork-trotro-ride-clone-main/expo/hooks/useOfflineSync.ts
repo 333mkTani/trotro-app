@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import NetInfo, { type NetInfoState } from '@react-native-community/netinfo';
 import { useAuth } from '@/contexts/AuthContext';
-import { initializeLocalSync, getSyncStatus, subscribeSyncStatus, syncNow, type SyncStatus } from '@/services/localSync';
+import { clearLocalSync, initializeLocalSync, getSyncStatus, subscribeSyncStatus, syncNow, type SyncStatus } from '@/services/localSync';
 
 export function useOfflineSync() {
   const { user } = useAuth();
   const [isConnected, setIsConnected] = useState(true);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>(getSyncStatus());
+  const previousUserId = useRef<string | undefined>(undefined);
 
   const syncIfPossible = useCallback(async (online: boolean) => {
     if (!user?.id || !online) return;
@@ -25,6 +26,9 @@ export function useOfflineSync() {
   }, [syncIfPossible]);
 
   useEffect(() => {
+    const previous = previousUserId.current;
+    if (previous && previous !== user?.id) void clearLocalSync(previous);
+    previousUserId.current = user?.id;
     void initializeLocalSync();
     const unsubscribeSync = subscribeSyncStatus(setSyncStatus);
     const unsubscribeNetInfo = NetInfo.addEventListener(handleConnectivityChange);
@@ -33,7 +37,7 @@ export function useOfflineSync() {
       unsubscribeSync();
       unsubscribeNetInfo();
     };
-  }, [handleConnectivityChange]);
+  }, [handleConnectivityChange, user?.id]);
 
   useEffect(() => {
     if (user?.id && isConnected) void syncIfPossible(true);

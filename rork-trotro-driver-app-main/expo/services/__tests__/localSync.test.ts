@@ -17,7 +17,7 @@ jest.doMock('@/store/authStore', () => ({
   useAuthStore: { getState: () => ({ accessToken: 'token', user: { id: 'driver-1' } }) },
 }));
 
-const { initializeLocalSync, migrateLegacyGpsQueue, queueMutation, getSyncStatus } = require('@/services/localSync') as typeof import('@/services/localSync');
+const { initializeLocalSync, migrateLegacyGpsQueue, purgeLocalSync, queueMutation, getSyncStatus } = require('@/services/localSync') as typeof import('@/services/localSync');
 
 describe('driver local sync', () => {
   beforeEach(() => jest.clearAllMocks());
@@ -56,5 +56,20 @@ describe('driver local sync', () => {
     );
     expect(mockStorage.setItem).toHaveBeenCalledWith('gps_offline_queue_migrated_v1', 'true');
     expect(mockStorage.removeItem).toHaveBeenCalledWith('gps_offline_queue');
+  });
+
+  it('purges expired cache records and rejected mutations only for the current driver', async () => {
+    await purgeLocalSync('driver-1', new Date('2026-08-20T00:00:00.000Z'));
+
+    expect(mockDb.runAsync).toHaveBeenCalledWith(
+      'DELETE FROM sync_cache WHERE user_id = ? AND updated_at < ?',
+      'driver-1',
+      '2026-07-21T00:00:00.000Z',
+    );
+    expect(mockDb.runAsync).toHaveBeenCalledWith(
+      expect.stringContaining("status = 'rejected'"),
+      'driver-1',
+      '2026-05-22T00:00:00.000Z',
+    );
   });
 });

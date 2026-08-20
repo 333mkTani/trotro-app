@@ -1,6 +1,6 @@
 import * as Location from 'expo-location';
 import * as TaskManager from 'expo-task-manager';
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getTokens } from './secureAuthStorage';
 import { Platform } from 'react-native';
 import { useDriverStore } from '@/store/driverStore';
 import { useAuthStore } from '@/store/authStore';
@@ -22,10 +22,8 @@ type BackgroundLocationData = { locations?: Location.LocationObject[] };
 
 async function restoreAuthForBackgroundTask(): Promise<boolean> {
   if (useAuthStore.getState().accessToken) return true;
-  const stored = await AsyncStorage.getItem('auth_tokens');
-  if (!stored) return false;
-  const tokens = JSON.parse(stored) as { accessToken?: string; refreshToken?: string };
-  if (!tokens.accessToken || !tokens.refreshToken) return false;
+  const tokens = await getTokens();
+  if (!tokens?.accessToken) return false;
   await useAuthStore.getState().setTokens(tokens.accessToken, tokens.refreshToken);
   return true;
 }

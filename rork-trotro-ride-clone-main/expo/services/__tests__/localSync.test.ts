@@ -16,7 +16,7 @@ jest.doMock('@/services/api', () => ({
   getAuthToken: jest.fn().mockResolvedValue('token'),
 }));
 
-const { initializeLocalSync, queueMutation, getSyncStatus } = require('@/services/localSync') as typeof import('@/services/localSync');
+const { initializeLocalSync, purgeLocalSync, queueMutation, getSyncStatus } = require('@/services/localSync') as typeof import('@/services/localSync');
 
 describe('passenger local sync', () => {
   beforeEach(() => jest.clearAllMocks());
@@ -39,5 +39,20 @@ describe('passenger local sync', () => {
       'draft_trip', 'upsert', JSON.stringify({ routeId: 'route-1' }), expect.any(String),
     );
     expect(getSyncStatus()).toBe('pending');
+  });
+
+  it('purges expired cache records and rejected mutations only for the current user', async () => {
+    await purgeLocalSync('passenger-1', new Date('2026-08-20T00:00:00.000Z'));
+
+    expect(mockDb.runAsync).toHaveBeenCalledWith(
+      'DELETE FROM sync_cache WHERE user_id = ? AND updated_at < ?',
+      'passenger-1',
+      '2026-07-21T00:00:00.000Z',
+    );
+    expect(mockDb.runAsync).toHaveBeenCalledWith(
+      expect.stringContaining("status = 'rejected'"),
+      'passenger-1',
+      '2026-05-22T00:00:00.000Z',
+    );
   });
 });

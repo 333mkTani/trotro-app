@@ -214,7 +214,7 @@ export async function migrateLegacyGpsQueue(userId: string): Promise<number> {
   await initializeLocalSync();
   if (await AsyncStorage.getItem(LEGACY_MIGRATED_KEY)) return 0;
   const raw = await AsyncStorage.getItem(LEGACY_GPS_KEY);
-  const legacy = raw ? (JSON.parse(raw) as Array<{ lat: number; lng: number; timestamp: number }>) : [];
+  const legacy = raw ? (JSON.parse(raw) as { lat: number; lng: number; timestamp: number }[]) : [];
   let imported = 0;
   for (const point of legacy) {
     if (!Number.isFinite(point.lat) || !Number.isFinite(point.lng)) continue;
@@ -235,6 +235,7 @@ export async function migrateLegacyGpsQueue(userId: string): Promise<number> {
 
 export async function syncNow(userId: string): Promise<SyncStatus> {
   await initializeLocalSync();
+  await purgeLocalSync(userId);
   if (syncing) return status;
   syncing = true;
   notify('syncing');
@@ -304,7 +305,7 @@ export async function syncNow(userId: string): Promise<SyncStatus> {
   }
 }
 
-export async function getCachedRecords(userId: string, entity: string): Promise<Array<Record<string, unknown>>> {
+export async function getCachedRecords(userId: string, entity: string): Promise<Record<string, unknown>[]> {
   await initializeLocalSync();
   const rows = await db.getAllAsync<Record<string, unknown>>(
     `SELECT entity_id, operation, payload, server_sequence, updated_at FROM sync_cache WHERE user_id = ? AND entity = ? ORDER BY updated_at DESC`,
@@ -320,9 +321,22 @@ export async function getCachedRecords(userId: string, entity: string): Promise<
   }));
 }
 
+export async function purgeLocalSync(userId: string, now = new Date()): Promise<void> {
+  await initializeLocalSync();
+  const cacheCutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const failedMutationCutoff = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString();
+  await db.runAsync('DELETE FROM sync_cache WHERE user_id = ? AND updated_at < ?', userId, cacheCutoff);
+  await db.runAsync(
+    `DELETE FROM sync_queue WHERE user_id = ? AND status = 'rejected' AND created_at < ?`,
+    userId,
+    failedMutationCutoff,
+  );
+}
+
 export async function clearLocalSync(userId: string): Promise<void> {
   await initializeLocalSync();
   await db.runAsync('DELETE FROM sync_queue WHERE user_id = ?', userId);
   await db.runAsync('DELETE FROM sync_cache WHERE user_id = ?', userId);
   await db.runAsync('DELETE FROM sync_meta WHERE key = ?', `cursor:${userId}`);
+  await AsyncStorage.removeItem(LEGACY_GPS_KEY);
 }
