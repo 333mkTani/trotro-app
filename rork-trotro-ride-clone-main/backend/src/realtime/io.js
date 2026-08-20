@@ -19,8 +19,10 @@ const http = require('http');
 const jwt = require('jsonwebtoken');
 const { Server } = require('socket.io');
 const { createAdapter } = require('@socket.io/redis-adapter');
+const { increment, recordEvent } = require('../observability/metrics');
 
 const { env } = require('../config/env');
+const { createOriginChecker } = require('../config/cors');
 const {
   publisher: redisPub,
   subscriber: redisSub,
@@ -76,7 +78,7 @@ const attach = (server) => {
   io = new Server(server, {
     path: '/socket.io',
     cors: {
-      origin: env.CORS_ORIGIN === '*' ? true : env.CORS_ORIGIN,
+      origin: createOriginChecker(env.CORS_ORIGIN),
       credentials: true,
     },
     transports: ['websocket', 'polling'],
@@ -108,6 +110,7 @@ const attach = (server) => {
 
   io.on('connection', (socket) => {
     const user = socket.data.user;
+    increment('trotro_realtime_connections_total', 1, { role: user?.role || 'unknown' });
     socket.join(`user:${user.id}`);
     if (user.role === 'driver') socket.join(`driver:${user.id}`);
 
@@ -168,8 +171,9 @@ const attach = (server) => {
       if (typeof ack === 'function') ack({ ok: true });
     });
 
-    socket.on('disconnect', () => {
-      // No-op for now; rooms are cleaned up automatically.
+    socket.on('disconnect', (reason) => {
+      increment('trotro_realtime_disconnects_total', 1, { reason: reason || 'unknown' });
+      recordEvent('realtime.disconnect', { reason: reason || 'unknown' });
     });
   });
 

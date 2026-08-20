@@ -1,11 +1,15 @@
 const { ApiError } = require('../utils/ApiError');
+const { increment, recordEvent } = require('../observability/metrics');
 
 const notFound = (req, _res, next) => {
   next(ApiError.notFound(`Route not found: ${req.method} ${req.originalUrl}`));
 };
 
 // eslint-disable-next-line no-unused-vars
-const errorHandler = (err, _req, res, _next) => {
+const errorHandler = (err, req, res, _next) => {
+  const status = err?.status || (err?.code === '23505' ? 409 : err?.code === '23503' ? 400 : 500);
+  increment('trotro_api_errors_total', 1, { method: req.method, route: req.path, status });
+  if (status >= 500) recordEvent('api.unhandled_error', { method: req.method, route: req.path, status });
   if (err && err.name === 'ZodError') {
     return res.status(400).json({
       error: 'ValidationError',
@@ -31,7 +35,7 @@ const errorHandler = (err, _req, res, _next) => {
     return res.status(400).json({ error: 'BadRequest', message: 'Invalid reference' });
   }
 
-  console.error('[trotro-api] unhandled error', err);
+  console.error('[trotro-api] unhandled error', err?.message || err);
   return res.status(500).json({ error: 'InternalServerError', message: 'Something went wrong' });
 };
 

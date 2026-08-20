@@ -6,8 +6,11 @@ const rateLimit = require('express-rate-limit');
 const { RedisStore } = require('rate-limit-redis');
 
 const { env } = require('./config/env');
+const { createOriginChecker } = require('./config/cors');
+const { pool } = require('./config/db');
 const { client: redisClient, isReady: redisReady } = require('./config/redis');
 const { notFound, errorHandler } = require('./middleware/error');
+const { increment, setGauge, recordEvent, writePrometheus } = require('./observability/metrics');
 
 const authRoutes = require('./routes/auth.routes');
 const profileRoutes = require('./routes/profile.routes');
@@ -44,12 +47,9 @@ const app = express();
 app.set('trust proxy', env.TRUST_PROXY);
 app.disable('x-powered-by');
 app.use(helmet());
-// CORS_ORIGIN accepts '*' or a comma-separated allow-list, so the admin web
-// app can be served from its own origin without opening the API to everyone.
-const corsOrigin = env.CORS_ORIGIN === '*'
-  ? '*'
-  : env.CORS_ORIGIN.split(',').map((value) => value.trim()).filter(Boolean);
-app.use(cors({ origin: corsOrigin, credentials: true }));
+// Browser origins are checked against an explicit comma-separated allow-list.
+// Requests without an Origin header remain valid for native and server clients.
+app.use(cors({ origin: createOriginChecker(env.CORS_ORIGIN), credentials: true }));
 app.use(express.json({
   limit: '1mb',
   // Paystack webhook signatures are computed over the exact raw request
@@ -59,6 +59,21 @@ app.use(express.json({
 }));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan(env.NODE_ENV === 'production' ? 'combined' : 'dev'));
+
+// Low-cardinality request telemetry. Query strings and user identifiers are
+// deliberately excluded from labels so metrics cannot become a data-leak path.
+app.use((req, res, next) => {
+  const started = process.hrtime.bigint();
+  res.on('finish', () => {
+    const durationMs = Number(process.hrtime.bigint() - started) / 1e6;
+    const route = req.route?.path || req.path;
+    const labels = { method: req.method, route, status: res.statusCode };
+    increment('trotro_http_requests_total', 1, labels);
+    increment('trotro_http_request_duration_ms_total', Math.round(durationMs), { method: req.method, route });
+    if (res.statusCode >= 400) increment('trotro_http_errors_total', 1, { method: req.method, route, status: res.statusCode });
+  });
+  next();
+});
 
 // Rate limiter — backed by Redis when available so limits are shared across
 // multiple Node instances. Falls back to the default in-memory store otherwise.
@@ -86,6 +101,34 @@ app.use('/api', rateLimit(limiterOptions));
 app.get('/health', (req, res) => {
   res.json({
     ok: true, service: 'trotro-api', time: new Date().toISOString(), ip: req.ip,
+  });
+});
+
+// Liveness and readiness are intentionally separate. Render can keep a process
+// running while a dependency is unavailable, but traffic should only be sent to
+// an instance that can reach its database and, when configured, Redis.
+app.get('/metrics', (req, res) => {
+  if (!env.METRICS_TOKEN) return res.sendStatus(404);
+  const supplied = String(req.headers.authorization || '').replace(/^Bearer\\s+/i, '');
+  if (!supplied || supplied !== env.METRICS_TOKEN) return res.sendStatus(401);
+  res.type('text/plain').send(writePrometheus());
+});
+
+app.get('/ready', async (_req, res) => {
+  const checks = { database: false, redis: !env.REQUIRE_REDIS };
+  try {
+    await pool.query('select 1');
+    checks.database = true;
+  } catch (error) {
+    recordEvent('dependency.readiness_failed', { dependency: 'database' });
+  }
+  if (env.REQUIRE_REDIS) checks.redis = Boolean(redisReady());
+  setGauge('trotro_dependency_ready', checks.database ? 1 : 0, { dependency: 'database' });
+  setGauge('trotro_dependency_ready', checks.redis ? 1 : 0, { dependency: 'redis' });
+  if (!checks.redis) recordEvent('dependency.readiness_failed', { dependency: 'redis' });
+  const ok = checks.database && checks.redis;
+  res.status(ok ? 200 : 503).json({
+    ok, service: 'trotro-api', checks, time: new Date().toISOString(),
   });
 });
 

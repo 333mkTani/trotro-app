@@ -52,11 +52,16 @@ services:
       DATABASE_URL: ${DATABASE_URL:-postgresql://postgres:password@db:5432/trotro}
       PGSSL: ${PGSSL:-false}
       REDIS_URL: ${REDIS_URL:-redis://redis:6379}
+      REQUIRE_REDIS: ${REQUIRE_REDIS:-true}
       CACHE_TTL_SECONDS: ${CACHE_TTL_SECONDS:-60}
       JWT_SECRET: ${JWT_SECRET:-replace_with_long_random_string}
       JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
       SUPABASE_URL: ${SUPABASE_URL:-}
       SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:-}
+      PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:-}
+      FIREBASE_SERVICE_ACCOUNT: ${FIREBASE_SERVICE_ACCOUNT:-}
+      MAPBOX_ACCESS_TOKEN: ${MAPBOX_ACCESS_TOKEN:-}
+      MAPBOX_DIRECTIONS_BASE_URL: ${MAPBOX_DIRECTIONS_BASE_URL:-https://api.mapbox.com}
     expose:
       - "4000"
     volumes:

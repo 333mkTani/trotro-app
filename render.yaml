@@ -8,18 +8,21 @@ services:
     rootDir: rork-trotro-ride-clone-main/backend
     buildCommand: npm install && npm run migrate
     startCommand: npm start
-    healthCheckPath: /health
+    healthCheckPath: /ready
     envVars:
+      - fromGroup: trotro-production-backend-secrets
       - key: NODE_ENV
         value: production
       - key: PGSSL
         value: "true"
-      - key: JWT_SECRET
-        generateValue: true
       - key: JWT_EXPIRES_IN
         value: 7d
+      - key: REQUIRE_REDIS
+        value: "true"
+      # Comma-separated passenger, driver, and admin web origins. Set this
+      # in Render secret/configuration storage; wildcard is rejected in production.
       - key: CORS_ORIGIN
-        value: "*"
+        sync: false
       # Reverse-proxy hops in front of the API. Render's own load balancer is
       # one; put Cloudflare (or anything else) ahead of it and this becomes 2.
       # Getting it wrong makes the rate limiter count proxies instead of
@@ -29,8 +32,6 @@ services:
       - key: CACHE_TTL_SECONDS
         value: "60"
       - key: DATABASE_URL
-        sync: false
-      - key: MAPBOX_ACCESS_TOKEN
         sync: false
       - key: ROUTING_RATE_LIMIT_MAX
         value: "30"
@@ -57,9 +58,17 @@ services:
     buildCommand: npm install
     startCommand: npm run worker:schedule
     envVars:
+      - fromGroup: trotro-production-backend-secrets
       - key: NODE_ENV
         value: production
       - key: PGSSL
+        value: "true"
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: trotro-redis
+          property: connectionString
+      - key: REQUIRE_REDIS
         value: "true"
       - key: SCHEDULE_WORKER_INTERVAL_MS
         value: "60000"
@@ -68,8 +77,6 @@ services:
       - key: SCHEDULED_RESERVATIONS_ENABLED
         sync: false
       - key: SCHEDULED_RESERVATIONS_ROLLOUT_PERCENT
-        sync: false
-      - key: FIREBASE_SERVICE_ACCOUNT
         sync: false
 
   # ── Admin dashboard (static site) ──────────────────────────────────────────
@@ -101,3 +108,17 @@ services:
     plan: starter
     maxmemoryPolicy: allkeys-lru
     ipAllowList: []
+
+# Shared backend secrets. Enter values through Render's secret manager; do not
+# commit them. The same JWT_SECRET must be used by the API and schedule worker.
+envVarGroups:
+  - name: trotro-production-backend-secrets
+    envVars:
+      - key: JWT_SECRET
+        generateValue: true
+      - key: PAYSTACK_SECRET_KEY
+        sync: false
+      - key: MAPBOX_ACCESS_TOKEN
+        sync: false
+      - key: FIREBASE_SERVICE_ACCOUNT
+        sync: false

@@ -25,26 +25,36 @@ const bus = (id: string, eta: number): ApproachingBus => ({
 });
 
 describe('recommendationsForClosestApproachingDrivers', () => {
-  it('shows separate drivers only for the closest walking-ranked pickup', async () => {
+  it('falls back to a nearby pickup stop when the closest stop has no approaching bus', async () => {
     const result = await recommendationsForClosestApproachingDrivers(
-      [makeRecommendation('stairs', 400), makeRecommendation('manchester', 800)],
-      async (stopId) => stopId === 'stairs' ? [bus('driver-a', 6), bus('driver-b', 3)] : [],
+      [makeRecommendation('manchester', 400), makeRecommendation('nearby-stop', 800)],
+      async (stopId) => stopId === 'nearby-stop' ? [bus('driver-a', 6)] : [],
     );
-    expect(result.map((item) => item.pickupStop.id)).toEqual(['stairs', 'stairs']);
-    expect(result.map((item) => item.bestBus?.driver_id)).toEqual(['driver-b', 'driver-a']);
+    expect(result).toHaveLength(1);
+    expect(result[0].pickupStop.id).toBe('nearby-stop');
+    expect(result[0].bestBus?.driver_id).toBe('driver-a');
   });
 
-  it('retains the closest route without a driver so bus alerts remain available', async () => {
+  it('returns all live drivers across candidate pickup stops ordered by ETA', async () => {
     const result = await recommendationsForClosestApproachingDrivers(
       [makeRecommendation('stairs', 400), makeRecommendation('manchester', 800)],
+      async (stopId) => stopId === 'stairs' ? [bus('driver-a', 6)] : [bus('driver-b', 3)],
+    );
+    expect(result.map((item) => item.bestBus?.driver_id)).toEqual(['driver-b', 'driver-a']);
+    expect(result.map((item) => item.pickupStop.id)).toEqual(['manchester', 'stairs']);
+  });
+
+  it('retains the nearest route as an alert fallback when no candidate has a driver', async () => {
+    const result = await recommendationsForClosestApproachingDrivers(
+      [makeRecommendation('manchester', 400), makeRecommendation('nearby-stop', 800)],
       async () => [],
     );
     expect(result).toHaveLength(1);
-    expect(result[0].pickupStop.id).toBe('stairs');
+    expect(result[0].pickupStop.id).toBe('manchester');
     expect(result[0].bestBus).toBeNull();
   });
 
-  it('passes the passenger destination to direction-aware driver lookup', async () => {
+  it('passes each passenger destination to direction-aware driver lookup', async () => {
     const fetcher = jest.fn(async () => [bus('driver-a', 4)]);
     await recommendationsForClosestApproachingDrivers([makeRecommendation('stairs', 400)], fetcher);
     expect(fetcher).toHaveBeenCalledWith('stairs', 'Route stairs', 'dest');
