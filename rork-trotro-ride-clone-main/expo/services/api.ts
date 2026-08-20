@@ -1,10 +1,9 @@
 import axios from 'axios';
 import { clearAccessToken, getAccessToken, setAccessToken } from '@/services/secureAuthStorage';
 
-// Change this to your deployed backend URL when deploying to production.
-// For local development with a device on the same network, use your machine's LAN IP:
-//   e.g. http://192.168.1.100:4000
-export const API_BASE_URL = 'https://trotro-api.onrender.com';
+import { API_BASE_URL } from '@/services/apiEnvironment';
+
+export { API_BASE_URL };
 
 type SessionExpiredListener = () => void;
 const sessionExpiredListeners = new Set<SessionExpiredListener>();
