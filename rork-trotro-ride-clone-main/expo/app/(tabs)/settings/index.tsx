@@ -46,7 +46,7 @@ export default function SettingsScreen() {
   const Colors = themeColors;
   st = React.useMemo(() => make_st(themeColors), [themeColors]);
 
-  const { user, logout } = useAuth();
+  const { user, logout, deleteAccount, deleteAccountPending } = useAuth();
   const { mode: themeMode, setThemeMode } = useTheme();
   const [showTheme, setShowTheme] = useState<boolean>(false);
   const router = useRouter();
@@ -95,6 +95,32 @@ export default function SettingsScreen() {
       },
     ]);
   }, [logout, router]);
+
+  const doDeleteAccount = useCallback(() => {
+    if (deleteAccountPending) return;
+    Alert.alert(
+      "Delete Account",
+      "This permanently disables your account and removes your personal profile information. Booking and payment records required for transaction history will be retained anonymously.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete Account",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deleteAccount();
+              router.replace("/login");
+            } catch (error) {
+              Alert.alert(
+                "Account not deleted",
+                error instanceof Error ? error.message : "Please check your connection and try again.",
+              );
+            }
+          },
+        },
+      ],
+    );
+  }, [deleteAccount, deleteAccountPending, router]);
 
   const openWallet = useCallback(() => {
     if (Platform.OS !== "web") Haptics.selectionAsync();
@@ -325,9 +351,9 @@ export default function SettingsScreen() {
           <LogOut size={18} color={Colors.danger} />
           <Text style={st.logoutTxt}>Sign Out</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={st.deleteBtn} onPress={() => Alert.alert("Delete Account", "This cannot be undone.", [{ text: "Cancel" }, { text: "Delete", style: "destructive" }])} activeOpacity={0.7}>
+        <TouchableOpacity style={st.deleteBtn} onPress={doDeleteAccount} disabled={deleteAccountPending} activeOpacity={0.7} testID="delete-account-btn">
           <Trash2 size={16} color={Colors.gray400} />
-          <Text style={st.deleteTxt}>Delete Account</Text>
+          <Text style={st.deleteTxt}>{deleteAccountPending ? "Deleting Account..." : "Delete Account"}</Text>
         </TouchableOpacity>
       </View>
       <Text style={st.version}>Trotro v1.0.0</Text>

@@ -17,4 +17,10 @@ const savePushToken = async (userId, token) => {
   await profileModel.update(userId, { fcmToken: token });
 };
 
-module.exports = { getMe, updateMe, savePushToken };
+const deleteMe = async (userId) => {
+  const deleted = await profileModel.deactivate(userId);
+  if (!deleted) throw ApiError.notFound('Profile not found');
+  return { ok: true };
+};
+
+module.exports = { getMe, updateMe, savePushToken, deleteMe };

@@ -159,6 +159,18 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     queryClient.clear();
   }, [queryClient]);
 
+  const deleteAccountMutation = useMutation({
+    mutationFn: async () => {
+      await api.delete('/profiles/me');
+      await clearAuthToken();
+      await clearProfile();
+    },
+    onSuccess: () => {
+      setUser(null);
+      queryClient.clear();
+    },
+  });
+
   return {
     user,
     isAuthenticated: !!user,
@@ -172,6 +184,8 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     confirmPhoneVerification: confirmMutation.mutateAsync,
     confirmPhoneVerificationPending: confirmMutation.isPending,
     logout,
+    deleteAccount: deleteAccountMutation.mutateAsync,
+    deleteAccountPending: deleteAccountMutation.isPending,
     updateProfile: updateProfileMutation.mutateAsync,
     updateProfilePending: updateProfileMutation.isPending,
   };
