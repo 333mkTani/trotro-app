@@ -39,9 +39,10 @@ const insert = async ({ registration, driverId, routeId, totalSeats = 14 }) => {
   return rows[0];
 };
 
-const updateLocation = async (id, { lat, lng, movementState }) => {
+const updateLocation = async (id, { lat, lng, movementState }, client) => {
   const movement = movementState || {};
-  const { rows } = await query(
+  const runner = client || { query };
+  const { rows } = await runner.query(
     `update public.buses
         set current_lat = $1, current_lng = $2, last_ping_at = now(),
             route_direction = $3,
@@ -189,8 +190,9 @@ const findByDriverId = async (driverId) => {
   return rows[0] || null;
 };
 
-const listRouteStops = async (routeId) => {
-  const { rows } = await query(
+const listRouteStops = async (routeId, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
     `select s.id, s.name, s.lat, s.lng, rs.sequence
        from public.route_stops rs
        join public.bus_stops s on s.id = rs.stop_id

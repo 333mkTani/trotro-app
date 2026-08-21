@@ -6,6 +6,7 @@ jest.mock('../driverProfile.service', () => ({
   updateLocation: jest.fn(),
   setAvailability: jest.fn(),
   setDrivingStatus: jest.fn(),
+  publishLocationSideEffects: jest.fn(),
 }));
 
 const { query, withTransaction } = require('../../config/db');
@@ -23,87 +24,104 @@ const baseInput = {
   clientCreatedAt: '2026-08-20T12:00:00.000Z',
 };
 
+const processingReceipt = {
+  id: 'receipt-1',
+  status: 'processing',
+  event_id: baseInput.eventId,
+  idempotency_key: baseInput.idempotencyKey,
+  result: {},
+  processed_at: new Date().toISOString(),
+};
+
+const acceptedReceipt = {
+  ...processingReceipt,
+  status: 'accepted',
+  result: { busId: 'bus-1', status: 'active', drivingStatus: 'STATIONARY' },
+  processed_at: '2026-08-20T12:00:01.000Z',
+};
+
+let transactionClient;
+
 beforeEach(() => {
   jest.resetAllMocks();
   query.mockResolvedValue({ rows: [] });
-  withTransaction.mockImplementation(async (fn) => fn({
-    query: jest.fn().mockResolvedValue({ rows: [{
-      id: 'receipt-1',
-      status: 'processing',
-      event_id: baseInput.eventId,
-      idempotency_key: baseInput.idempotencyKey,
-      result: {},
-      processed_at: new Date().toISOString(),
-    }] }),
-  }));
+  transactionClient = { query: jest.fn() };
+  withTransaction.mockImplementation(async (fn) => fn(transactionClient));
 });
 
 describe('processMutation', () => {
-  test('accepts a driver availability mutation and records a change', async () => {
-    query
+  test('accepts a driver availability mutation and atomically records its change', async () => {
+    query.mockResolvedValueOnce({ rows: [] });
+    transactionClient.query
       .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ id: 'change-1', sequence_id: '9', created_at: '2026-08-20T12:00:01.000Z' }] })
-      .mockResolvedValueOnce({ rows: [{ id: 'receipt-1', status: 'accepted', event_id: baseInput.eventId, idempotency_key: baseInput.idempotencyKey, result: { busId: 'bus-1', status: 'active', drivingStatus: 'STATIONARY' }, processed_at: '2026-08-20T12:00:01.000Z' }] });
+      .mockResolvedValueOnce({ rows: [processingReceipt] })
+      .mockResolvedValueOnce({ rows: [{ sequence_id: '9', created_at: '2026-08-20T12:00:01.000Z' }] })
+      .mockResolvedValueOnce({ rows: [acceptedReceipt] });
     driverProfile.setAvailability.mockResolvedValue({ id: 'bus-1', status: 'active', driving_status: 'STATIONARY' });
 
     const result = await syncService.processMutation(driver, baseInput);
 
     expect(result.status).toBe('accepted');
     expect(result.result.busId).toBe('bus-1');
-    expect(driverProfile.setAvailability).toHaveBeenCalledWith('driver-1', true);
+    expect(driverProfile.setAvailability).toHaveBeenCalledWith('driver-1', true, transactionClient);
+    expect(transactionClient.query).toHaveBeenCalledTimes(4);
   });
 
   test('returns duplicate without applying a previously accepted mutation', async () => {
-    query.mockResolvedValueOnce({ rows: [{
-      id: 'receipt-1',
-      status: 'accepted',
-      event_id: baseInput.eventId,
-      idempotency_key: baseInput.idempotencyKey,
-      result: { busId: 'bus-1' },
-      processed_at: '2026-08-20T12:00:01.000Z',
-    }] });
+    query.mockResolvedValueOnce({ rows: [acceptedReceipt] });
 
     const result = await syncService.processMutation(driver, baseInput);
 
     expect(result.status).toBe('duplicate');
-    expect(result.result).toEqual({ busId: 'bus-1' });
+    expect(result.result).toEqual(acceptedReceipt.result);
     expect(driverProfile.setAvailability).not.toHaveBeenCalled();
+    expect(withTransaction).not.toHaveBeenCalled();
   });
 
   test('rejects an event id reused for a different idempotency key', async () => {
     query.mockResolvedValueOnce({ rows: [{
-      id: 'receipt-1',
-      status: 'accepted',
-      event_id: baseInput.eventId,
+      ...acceptedReceipt,
       idempotency_key: 'different-key',
-      result: {},
-      processed_at: '2026-08-20T12:00:01.000Z',
     }] });
-
     await expect(syncService.processMutation(driver, baseInput)).rejects.toMatchObject({ status: 409 });
   });
 
   test('rejects non-driver mutations before applying them', async () => {
-    await expect(syncService.processMutation({ id: 'passenger-1', role: 'passenger' }, {
-      ...baseInput,
-      entity: 'driver_availability',
-    })).rejects.toMatchObject({ status: 403 });
+    await expect(syncService.processMutation({ id: 'passenger-1', role: 'passenger' }, baseInput))
+      .rejects.toMatchObject({ status: 403 });
   });
 
   test('returns a retryable response while an identical mutation is processing', async () => {
-    query.mockResolvedValueOnce({ rows: [{
-      id: 'receipt-1',
-      status: 'processing',
-      event_id: baseInput.eventId,
-      idempotency_key: baseInput.idempotencyKey,
-      result: {},
-      processed_at: new Date().toISOString(),
-    }] });
+    query.mockResolvedValueOnce({ rows: [processingReceipt] });
 
     const result = await syncService.processMutation(driver, baseInput);
 
     expect(result.status).toBe('retryable');
     expect(driverProfile.setAvailability).not.toHaveBeenCalled();
+    expect(withTransaction).not.toHaveBeenCalled();
+  });
+
+  test('returns retryable without a receipt when the transaction fails', async () => {
+    query.mockResolvedValueOnce({ rows: [] });
+    withTransaction.mockRejectedValueOnce(Object.assign(new Error('database unavailable'), { code: 'ECONNRESET' }));
+
+    const result = await syncService.processMutation(driver, baseInput);
+
+    expect(result).toMatchObject({ status: 'retryable', errorCode: 'ECONNRESET' });
+  });
+
+  test('records a rejected application error in the same transaction', async () => {
+    query.mockResolvedValueOnce({ rows: [] });
+    transactionClient.query
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [processingReceipt] })
+      .mockResolvedValueOnce({ rows: [{ ...processingReceipt, status: 'rejected', error_code: 'HTTP_400', error_message: 'invalid' }] });
+    driverProfile.setAvailability.mockRejectedValueOnce(Object.assign(new Error('invalid'), { status: 400 }));
+
+    const result = await syncService.processMutation(driver, baseInput);
+
+    expect(result.status).toBe('rejected');
+    expect(transactionClient.query).toHaveBeenCalledTimes(3);
   });
 });
 
