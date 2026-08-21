@@ -193,9 +193,10 @@ const updateStatus = async (id, status, extra = {}, client) => {
   if (status === 'completed') fields.push(`completed_at = now()`);
   if (status === 'cancelled') fields.push(`cancelled_at = now()`);
 
+  const completionGuard = status === 'completed' ? " and status = 'confirmed'" : '';
   const { rows } = await runner.query(
     `update public.bookings set ${fields.join(', ')}
-      where id = $1 returning ${COLUMNS}`,
+      where id = $1${completionGuard} returning ${COLUMNS}`,
     values,
   );
   return rows[0] || null;

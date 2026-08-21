@@ -287,3 +287,42 @@ describe('driver deposit settlement reversal', () => {
     }), expect.anything());
   });
 });
+
+describe('completion-state hardening', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('repairs a legacy completed booking that has no seat release audit timestamp', async () => {
+    const completed = {
+      id: 'completed-legacy-1', passenger_id: 'passenger-1', driver_id: 'driver-1',
+      bus_id: 'bus-1', status: 'completed', seat_released_at: null,
+    };
+    const repaired = { ...completed, seat_released_at: '2026-08-21T00:00:00Z' };
+    bookingModel.findByIdForUpdate.mockResolvedValue(completed);
+    bookingModel.releaseSeatForBooking.mockResolvedValue(repaired);
+
+    const result = await bookingService.complete('completed-legacy-1', {
+      id: 'driver-1', role: 'driver',
+    });
+
+    expect(result.seat_released_at).toBe('2026-08-21T00:00:00Z');
+    expect(bookingModel.releaseSeatForBooking).toHaveBeenCalledWith('completed-legacy-1', expect.anything());
+    expect(bookingModel.updateStatus).not.toHaveBeenCalled();
+    expect(codeModel.findByBookingId).not.toHaveBeenCalled();
+  });
+
+  it('returns a completed booking without changing it on a repeated completion request', async () => {
+    const completed = {
+      id: 'completed-1', passenger_id: 'passenger-1', driver_id: 'driver-1',
+      bus_id: 'bus-1', status: 'completed', seat_released_at: '2026-08-21T00:00:00Z',
+    };
+    bookingModel.findByIdForUpdate.mockResolvedValue(completed);
+
+    const result = await bookingService.complete('completed-1', {
+      id: 'driver-1', role: 'driver',
+    });
+
+    expect(result).toEqual(completed);
+    expect(bookingModel.updateStatus).not.toHaveBeenCalled();
+    expect(bookingModel.releaseSeatForBooking).not.toHaveBeenCalled();
+  });
+});

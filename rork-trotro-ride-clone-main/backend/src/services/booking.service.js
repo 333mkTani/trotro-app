@@ -322,7 +322,13 @@ const complete = async (bookingId, user) => withTransaction(async (client) => {
   ) {
     throw ApiError.forbidden();
   }
-  if (existing.status === 'completed') return existing;
+  if (existing.status === 'completed') {
+    if (existing.bus_id && !existing.seat_released_at) {
+      const repaired = await bookingModel.releaseSeatForBooking(bookingId, client);
+      return repaired || existing;
+    }
+    return existing;
+  }
   if (existing.status !== 'confirmed') {
     throw ApiError.badRequest(`Cannot complete a ${existing.status} booking`);
   }
@@ -337,12 +343,21 @@ const complete = async (bookingId, user) => withTransaction(async (client) => {
   if (existing.source_occurrence_id) {
     await scheduleLifecycleModel.markCompleted(existing.source_occurrence_id, client);
   }
-  if (existing.bus_id) await bookingModel.releaseSeatForBooking(bookingId, client);
-  if (existing.boarded_recovery_status === 'pending') {
-    await bookingModel.markBoardedRecoveryResolved(bookingId, client);
-  }
-  if (booking.driver_id) emitToDriver(booking.driver_id, 'booking:updated', booking);
-  return booking;
+  const released = existing.bus_id
+    ? await bookingModel.releaseSeatForBooking(bookingId, client)
+    : null;
+  const resolved = existing.boarded_recovery_status === 'pending'
+    ? await bookingModel.markBoardedRecoveryResolved(bookingId, client)
+    : null;
+  const finalized = {
+    ...booking,
+    ...(released?.seat_released_at ? { seat_released_at: released.seat_released_at } : {}),
+    ...(resolved?.boarded_recovery_status
+      ? { boarded_recovery_status: resolved.boarded_recovery_status }
+      : {}),
+  };
+  if (finalized.driver_id) emitToDriver(finalized.driver_id, 'booking:updated', finalized);
+  return finalized;
 });
 
 const redeemCode = async (code, driverUser) => {

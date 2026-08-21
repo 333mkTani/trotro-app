@@ -142,10 +142,22 @@ const depart = async (occurrenceId, driverId, now, client) => {
   return rows[0];
 };
 
-const markCompleted = (occurrenceId, client) => runner(client).query(
-  `update public.schedule_occurrences set status = 'completed', completed_at = coalesce(completed_at, now()), updated_at = now()
-    where id = $1 and status = 'departed' returning *`, [occurrenceId],
-);
+const markCompleted = async (occurrenceId, client) => {
+  const db = runner(client);
+  const { rows } = await db.query(
+    `update public.schedule_occurrences
+        set status = 'completed', completed_at = coalesce(completed_at, now()), updated_at = now()
+      where id = $1 and status = 'departed'
+      returning *`,
+    [occurrenceId],
+  );
+  if (rows[0]) return rows[0];
+  const { rows: completed } = await db.query(
+    `select * from public.schedule_occurrences where id = $1 and status = 'completed'`,
+    [occurrenceId],
+  );
+  return completed[0] || null;
+};
 
 module.exports = { openDue, insertCode, findPassengerCode, lockByCode, markBoarded,
   cancel, expireNoShows, depart, markCompleted };
