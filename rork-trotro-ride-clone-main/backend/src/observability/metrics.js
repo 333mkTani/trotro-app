@@ -44,18 +44,50 @@ const snapshot = () => ({
 
 const reset = () => { counters.clear(); gauges.clear(); };
 
+const prometheusName = (key) => key.slice(0, key.indexOf('{') === -1 ? key.length : key.indexOf('{'));
+
+const prometheusKey = (key) => {
+  const brace = key.indexOf('{');
+  if (brace === -1) return key;
+  const name = key.slice(0, brace);
+  const rawLabels = key.slice(brace + 1, -1);
+  const labels = rawLabels
+    .split(',')
+    .filter(Boolean)
+    .map((pair) => {
+      const separator = pair.indexOf('=');
+      if (separator === -1) return null;
+      const labelName = pair.slice(0, separator);
+      const labelValue = pair.slice(separator + 1)
+        .replace(/\\/g, '\\\\')
+        .replace(/"/g, '\\"')
+        .replace(/\n/g, '\\n');
+      return `${labelName}="${labelValue}"`;
+    })
+    .filter(Boolean);
+  return `${name}{${labels.join(',')}}`;
+};
+
+const writeFamily = (lines, values, type) => {
+  const families = new Set();
+  for (const [key, value] of values) {
+    const name = prometheusName(key);
+    if (!families.has(name)) {
+      lines.push(`# TYPE ${name} ${type}`);
+      families.add(name);
+    }
+    lines.push(`${prometheusKey(key)} ${value}`);
+  }
+};
+
 const writePrometheus = () => {
   const lines = [
     '# HELP trotro_process_uptime_seconds Process uptime in seconds.',
     '# TYPE trotro_process_uptime_seconds gauge',
     `trotro_process_uptime_seconds ${Math.floor((Date.now() - startedAt) / 1000)}`,
   ];
-  for (const [key, value] of counters) {
-    lines.push(`# TYPE ${key.split('{')[0]} counter`, `${key.replace('{', '{').replace('}', '')} ${value}`);
-  }
-  for (const [key, value] of gauges) {
-    lines.push(`# TYPE ${key.split('{')[0]} gauge`, `${key} ${value}`);
-  }
+  writeFamily(lines, counters, 'counter');
+  writeFamily(lines, gauges, 'gauge');
   return `${lines.join('\n')}\n`;
 };
 

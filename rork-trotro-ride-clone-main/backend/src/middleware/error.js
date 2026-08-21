@@ -35,7 +35,15 @@ const errorHandler = (err, req, res, _next) => {
     return res.status(400).json({ error: 'BadRequest', message: 'Invalid reference' });
   }
 
-  console.error('[trotro-api] unhandled error', err?.message || err);
+  console.error('[trotro-api] unhandled error', {
+    name: err?.name,
+    message: err?.message,
+    code: err?.code,
+    status,
+    stack: err?.stack,
+    method: req.method,
+    route: req.route?.path || 'unmatched',
+  });
   return res.status(500).json({ error: 'InternalServerError', message: 'Something went wrong' });
 };
 

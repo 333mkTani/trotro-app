@@ -150,7 +150,11 @@ const processMutation = async (user, input) => {
     const result = await applyMutation(user, input);
     return normalizeReceipt(await markMutation(receipt.id, 'accepted', { result }));
   } catch (error) {
-    const status = error.status === 409 ? 'conflict' : error.status >= 500 ? 'retryable' : 'rejected';
+    const status = error.status === 409
+      ? 'conflict'
+      : error.status === undefined || error.status >= 500
+        ? 'retryable'
+        : 'rejected';
     const marked = await markMutation(receipt.id, status, {
       errorCode: error.code || `HTTP_${error.status || 400}`,
       errorMessage: error.message || 'Mutation rejected',

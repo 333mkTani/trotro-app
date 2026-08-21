@@ -66,7 +66,7 @@ app.use((req, res, next) => {
   const started = process.hrtime.bigint();
   res.on('finish', () => {
     const durationMs = Number(process.hrtime.bigint() - started) / 1e6;
-    const route = req.route?.path || req.path;
+    const route = req.route?.path || 'unmatched';
     const labels = { method: req.method, route, status: res.statusCode };
     increment('trotro_http_requests_total', 1, labels);
     increment('trotro_http_request_duration_ms_total', Math.round(durationMs), { method: req.method, route });
@@ -109,7 +109,7 @@ app.get('/health', (req, res) => {
 // an instance that can reach its database and, when configured, Redis.
 app.get('/metrics', (req, res) => {
   if (!env.METRICS_TOKEN) return res.sendStatus(404);
-  const supplied = String(req.headers.authorization || '').replace(/^Bearer\\s+/i, '');
+  const supplied = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '');
   if (!supplied || supplied !== env.METRICS_TOKEN) return res.sendStatus(401);
   res.type('text/plain').send(writePrometheus());
 });

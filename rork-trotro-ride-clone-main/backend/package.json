@@ -7,6 +7,7 @@
   "scripts": {
     "start": "node src/server.js",
     "worker:schedule": "node src/scheduleWorker.js",
+    "worker:sync-retention": "node src/syncRetentionWorker.js",
     "verify:staging": "node scripts/verify-staging.mjs",
     "verify:database": "node scripts/verify-database.mjs",
     "acceptance:live": "node scripts/acceptance-live.mjs",
@@ -16,6 +17,13 @@
     "dev": "nodemon src/server.js",
     "migrate": "node database/migrate.js",
     "test": "jest"
+  },
+  "overrides": {
+    "engine.io": "6.6.9",
+    "engine.io-parser": "5.2.3",
+    "socket.io-adapter": "2.5.8",
+    "socket.io-parser": "4.2.7",
+    "ws": "8.21.3"
   },
   "dependencies": {
     "@socket.io/redis-adapter": "^8.3.0",
