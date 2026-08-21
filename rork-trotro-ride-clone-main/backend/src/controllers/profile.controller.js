@@ -22,4 +22,8 @@ const savePushToken = asyncHandler(async (req, res) => {
   res.json({ ok: true });
 });
 
-module.exports = { me, updateMe, savePushToken };
+const deleteMe = asyncHandler(async (req, res) => {
+  res.json(await profileService.deleteMe(req.user.id));
+});
+
+module.exports = { me, updateMe, savePushToken, deleteMe };
