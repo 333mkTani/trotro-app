@@ -11,6 +11,7 @@ const paymentModel = require('../models/bookingPayment.model');
 const walletModel = require('../models/wallet.model');
 const push = require('./push.service');
 const refundService = require('./refund.service');
+const { reverseDriverDeposit } = require('./bookingPayment.service');
 const { ApiError } = require('../utils/ApiError');
 const { generateBoardingCode, buildQrPayload } = require('../utils/codes');
 const { emitToDriver, emitToRoute, emitToUser } = require('../realtime/io');
@@ -274,6 +275,9 @@ const cancel = async (bookingId, user) => {
       previous_status: existing.status,
       refund_due: refundDue,
     };
+    if (existing.driver_id) {
+      await reverseDriverDeposit(existing, client, `Reversal of driver deposit settlement after cancellation for booking ${bookingId}`);
+    }
     const code = await codeModel.findByBookingId(bookingId, client);
     if (code?.status === 'valid') await codeModel.invalidate(code.id, client);
     if (booking.previous_status === 'confirmed' && booking.bus_id) {
@@ -433,6 +437,9 @@ const expireStale = async (olderThanHours = 4) => {
     const due = await bookingModel.expireDue(new Date(), olderThanHours, client);
     for (let index = 0; index < due.length; index += 1) {
       const booking = due[index];
+      if (booking.driver_id) {
+        await reverseDriverDeposit(booking, client, `Reversal of driver deposit settlement after expiry for booking ${booking.id}`);
+      }
       if (booking.previous_status === 'confirmed' && booking.bus_id) {
         await busModel.adjustSeats(booking.bus_id, 1, client);
       }

@@ -262,3 +262,30 @@ describe('boarded-ride recovery lifecycle', () => {
     expect(bookingModel.markBoardedRecoveryResolved).toHaveBeenCalledWith('boarded-1', expect.anything());
   });
 });
+
+describe('driver deposit settlement reversal', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('reverses a credited driver deposit when a confirmed booking is cancelled', async () => {
+    const booking = {
+      id: 'booking-settlement-1', passenger_id: 'passenger-1', driver_id: 'driver-1',
+      bus_id: 'bus-1', status: 'confirmed', payment_status: 'deposit_paid',
+      boarded_at: null, cancellation_deadline: '2099-01-01T00:00:00Z',
+    };
+    bookingModel.findByIdForUpdate.mockResolvedValue(booking);
+    bookingModel.cancelForUser.mockResolvedValue({ ...booking, status: 'cancelled', payment_status: 'refund_pending' });
+    walletModel.findBookingTransactionForUpdate.mockResolvedValue({ amount: '2.50', type: 'driver_payment' });
+    walletModel.findTransactionByReferenceOnly.mockResolvedValue(null);
+    walletModel.adjustBalance.mockResolvedValue({ user_id: 'driver-1', balance: '0' });
+    walletModel.insertTransaction.mockResolvedValue({ type: 'refund', amount: -2.5 });
+    codeModel.findByBookingId.mockResolvedValue(null);
+
+    await bookingService.cancel('booking-settlement-1', { id: 'passenger-1', role: 'passenger' });
+
+    expect(walletModel.adjustBalance).toHaveBeenCalledWith('driver-1', -2.5, expect.anything());
+    expect(walletModel.insertTransaction).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'driver-1', bookingId: 'booking-settlement-1', type: 'refund', amount: -2.5,
+      reference: 'DRIVER_DEPOSIT_REVERSAL_booking-settlement-1',
+    }), expect.anything());
+  });
+});
