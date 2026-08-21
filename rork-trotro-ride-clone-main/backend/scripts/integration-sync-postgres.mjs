@@ -7,7 +7,11 @@ const syncService = require('../src/services/sync.service');
 const { purgeExpiredSyncData } = require('../src/services/syncRetention.service');
 
 const USER_ID = '00000000-0000-0000-0000-000000000901';
+const PASSENGER_ID = '00000000-0000-0000-0000-000000000903';
 const BUS_ID = '00000000-0000-0000-0000-000000000902';
+const BOOKING_CANCELLED_ID = '00000000-0000-0000-0000-000000000904';
+const BOOKING_COMPLETED_ID = '00000000-0000-0000-0000-000000000905';
+const BOOKING_RECOVERY_ID = '00000000-0000-0000-0000-000000000906';
 const PHONE = '+233200000901';
 const REGISTRATION = 'CI-SYNC-901';
 const ROUTE_ID = 'b1000000-0000-0000-0000-000000000001';
@@ -15,25 +19,26 @@ const ROUTE_ID = 'b1000000-0000-0000-0000-000000000001';
 const driver = { id: USER_ID, role: 'driver' };
 
 const cleanup = async () => {
-  await query('delete from public.sync_changes where audience_user_id = $1', [USER_ID]);
+  await query('delete from public.bookings where id in ($1, $2, $3)', [BOOKING_CANCELLED_ID, BOOKING_COMPLETED_ID, BOOKING_RECOVERY_ID]);
+  await query('delete from public.sync_changes where audience_user_id in ($1, $2)', [USER_ID, PASSENGER_ID]);
   await query('delete from public.sync_mutations where user_id = $1', [USER_ID]);
   await query('delete from public.buses where id = $1', [BUS_ID]);
   await query('delete from public.drivers where id = $1', [USER_ID]);
-  await query('delete from public.profiles where id = $1', [USER_ID]);
-  await query('delete from public.users where id = $1', [USER_ID]);
+  await query('delete from public.profiles where id in ($1, $2)', [USER_ID, PASSENGER_ID]);
+  await query('delete from public.users where id in ($1, $2)', [USER_ID, PASSENGER_ID]);
 };
 
 const seed = async () => {
   await cleanup();
   await query(
     `insert into public.users (id, phone, password_hash, is_verified)
-     values ($1, $2, $3, true)`,
-    [USER_ID, PHONE, 'ci-only-hash'],
+     values ($1, $2, $3, true), ($4, $5, $3, true)`,
+    [USER_ID, PHONE, 'ci-only-hash', PASSENGER_ID, '+233200000902'],
   );
   await query(
     `insert into public.profiles (id, phone, full_name, role)
-     values ($1, $2, 'CI Sync Driver', 'driver')`,
-    [USER_ID, PHONE],
+     values ($1, $2, 'CI Sync Driver', 'driver'), ($3, $4, 'CI Booking Passenger', 'passenger')`,
+    [USER_ID, PHONE, PASSENGER_ID, '+233200000902'],
   );
   await query(
     `insert into public.drivers (id, full_name, phone, status)
@@ -97,6 +102,65 @@ const runSeatConcurrencyAssertion = async () => {
   return { winners: results.filter(Boolean).length };
 };
 
+const runBookingLifecycleAssertions = async (stops) => {
+  const [pickup, destination] = stops.rows;
+  await query('update public.buses set seats_available = 8 where id = $1', [BUS_ID]);
+  const common = [PASSENGER_ID, USER_ID, BUS_ID, ROUTE_ID, pickup.id, pickup.name, destination.id, destination.name];
+  await query(
+    `insert into public.bookings
+      (id, passenger_id, driver_id, bus_id, route_id, pickup_stop_id, pickup_stop_name,
+       destination_stop_id, destination_stop_name, desired_arrival_time, buffer_minutes,
+       status, confirmed_at, payment_status, total_fare, deposit_amount, remaining_balance)
+     values
+      ($1, $4, $5, $6, $7, $8, $9, $10, $11, now(), 10, 'cancelled', now(), 'deposit_paid', 10, 2.5, 7.5),
+      ($2, $4, $5, $6, $7, $8, $9, $10, $11, now(), 10, 'completed', now(), 'fully_paid', 10, 2.5, 0),
+      ($3, $4, $5, $6, $7, $8, $9, $10, $11, now(), 10, 'confirmed', now(), 'balance_pending', 10, 2.5, 7.5)`,
+    [BOOKING_CANCELLED_ID, BOOKING_COMPLETED_ID, BOOKING_RECOVERY_ID, ...common],
+  );
+  await query(
+    `update public.bookings
+        set boarded_at = now() - interval '8 hours',
+            boarded_recovery_status = 'pending',
+            boarded_recovery_at = now() - interval '2 hours'
+      where id = $1`,
+    [BOOKING_RECOVERY_ID],
+  );
+
+  const bookingModel = require('../src/models/booking.model');
+  const cancelled = await bookingModel.releaseSeatForBooking(BOOKING_CANCELLED_ID);
+  const completed = await bookingModel.releaseSeatForBooking(BOOKING_COMPLETED_ID);
+  assert.ok(cancelled?.seat_released_at, 'cancelled booking must record seat release');
+  assert.ok(completed?.seat_released_at, 'completed booking must record seat release');
+
+  const afterRelease = await query('select seats_available from public.buses where id = $1', [BUS_ID]);
+  assert.equal(afterRelease.rows[0].seats_available, 10, 'two terminal bookings must release two seats');
+  await bookingModel.releaseSeatForBooking(BOOKING_CANCELLED_ID);
+  await bookingModel.releaseSeatForBooking(BOOKING_COMPLETED_ID);
+  const afterDuplicate = await query('select seats_available from public.buses where id = $1', [BUS_ID]);
+  assert.equal(afterDuplicate.rows[0].seats_available, 10, 'duplicate release calls must be no-ops');
+
+  const recovery = await query(
+    `select status, boarded_recovery_status, seat_released_at
+       from public.bookings where id = $1`,
+    [BOOKING_RECOVERY_ID],
+  );
+  assert.equal(recovery.rows[0].status, 'confirmed');
+  assert.equal(recovery.rows[0].boarded_recovery_status, 'pending');
+  assert.equal(recovery.rows[0].seat_released_at, null, 'pending recovery must retain its seat');
+
+  let terminalGuardRejected = false;
+  try {
+    await query(
+      `update public.bookings set seat_released_at = now() where id = $1`,
+      [BOOKING_RECOVERY_ID],
+    );
+  } catch (error) {
+    terminalGuardRejected = error.code === '23514';
+  }
+  assert.equal(terminalGuardRejected, true, 'non-terminal bookings must reject seat release timestamps');
+  return { terminalReleases: 2, duplicateReleaseStable: true, recoverySeatRetained: true };
+};
+
 const runRetentionAssertion = async () => {
   const old = new Date(Date.now() - 100 * 24 * 60 * 60 * 1000).toISOString();
   await query(
@@ -125,6 +189,16 @@ const run = async () => {
 
   await seed();
   const spatial = await runSpatialAssertions();
+  const bookingLifecycle = await runBookingLifecycleAssertions(
+    await query(
+      `select s.id, s.name, s.lat, s.lng, rs.sequence
+         from public.route_stops rs
+         join public.bus_stops s on s.id = rs.stop_id
+        where rs.route_id = $1 and s.status = 'active'
+        order by rs.sequence limit 2`,
+      [ROUTE_ID],
+    ),
+  );
 
   const input = {
     eventId: 'ci-event-atomic-901',
@@ -209,6 +283,7 @@ const run = async () => {
     gpsSyncStatus: location.status,
     retention,
     rollbackVerified: true,
+    bookingLifecycle,
   }));
 };
 
