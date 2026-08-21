@@ -161,7 +161,14 @@ const processMutation = async (user, input) => {
     committed = await withTransaction(async (client) => {
       const receipt = await reserveMutation(client, { userId: user.id, ...input });
       if (receipt.status !== 'processing') {
-        return { receipt: normalizeReceipt(receipt), sideEffects: null };
+        const normalized = normalizeReceipt(receipt);
+        return {
+          receipt: {
+            ...normalized,
+            status: receipt.status === 'accepted' ? 'duplicate' : receipt.status,
+          },
+          sideEffects: null,
+        };
       }
 
       try {
