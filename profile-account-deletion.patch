@@ -1,0 +1,217 @@
+﻿diff --git a/rork-trotro-ride-clone-main/backend/src/controllers/profile.controller.js b/rork-trotro-ride-clone-main/backend/src/controllers/profile.controller.js
+index d516794..4253a81 100644
+--- a/rork-trotro-ride-clone-main/backend/src/controllers/profile.controller.js
++++ b/rork-trotro-ride-clone-main/backend/src/controllers/profile.controller.js
+@@ -22,4 +22,8 @@ const savePushToken = asyncHandler(async (req, res) => {
+   res.json({ ok: true });
+ });
+ 
+-module.exports = { me, updateMe, savePushToken };
++const deleteMe = asyncHandler(async (req, res) => {
++  res.json(await profileService.deleteMe(req.user.id));
++});
++
++module.exports = { me, updateMe, savePushToken, deleteMe };
+diff --git a/rork-trotro-ride-clone-main/backend/src/middleware/auth.js b/rork-trotro-ride-clone-main/backend/src/middleware/auth.js
+index dc780b1..4043d81 100644
+--- a/rork-trotro-ride-clone-main/backend/src/middleware/auth.js
++++ b/rork-trotro-ride-clone-main/backend/src/middleware/auth.js
+@@ -1,6 +1,7 @@
+ const jwt = require('jsonwebtoken');
+ const { env } = require('../config/env');
+ const { ApiError } = require('../utils/ApiError');
++const profileModel = require('../models/profile.model');
+ 
+ /**
+  * Verifies a Bearer JWT and attaches `req.user = { id, role }`.
+@@ -12,7 +13,7 @@ const { ApiError } = require('../utils/ApiError');
+  * read from `app_metadata.role`, then `user_metadata.role`, defaulting to
+  * `passenger`.
+  */
+-const requireAuth = (req, _res, next) => {
++const requireAuth = async (req, _res, next) => {
+   const header = req.headers.authorization || '';
+   const token = header.startsWith('Bearer ') ? header.slice(7) : null;
+   if (!token) return next(ApiError.unauthorized('Missing bearer token'));
+@@ -31,6 +32,9 @@ const requireAuth = (req, _res, next) => {
+             payload.user_metadata?.role ||
+             (source === 'supabase' ? 'passenger' : payload.role) ||
+             'passenger';
++      if (!await profileModel.isActive(payload.sub)) {
++        return next(ApiError.unauthorized('Account is unavailable'));
++      }
+       req.user = { id: payload.sub, role, email: payload.email, phone: payload.phone };
+       return next();
+     } catch (_err) {
+diff --git a/rork-trotro-ride-clone-main/backend/src/models/profile.model.js b/rork-trotro-ride-clone-main/backend/src/models/profile.model.js
+index 8850116..8d30ec9 100644
+--- a/rork-trotro-ride-clone-main/backend/src/models/profile.model.js
++++ b/rork-trotro-ride-clone-main/backend/src/models/profile.model.js
+@@ -1,4 +1,4 @@
+-const { query } = require('../config/db');
++const { query, withTransaction } = require('../config/db');
+ 
+ const COLUMNS = `id, phone, full_name, email, avatar_url, role, fcm_token, theme_mode,
+   bus_alerts_enabled, created_at, updated_at`;
+@@ -52,4 +52,42 @@ const update = async (id, patch) => {
+   return rows[0] || null;
+ };
+ 
+-module.exports = { findById, findByPhone, findByPhoneVariants, update };
++const isActive = async (id) => {
++  const { rows } = await query(
++    `select 1 from public.profiles where id = $1 and deleted_at is null`,
++    [id],
++  );
++  return rows.length > 0;
++};
++
++const deactivate = async (id) => withTransaction(async (client) => {
++  const { rows } = await client.query(
++    `update public.profiles
++        set phone = 'deleted:' || id::text,
++            full_name = 'Deleted User',
++            email = null,
++            avatar_url = null,
++            fcm_token = null,
++            bus_alerts_enabled = false,
++            deleted_at = now(),
++            updated_at = now()
++      where id = $1 and deleted_at is null
++      returning id, deleted_at`,
++    [id],
++  );
++  if (!rows[0]) return null;
++
++  await client.query(
++    `update public.users
++        set phone = 'deleted:' || id::text,
++            email = null,
++            password_hash = encode(gen_random_bytes(32), 'hex'),
++            updated_at = now()
++      where id = $1`,
++    [id],
++  );
++  await client.query(`delete from public.auth_credentials where user_id = $1`, [id]);
++  return rows[0];
++});
++
++module.exports = { findById, findByPhone, findByPhoneVariants, update, isActive, deactivate };
+diff --git a/rork-trotro-ride-clone-main/backend/src/routes/profile.routes.js b/rork-trotro-ride-clone-main/backend/src/routes/profile.routes.js
+index c5d3dba..c98c6f0 100644
+--- a/rork-trotro-ride-clone-main/backend/src/routes/profile.routes.js
++++ b/rork-trotro-ride-clone-main/backend/src/routes/profile.routes.js
+@@ -4,6 +4,7 @@ const { requireAuth } = require('../middleware/auth');
+ 
+ router.get('/me', requireAuth, ctrl.me);
+ router.patch('/me', requireAuth, ctrl.updateMe);
++router.delete('/me', requireAuth, ctrl.deleteMe);
+ router.post('/push-token', requireAuth, ctrl.savePushToken);
+ 
+ module.exports = router;
+diff --git a/rork-trotro-ride-clone-main/backend/src/services/profile.service.js b/rork-trotro-ride-clone-main/backend/src/services/profile.service.js
+index bba7ca7..6443a65 100644
+--- a/rork-trotro-ride-clone-main/backend/src/services/profile.service.js
++++ b/rork-trotro-ride-clone-main/backend/src/services/profile.service.js
+@@ -17,4 +17,10 @@ const savePushToken = async (userId, token) => {
+   await profileModel.update(userId, { fcmToken: token });
+ };
+ 
+-module.exports = { getMe, updateMe, savePushToken };
++const deleteMe = async (userId) => {
++  const deleted = await profileModel.deactivate(userId);
++  if (!deleted) throw ApiError.notFound('Profile not found');
++  return { ok: true };
++};
++
++module.exports = { getMe, updateMe, savePushToken, deleteMe };
+diff --git a/rork-trotro-ride-clone-main/expo/app/(tabs)/settings/index.tsx b/rork-trotro-ride-clone-main/expo/app/(tabs)/settings/index.tsx
+index 55ca58e..1ece5e9 100644
+--- a/rork-trotro-ride-clone-main/expo/app/(tabs)/settings/index.tsx
++++ b/rork-trotro-ride-clone-main/expo/app/(tabs)/settings/index.tsx
+@@ -46,7 +46,7 @@ export default function SettingsScreen() {
+   const Colors = themeColors;
+   st = React.useMemo(() => make_st(themeColors), [themeColors]);
+ 
+-  const { user, logout } = useAuth();
++  const { user, logout, deleteAccount, deleteAccountPending } = useAuth();
+   const { mode: themeMode, setThemeMode } = useTheme();
+   const [showTheme, setShowTheme] = useState<boolean>(false);
+   const router = useRouter();
+@@ -96,6 +96,32 @@ export default function SettingsScreen() {
+     ]);
+   }, [logout, router]);
+ 
++  const doDeleteAccount = useCallback(() => {
++    if (deleteAccountPending) return;
++    Alert.alert(
++      "Delete Account",
++      "This permanently disables your account and removes your personal profile information. Booking and payment records required for transaction history will be retained anonymously.",
++      [
++        { text: "Cancel", style: "cancel" },
++        {
++          text: "Delete Account",
++          style: "destructive",
++          onPress: async () => {
++            try {
++              await deleteAccount();
++              router.replace("/login");
++            } catch (error) {
++              Alert.alert(
++                "Account not deleted",
++                error instanceof Error ? error.message : "Please check your connection and try again.",
++              );
++            }
++          },
++        },
++      ],
++    );
++  }, [deleteAccount, deleteAccountPending, router]);
++
+   const openWallet = useCallback(() => {
+     if (Platform.OS !== "web") Haptics.selectionAsync();
+     router.push("/(tabs)/wallet");
+@@ -325,9 +351,9 @@ export default function SettingsScreen() {
+           <LogOut size={18} color={Colors.danger} />
+           <Text style={st.logoutTxt}>Sign Out</Text>
+         </TouchableOpacity>
+-        <TouchableOpacity style={st.deleteBtn} onPress={() => Alert.alert("Delete Account", "This cannot be undone.", [{ text: "Cancel" }, { text: "Delete", style: "destructive" }])} activeOpacity={0.7}>
++        <TouchableOpacity style={st.deleteBtn} onPress={doDeleteAccount} disabled={deleteAccountPending} activeOpacity={0.7} testID="delete-account-btn">
+           <Trash2 size={16} color={Colors.gray400} />
+-          <Text style={st.deleteTxt}>Delete Account</Text>
++          <Text style={st.deleteTxt}>{deleteAccountPending ? "Deleting Account..." : "Delete Account"}</Text>
+         </TouchableOpacity>
+       </View>
+       <Text style={st.version}>Trotro v1.0.0</Text>
+diff --git a/rork-trotro-ride-clone-main/expo/contexts/AuthContext.tsx b/rork-trotro-ride-clone-main/expo/contexts/AuthContext.tsx
+index afec1e8..1289f6f 100644
+--- a/rork-trotro-ride-clone-main/expo/contexts/AuthContext.tsx
++++ b/rork-trotro-ride-clone-main/expo/contexts/AuthContext.tsx
+@@ -162,6 +162,18 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
+     queryClient.clear();
+   }, [queryClient]);
+ 
++  const deleteAccountMutation = useMutation({
++    mutationFn: async () => {
++      await api.delete('/profiles/me');
++      await clearAuthToken();
++      await AsyncStorage.removeItem(AUTH_USER_KEY);
++    },
++    onSuccess: () => {
++      setUser(null);
++      queryClient.clear();
++    },
++  });
++
+   return {
+     user,
+     isAuthenticated: !!user,
+@@ -175,6 +187,8 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
+     confirmPhoneVerification: confirmMutation.mutateAsync,
+     confirmPhoneVerificationPending: confirmMutation.isPending,
+     logout,
++    deleteAccount: deleteAccountMutation.mutateAsync,
++    deleteAccountPending: deleteAccountMutation.isPending,
+     updateProfile: updateProfileMutation.mutateAsync,
+     updateProfilePending: updateProfileMutation.isPending,
+   };
