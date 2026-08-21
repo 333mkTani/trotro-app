@@ -10,6 +10,7 @@ const COLUMNS = `id, passenger_id, driver_id, bus_id, route_id,
   payment_status, total_fare, deposit_amount, remaining_balance,
   boarding_deadline, cancellation_deadline, no_show_marked_at, hold_expires_at,
   boarded_recovery_status, boarded_recovery_at, boarded_recovery_reason,
+  seat_released_at,
   driver_pickup_arrived_at, no_show_compensation_amount, no_show_compensated_at,
   created_at, updated_at`;
 
@@ -453,6 +454,35 @@ const markBoarded = async (id, client) => {
   return rows[0] || null;
 };
 
+const releaseSeatForBooking = async (id, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
+    `with target as (
+       select id, bus_id
+         from public.bookings
+        where id = $1
+          and bus_id is not null
+          and seat_released_at is null
+          and status in ('cancelled', 'expired', 'completed')
+        for update
+     ), released_bus as (
+       update public.buses b
+          set seats_available = least(b.total_seats, b.seats_available + 1)
+         from target t
+        where b.id = t.bus_id
+        returning b.id
+     )
+     update public.bookings b
+        set seat_released_at = now(), updated_at = now()
+       from target t
+       join released_bus rb on rb.id = t.bus_id
+      where b.id = t.id
+      returning ${COLUMNS}`,
+    [id],
+  );
+  return rows[0] || null;
+};
+
 const markPaid = async (id, paymentMethod, client) => {
   const runner = client || { query };
   const { rows } = await runner.query(
@@ -595,7 +625,7 @@ module.exports = {
   findProvisionalForPaymentForUpdate, findByIdForUpdate,
   markDepositPaid, confirmAfterDeposit, markDepositRefundPending,
   markBoarded, markBoardedAndOpenBalance, markBoardedRecoveryPending, markBoardedRecoveryResolved,
-  listStaleBoardedForUpdate, markBalancePaid, markPaid,
+  listStaleBoardedForUpdate, releaseSeatForBooking, markBalancePaid, markPaid,
   markNoShowCompensated,
   markRefunded,
   listRefundPending,

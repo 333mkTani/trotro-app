@@ -281,7 +281,7 @@ const cancel = async (bookingId, user) => {
     const code = await codeModel.findByBookingId(bookingId, client);
     if (code?.status === 'valid') await codeModel.invalidate(code.id, client);
     if (booking.previous_status === 'confirmed' && booking.bus_id) {
-      await busModel.adjustSeats(booking.bus_id, 1, client);
+      await bookingModel.releaseSeatForBooking(bookingId, client);
     }
     return booking;
   });
@@ -337,7 +337,7 @@ const complete = async (bookingId, user) => withTransaction(async (client) => {
   if (existing.source_occurrence_id) {
     await scheduleLifecycleModel.markCompleted(existing.source_occurrence_id, client);
   }
-  if (existing.bus_id) await busModel.adjustSeats(existing.bus_id, 1, client);
+  if (existing.bus_id) await bookingModel.releaseSeatForBooking(bookingId, client);
   if (existing.boarded_recovery_status === 'pending') {
     await bookingModel.markBoardedRecoveryResolved(bookingId, client);
   }
@@ -441,7 +441,7 @@ const expireStale = async (olderThanHours = 4) => {
         await reverseDriverDeposit(booking, client, `Reversal of driver deposit settlement after expiry for booking ${booking.id}`);
       }
       if (booking.previous_status === 'confirmed' && booking.bus_id) {
-        await busModel.adjustSeats(booking.bus_id, 1, client);
+        await bookingModel.releaseSeatForBooking(booking.id, client);
       }
       const code = await codeModel.findByBookingId(booking.id, client);
       if (code?.status === 'valid') await codeModel.invalidate(code.id, client);

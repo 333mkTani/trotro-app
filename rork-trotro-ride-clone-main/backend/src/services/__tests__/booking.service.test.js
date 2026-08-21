@@ -151,8 +151,7 @@ describe('booking cancellation, expiry, and seat release', () => {
     const result = await bookingService.cancel('booking-1', { id: 'passenger-1', role: 'passenger' });
 
     expect(result).toMatchObject({ status: 'cancelled', payment_status: 'refund_pending' });
-    expect(busModel.adjustSeats).toHaveBeenCalledTimes(1);
-    expect(busModel.adjustSeats).toHaveBeenCalledWith('bus-1', 1, expect.anything());
+    expect(bookingModel.releaseSeatForBooking).toHaveBeenCalledWith('booking-1', expect.anything());
     expect(codeModel.invalidate).toHaveBeenCalledWith('code-1', expect.anything());
   });
 
@@ -162,7 +161,7 @@ describe('booking cancellation, expiry, and seat release', () => {
       id: 'passenger-1', role: 'passenger',
     })).rejects.toThrow('cannot be cancelled after boarding');
     expect(bookingModel.cancelForUser).not.toHaveBeenCalled();
-    expect(busModel.adjustSeats).not.toHaveBeenCalled();
+    expect(bookingModel.releaseSeatForBooking).not.toHaveBeenCalled();
   });
 
   it('expires holds without increasing physical seats and releases confirmed no-show seats', async () => {
@@ -173,8 +172,7 @@ describe('booking cancellation, expiry, and seat release', () => {
     codeModel.findByBookingId.mockResolvedValue(null);
 
     await expect(bookingService.expireStale()).resolves.toHaveLength(2);
-    expect(busModel.adjustSeats).toHaveBeenCalledTimes(1);
-    expect(busModel.adjustSeats).toHaveBeenCalledWith('bus-1', 1, expect.anything());
+    expect(bookingModel.releaseSeatForBooking).toHaveBeenCalledWith('no-show-1', expect.anything());
   });
 
   it('credits the deposit to an eligible driver exactly through auditable ledgers', async () => {
@@ -240,7 +238,7 @@ describe('boarded-ride recovery lifecycle', () => {
     expect(bookingModel.markBoardedRecoveryPending).toHaveBeenCalledWith(
       'boarded-1', expect.stringContaining('recovery window'), expect.anything(),
     );
-    expect(busModel.adjustSeats).not.toHaveBeenCalled();
+    expect(bookingModel.releaseSeatForBooking).not.toHaveBeenCalled();
   });
 
   it('completes a recovered ride under a row lock and resolves its recovery state', async () => {
@@ -258,7 +256,7 @@ describe('boarded-ride recovery lifecycle', () => {
 
     expect(result.status).toBe('completed');
     expect(bookingModel.findByIdForUpdate).toHaveBeenCalledWith('boarded-1', expect.anything());
-    expect(busModel.adjustSeats).toHaveBeenCalledWith('bus-1', 1, expect.anything());
+    expect(bookingModel.releaseSeatForBooking).toHaveBeenCalledWith('boarded-1', expect.anything());
     expect(bookingModel.markBoardedRecoveryResolved).toHaveBeenCalledWith('boarded-1', expect.anything());
   });
 });
