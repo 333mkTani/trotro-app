@@ -1,6 +1,7 @@
 const jwt = require('jsonwebtoken');
 const { env } = require('../config/env');
 const { ApiError } = require('../utils/ApiError');
+const profileModel = require('../models/profile.model');
 
 /**
  * Verifies a Bearer JWT and attaches `req.user = { id, role }`.
@@ -12,7 +13,7 @@ const { ApiError } = require('../utils/ApiError');
  * read from `app_metadata.role`, then `user_metadata.role`, defaulting to
  * `passenger`.
  */
-const requireAuth = (req, _res, next) => {
+const requireAuth = async (req, _res, next) => {
   const header = req.headers.authorization || '';
   const token = header.startsWith('Bearer ') ? header.slice(7) : null;
   if (!token) return next(ApiError.unauthorized('Missing bearer token'));
@@ -31,6 +32,9 @@ const requireAuth = (req, _res, next) => {
             payload.user_metadata?.role ||
             (source === 'supabase' ? 'passenger' : payload.role) ||
             'passenger';
+      if (!await profileModel.isActive(payload.sub)) {
+        return next(ApiError.unauthorized('Account is unavailable'));
+      }
       req.user = { id: payload.sub, role, email: payload.email, phone: payload.phone };
       return next();
     } catch (_err) {
