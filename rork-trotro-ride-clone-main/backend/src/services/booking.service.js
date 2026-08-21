@@ -15,6 +15,7 @@ const { ApiError } = require('../utils/ApiError');
 const { generateBoardingCode, buildQrPayload } = require('../utils/codes');
 const { emitToDriver, emitToRoute, emitToUser } = require('../realtime/io');
 const { calculateDeposit, calculateBookingDeadlines, getDepositPolicy } = require('../config/depositPolicy');
+const { env } = require('../config/env');
 
 const listForUser = async (user, { status }) => {
   if (user.role === 'driver') {
@@ -306,8 +307,8 @@ const cancel = async (bookingId, user) => {
   return result;
 };
 
-const complete = async (bookingId, user) => {
-  const existing = await bookingModel.findById(bookingId);
+const complete = async (bookingId, user) => withTransaction(async (client) => {
+  const existing = await bookingModel.findByIdForUpdate(bookingId, client);
   if (!existing) throw ApiError.notFound('Booking not found');
   if (
     user &&
@@ -317,33 +318,28 @@ const complete = async (bookingId, user) => {
   ) {
     throw ApiError.forbidden();
   }
-  if (existing.status !== 'confirmed') {
   if (existing.status === 'completed') return existing;
+  if (existing.status !== 'confirmed') {
     throw ApiError.badRequest(`Cannot complete a ${existing.status} booking`);
   }
   if (!existing.arrived_at) throw ApiError.badRequest('Arrival has not been detected');
   if (!existing.paid_at) throw ApiError.badRequest('Ride must be paid before completion');
-  const redeemedCode = await codeModel.findByBookingId(bookingId);
+  const redeemedCode = await codeModel.findByBookingId(bookingId, client);
   if (!redeemedCode || redeemedCode.status !== 'used') {
     throw ApiError.badRequest('Boarding code must be redeemed before completing the ride');
   }
-  return withTransaction(async (client) => {
-    const booking = await bookingModel.updateStatus(bookingId, 'completed', {}, client);
-    if (existing.source_occurrence_id) {
-      await scheduleLifecycleModel.markCompleted(existing.source_occurrence_id, client);
-    }
-    if (!booking) throw ApiError.notFound('Booking not found');
-    // The passenger has alighted, so free the seat they held. A booking only
-    // ever releases its seat once: 'confirmed' is the sole state that holds a
-    // reservation, and 'completed'/'cancelled' are terminal and mutually
-    // exclusive — so this can't double-restore with cancel().
-    if (existing.status === 'confirmed' && existing.bus_id) {
-      await busModel.adjustSeats(existing.bus_id, 1, client);
-    }
-    if (booking.driver_id) emitToDriver(booking.driver_id, 'booking:updated', booking);
-    return booking;
-  });
-};
+  const booking = await bookingModel.updateStatus(bookingId, 'completed', {}, client);
+  if (!booking) throw ApiError.conflict('Booking completion raced with another lifecycle transition');
+  if (existing.source_occurrence_id) {
+    await scheduleLifecycleModel.markCompleted(existing.source_occurrence_id, client);
+  }
+  if (existing.bus_id) await busModel.adjustSeats(existing.bus_id, 1, client);
+  if (existing.boarded_recovery_status === 'pending') {
+    await bookingModel.markBoardedRecoveryResolved(bookingId, client);
+  }
+  if (booking.driver_id) emitToDriver(booking.driver_id, 'booking:updated', booking);
+  return booking;
+});
 
 const redeemCode = async (code, driverUser) => {
   const result = await withTransaction(async (client) => {
@@ -396,6 +392,20 @@ const recordCashPayment = async (bookingId, passengerId) => withTransaction(asyn
   }
   if (booking.paid_at) return booking;
   return bookingModel.markPaid(bookingId, 'cash', client);
+});
+
+const recoverStaleBoarded = async (olderThanHours = env.BOARDED_RIDE_RECOVERY_HOURS) => withTransaction(async (client) => {
+  const stale = await bookingModel.listStaleBoardedForUpdate(olderThanHours, client);
+  const recovered = [];
+  for (const booking of stale) {
+    const updated = await bookingModel.markBoardedRecoveryPending(
+      booking.id,
+      'boarded ride exceeded recovery window; operator or lifecycle completion required',
+      client,
+    );
+    if (updated) recovered.push(updated);
+  }
+  return recovered;
 });
 
 const rateDriver = async (bookingId, passengerId, { rating, comment }) => {
@@ -498,5 +508,5 @@ const expireStale = async (olderThanHours = 4) => {
 
 module.exports = {
   listForUser, getById, create, createProvisional, confirm, cancel, complete, redeemCode,
-  rateDriver, expireStale, recordCashPayment,
+  rateDriver, expireStale, recoverStaleBoarded, recordCashPayment,
 };

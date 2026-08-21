@@ -219,3 +219,46 @@ describe('booking cancellation, expiry, and seat release', () => {
     expect(walletModel.adjustBalance).not.toHaveBeenCalled();
   });
 });
+
+describe('boarded-ride recovery lifecycle', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('flags stale boarded rides without expiring them or releasing their seat', async () => {
+    const stale = {
+      id: 'boarded-1', status: 'confirmed', boarded_at: '2026-08-20T01:00:00Z',
+      boarded_recovery_status: 'none', bus_id: 'bus-1', payment_status: 'balance_pending',
+    };
+    bookingModel.listStaleBoardedForUpdate.mockResolvedValue([stale]);
+    bookingModel.markBoardedRecoveryPending.mockResolvedValue({
+      ...stale, boarded_recovery_status: 'pending', boarded_recovery_reason: 'recovery',
+    });
+
+    const result = await bookingService.recoverStaleBoarded(1);
+
+    expect(result).toHaveLength(1);
+    expect(bookingModel.listStaleBoardedForUpdate).toHaveBeenCalledWith(1, expect.anything());
+    expect(bookingModel.markBoardedRecoveryPending).toHaveBeenCalledWith(
+      'boarded-1', expect.stringContaining('recovery window'), expect.anything(),
+    );
+    expect(busModel.adjustSeats).not.toHaveBeenCalled();
+  });
+
+  it('completes a recovered ride under a row lock and resolves its recovery state', async () => {
+    const booking = {
+      id: 'boarded-1', passenger_id: 'passenger-1', driver_id: 'driver-1', bus_id: 'bus-1',
+      status: 'confirmed', arrived_at: '2026-08-20T02:00:00Z', paid_at: '2026-08-20T02:01:00Z',
+      boarded_recovery_status: 'pending', source_occurrence_id: null,
+    };
+    bookingModel.findByIdForUpdate.mockResolvedValue(booking);
+    codeModel.findByBookingId.mockResolvedValue({ status: 'used' });
+    bookingModel.updateStatus.mockResolvedValue({ ...booking, status: 'completed' });
+    bookingModel.markBoardedRecoveryResolved.mockResolvedValue({ ...booking, boarded_recovery_status: 'resolved' });
+
+    const result = await bookingService.complete('boarded-1', { id: 'driver-1', role: 'driver' });
+
+    expect(result.status).toBe('completed');
+    expect(bookingModel.findByIdForUpdate).toHaveBeenCalledWith('boarded-1', expect.anything());
+    expect(busModel.adjustSeats).toHaveBeenCalledWith('bus-1', 1, expect.anything());
+    expect(bookingModel.markBoardedRecoveryResolved).toHaveBeenCalledWith('boarded-1', expect.anything());
+  });
+});

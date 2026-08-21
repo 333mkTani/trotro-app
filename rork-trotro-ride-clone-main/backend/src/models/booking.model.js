@@ -9,6 +9,7 @@ const COLUMNS = `id, passenger_id, driver_id, bus_id, route_id,
   route_name, ride_fare, ride_payment_method, ride_schedule, source_occurrence_id,
   payment_status, total_fare, deposit_amount, remaining_balance,
   boarding_deadline, cancellation_deadline, no_show_marked_at, hold_expires_at,
+  boarded_recovery_status, boarded_recovery_at, boarded_recovery_reason,
   driver_pickup_arrived_at, no_show_compensation_amount, no_show_compensated_at,
   created_at, updated_at`;
 
@@ -482,6 +483,50 @@ const markBoardedAndOpenBalance = async (id, client) => {
   return rows[0] || null;
 };
 
+const markBoardedRecoveryPending = async (id, reason, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
+    `update public.bookings
+        set boarded_recovery_status = case when boarded_recovery_status = 'none' then 'pending' else boarded_recovery_status end,
+            boarded_recovery_at = coalesce(boarded_recovery_at, now()),
+            boarded_recovery_reason = coalesce(boarded_recovery_reason, $2),
+            updated_at = now()
+      where id = $1 and status = 'confirmed' and boarded_at is not null
+      returning ${COLUMNS}`,
+    [id, reason],
+  );
+  return rows[0] || null;
+};
+
+const markBoardedRecoveryResolved = async (id, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
+    `update public.bookings
+        set boarded_recovery_status = case when boarded_recovery_status = 'pending' then 'resolved' else boarded_recovery_status end,
+            updated_at = now()
+      where id = $1
+      returning ${COLUMNS}`,
+    [id],
+  );
+  return rows[0] || null;
+};
+
+const listStaleBoardedForUpdate = async (olderThanHours, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
+    `select ${COLUMNS}
+       from public.bookings
+      where status = 'confirmed'
+        and boarded_at is not null
+        and boarded_recovery_status = 'none'
+        and boarded_at < now() - ($1 * interval '1 hour')
+      order by boarded_at asc
+      for update skip locked`,
+    [olderThanHours],
+  );
+  return rows;
+};
+
 const markBalancePaid = async (id, paymentMethod, client) => {
   const runner = client || { query };
   const { rows } = await runner.query(
@@ -549,7 +594,8 @@ module.exports = {
   findForPaymentForUpdate,
   findProvisionalForPaymentForUpdate, findByIdForUpdate,
   markDepositPaid, confirmAfterDeposit, markDepositRefundPending,
-  markBoarded, markBoardedAndOpenBalance, markBalancePaid, markPaid,
+  markBoarded, markBoardedAndOpenBalance, markBoardedRecoveryPending, markBoardedRecoveryResolved,
+  listStaleBoardedForUpdate, markBalancePaid, markPaid,
   markNoShowCompensated,
   markRefunded,
   listRefundPending,
