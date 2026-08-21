@@ -70,6 +70,10 @@ const env = {
     Math.max(1, parseInt(process.env.SYNC_RETENTION_DAYS || '90', 10)),
   SYNC_RETENTION_INTERVAL_MS:
     Math.max(3600000, parseInt(process.env.SYNC_RETENTION_INTERVAL_MS || '86400000', 10)),
+  BOARDED_RIDE_RECOVERY_HOURS:
+    Math.max(1, parseInt(process.env.BOARDED_RIDE_RECOVERY_HOURS || '6', 10)),
+  DRIVER_DEPOSIT_SETTLEMENT_PERCENT:
+    Math.min(100, Math.max(0, Number(process.env.DRIVER_DEPOSIT_SETTLEMENT_PERCENT || '100'))),
 };
 
 if (!env.DATABASE_URL) {

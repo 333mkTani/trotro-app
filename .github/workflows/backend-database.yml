@@ -55,6 +55,15 @@ jobs:
       - name: Re-run migrations for idempotency
         run: npm run migrate
       - name: Run real PostGIS sync integration suite
-        run: npm run test:integration:sync
+        run: |
+          set -o pipefail
+          npm run test:integration:sync 2>&1 | tee integration-sync.log
+      - name: Upload database integration evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-database-integration-evidence
+          path: rork-trotro-ride-clone-main/backend/integration-sync.log
+          if-no-files-found: ignore
       - name: Run backend tests
         run: npm test -- --runInBand

@@ -3,6 +3,7 @@ jest.mock('../../models/bookingPayment.model');
 jest.mock('../../models/profile.model');
 jest.mock('../../models/bus.model');
 jest.mock('../../models/code.model');
+jest.mock('../../models/wallet.model');
 jest.mock('../paystack.service');
 jest.mock('../push.service', () => ({ send: jest.fn() }));
 jest.mock('../refund.service', () => ({ initiateForBooking: jest.fn() }));
@@ -20,6 +21,7 @@ const paymentModel = require('../../models/bookingPayment.model');
 const profileModel = require('../../models/profile.model');
 const busModel = require('../../models/bus.model');
 const codeModel = require('../../models/code.model');
+const walletModel = require('../../models/wallet.model');
 const paystackService = require('../paystack.service');
 const service = require('../bookingPayment.service');
 
@@ -58,7 +60,11 @@ describe('booking deposit payment initialization and verification', () => {
     bookingModel.confirmAfterDeposit.mockResolvedValue({
       ...booking, status: 'confirmed', payment_status: 'deposit_paid',
     });
-    codeModel.insert.mockResolvedValue({ code: '123456', qr_payload: 'qr-payload' });
+    codeModel.insert.mockResolvedValue({ id: 'code-1', status: 'valid' });
+    walletModel.findBookingTransactionForUpdate.mockResolvedValue(null);
+    walletModel.ensureWallet.mockResolvedValue({ user_id: 'driver-1', balance: '0' });
+    walletModel.adjustBalance.mockResolvedValue({ user_id: 'driver-1', balance: '2.50' });
+    walletModel.insertTransaction.mockResolvedValue({ id: 'driver-settlement-1', type: 'driver_payment' });
   });
 
   it('creates one ledger row and initializes the exact deposit in pesewas', async () => {
@@ -105,6 +111,11 @@ describe('booking deposit payment initialization and verification', () => {
     );
     expect(bookingModel.confirmAfterDeposit).toHaveBeenCalledWith('booking-1', expect.anything());
     expect(codeModel.insert).toHaveBeenCalledTimes(1);
+    expect(walletModel.adjustBalance).toHaveBeenCalledWith('driver-1', 2.5, expect.anything());
+    expect(walletModel.insertTransaction).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'driver-1', bookingId: 'booking-1', type: 'driver_payment', amount: 2.5,
+      reference: 'DRIVER_DEPOSIT_booking-1',
+    }), expect.anything());
     expect(result).toMatchObject({ success: true, reserved: true, refundPending: false });
   });
 

@@ -21,7 +21,11 @@ server.listen(env.PORT, () => {
 const sweepStaleBookings = async () => {
   try {
     const expired = await bookingService.expireStale(4);
+    const boardedRecovery = await bookingService.recoverStaleBoarded();
     if (expired.length) console.log(`[booking-sweeper] expired ${expired.length} stale booking(s)`);
+    if (boardedRecovery.length) {
+      console.warn(`[booking-sweeper] flagged ${boardedRecovery.length} boarded ride(s) for recovery review`);
+    }
   } catch (err) {
     console.error('[booking-sweeper] failed:', err.message);
   }

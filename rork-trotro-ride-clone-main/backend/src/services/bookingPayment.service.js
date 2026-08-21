@@ -5,6 +5,7 @@ const paymentModel = require('../models/bookingPayment.model');
 const profileModel = require('../models/profile.model');
 const busModel = require('../models/bus.model');
 const codeModel = require('../models/code.model');
+const walletModel = require('../models/wallet.model');
 const paystackService = require('./paystack.service');
 const push = require('./push.service');
 const { ApiError } = require('../utils/ApiError');
@@ -12,6 +13,7 @@ const { generateBoardingCode, buildQrPayload } = require('../utils/codes');
 const { emitToDriver, emitToUser } = require('../realtime/io');
 const refundService = require('./refund.service');
 const { increment, recordEvent } = require('../observability/metrics');
+const { env } = require('../config/env');
 
 const checkoutResponse = (payment, extra = {}) => ({
   paymentId: payment.id,
@@ -99,6 +101,49 @@ const initializeDeposit = async (passengerId, bookingId, { idempotencyKey, callb
     });
     throw error;
   }
+};
+
+const settleDriverDeposit = async (booking, client) => {
+  if (!booking.driver_id) return null;
+  const amount = Math.round(Number(booking.deposit_amount || 0) * env.DRIVER_DEPOSIT_SETTLEMENT_PERCENT) / 100;
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  const existing = await walletModel.findBookingTransactionForUpdate(
+    booking.id, booking.driver_id, 'driver_payment', client,
+  );
+  if (existing) return existing;
+  await walletModel.ensureWallet(booking.driver_id, client);
+  const balance = await walletModel.adjustBalance(booking.driver_id, amount, client);
+  if (!balance) throw ApiError.conflict('Driver wallet could not be credited');
+  return walletModel.insertTransaction({
+    userId: booking.driver_id,
+    bookingId: booking.id,
+    type: 'driver_payment',
+    amount,
+    description: `Deposit settlement for booking ${booking.id}`,
+    reference: `DRIVER_DEPOSIT_${booking.id}`,
+  }, client);
+};
+
+const reverseDriverDeposit = async (booking, client, reason) => {
+  if (!booking.driver_id) return null;
+  const settlement = await walletModel.findBookingTransactionForUpdate(
+    booking.id, booking.driver_id, 'driver_payment', client,
+  );
+  if (!settlement) return null;
+  const reversalReference = `DRIVER_DEPOSIT_REVERSAL_${booking.id}`;
+  const existingReversal = await walletModel.findTransactionByReferenceOnly(reversalReference, client);
+  if (existingReversal) return existingReversal;
+  await walletModel.ensureWallet(booking.driver_id, client);
+  const balance = await walletModel.adjustBalance(booking.driver_id, -Math.abs(Number(settlement.amount)), client);
+  if (!balance) throw ApiError.conflict('Driver wallet could not be debited for settlement reversal');
+  return walletModel.insertTransaction({
+    userId: booking.driver_id,
+    bookingId: booking.id,
+    type: 'refund',
+    amount: -Math.abs(Number(settlement.amount)),
+    description: reason || `Reversal of deposit settlement for booking ${booking.id}`,
+    reference: reversalReference,
+  }, client);
 };
 
 const notifyReservationResult = (result) => {
@@ -213,6 +258,7 @@ const applyVerifiedDeposit = async (reference, verification) => {
     const verificationCode = await codeModel.insert(
       { bookingId: booking.id, code, qrPayload, validUntil }, client,
     );
+    const driverSettlement = await settleDriverDeposit(confirmed, client);
 
     return {
       success: true,
@@ -222,6 +268,7 @@ const applyVerifiedDeposit = async (reference, verification) => {
       booking: confirmed,
       code: verificationCode,
       bus,
+      driverSettlement,
     };
   });
 
@@ -371,4 +418,5 @@ const handleWebhook = async (event) => {
 module.exports = {
   initializeDeposit, verifyDeposit, applyVerifiedDeposit,
   initializeBalance, verifyBalance, applyVerifiedBalance, handleWebhook,
+  settleDriverDeposit, reverseDriverDeposit,
 };

@@ -151,8 +151,7 @@ describe('booking cancellation, expiry, and seat release', () => {
     const result = await bookingService.cancel('booking-1', { id: 'passenger-1', role: 'passenger' });
 
     expect(result).toMatchObject({ status: 'cancelled', payment_status: 'refund_pending' });
-    expect(busModel.adjustSeats).toHaveBeenCalledTimes(1);
-    expect(busModel.adjustSeats).toHaveBeenCalledWith('bus-1', 1, expect.anything());
+    expect(bookingModel.releaseSeatForBooking).toHaveBeenCalledWith('booking-1', expect.anything());
     expect(codeModel.invalidate).toHaveBeenCalledWith('code-1', expect.anything());
   });
 
@@ -162,7 +161,7 @@ describe('booking cancellation, expiry, and seat release', () => {
       id: 'passenger-1', role: 'passenger',
     })).rejects.toThrow('cannot be cancelled after boarding');
     expect(bookingModel.cancelForUser).not.toHaveBeenCalled();
-    expect(busModel.adjustSeats).not.toHaveBeenCalled();
+    expect(bookingModel.releaseSeatForBooking).not.toHaveBeenCalled();
   });
 
   it('expires holds without increasing physical seats and releases confirmed no-show seats', async () => {
@@ -173,8 +172,7 @@ describe('booking cancellation, expiry, and seat release', () => {
     codeModel.findByBookingId.mockResolvedValue(null);
 
     await expect(bookingService.expireStale()).resolves.toHaveLength(2);
-    expect(busModel.adjustSeats).toHaveBeenCalledTimes(1);
-    expect(busModel.adjustSeats).toHaveBeenCalledWith('bus-1', 1, expect.anything());
+    expect(bookingModel.releaseSeatForBooking).toHaveBeenCalledWith('no-show-1', expect.anything());
   });
 
   it('credits the deposit to an eligible driver exactly through auditable ledgers', async () => {
@@ -217,5 +215,114 @@ describe('booking cancellation, expiry, and seat release', () => {
     await bookingService.expireStale();
     expect(paymentModel.insert).not.toHaveBeenCalled();
     expect(walletModel.adjustBalance).not.toHaveBeenCalled();
+  });
+});
+
+describe('boarded-ride recovery lifecycle', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('flags stale boarded rides without expiring them or releasing their seat', async () => {
+    const stale = {
+      id: 'boarded-1', status: 'confirmed', boarded_at: '2026-08-20T01:00:00Z',
+      boarded_recovery_status: 'none', bus_id: 'bus-1', payment_status: 'balance_pending',
+    };
+    bookingModel.listStaleBoardedForUpdate.mockResolvedValue([stale]);
+    bookingModel.markBoardedRecoveryPending.mockResolvedValue({
+      ...stale, boarded_recovery_status: 'pending', boarded_recovery_reason: 'recovery',
+    });
+
+    const result = await bookingService.recoverStaleBoarded(1);
+
+    expect(result).toHaveLength(1);
+    expect(bookingModel.listStaleBoardedForUpdate).toHaveBeenCalledWith(1, expect.anything());
+    expect(bookingModel.markBoardedRecoveryPending).toHaveBeenCalledWith(
+      'boarded-1', expect.stringContaining('recovery window'), expect.anything(),
+    );
+    expect(bookingModel.releaseSeatForBooking).not.toHaveBeenCalled();
+  });
+
+  it('completes a recovered ride under a row lock and resolves its recovery state', async () => {
+    const booking = {
+      id: 'boarded-1', passenger_id: 'passenger-1', driver_id: 'driver-1', bus_id: 'bus-1',
+      status: 'confirmed', arrived_at: '2026-08-20T02:00:00Z', paid_at: '2026-08-20T02:01:00Z',
+      boarded_recovery_status: 'pending', source_occurrence_id: null,
+    };
+    bookingModel.findByIdForUpdate.mockResolvedValue(booking);
+    codeModel.findByBookingId.mockResolvedValue({ status: 'used' });
+    bookingModel.updateStatus.mockResolvedValue({ ...booking, status: 'completed' });
+    bookingModel.markBoardedRecoveryResolved.mockResolvedValue({ ...booking, boarded_recovery_status: 'resolved' });
+
+    const result = await bookingService.complete('boarded-1', { id: 'driver-1', role: 'driver' });
+
+    expect(result.status).toBe('completed');
+    expect(bookingModel.findByIdForUpdate).toHaveBeenCalledWith('boarded-1', expect.anything());
+    expect(bookingModel.releaseSeatForBooking).toHaveBeenCalledWith('boarded-1', expect.anything());
+    expect(bookingModel.markBoardedRecoveryResolved).toHaveBeenCalledWith('boarded-1', expect.anything());
+  });
+});
+
+describe('driver deposit settlement reversal', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('reverses a credited driver deposit when a confirmed booking is cancelled', async () => {
+    const booking = {
+      id: 'booking-settlement-1', passenger_id: 'passenger-1', driver_id: 'driver-1',
+      bus_id: 'bus-1', status: 'confirmed', payment_status: 'deposit_paid',
+      boarded_at: null, cancellation_deadline: '2099-01-01T00:00:00Z',
+    };
+    bookingModel.findByIdForUpdate.mockResolvedValue(booking);
+    bookingModel.cancelForUser.mockResolvedValue({ ...booking, status: 'cancelled', payment_status: 'refund_pending' });
+    walletModel.findBookingTransactionForUpdate.mockResolvedValue({ amount: '2.50', type: 'driver_payment' });
+    walletModel.findTransactionByReferenceOnly.mockResolvedValue(null);
+    walletModel.adjustBalance.mockResolvedValue({ user_id: 'driver-1', balance: '0' });
+    walletModel.insertTransaction.mockResolvedValue({ type: 'refund', amount: -2.5 });
+    codeModel.findByBookingId.mockResolvedValue(null);
+
+    await bookingService.cancel('booking-settlement-1', { id: 'passenger-1', role: 'passenger' });
+
+    expect(walletModel.adjustBalance).toHaveBeenCalledWith('driver-1', -2.5, expect.anything());
+    expect(walletModel.insertTransaction).toHaveBeenCalledWith(expect.objectContaining({
+      userId: 'driver-1', bookingId: 'booking-settlement-1', type: 'refund', amount: -2.5,
+      reference: 'DRIVER_DEPOSIT_REVERSAL_booking-settlement-1',
+    }), expect.anything());
+  });
+});
+
+describe('completion-state hardening', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('repairs a legacy completed booking that has no seat release audit timestamp', async () => {
+    const completed = {
+      id: 'completed-legacy-1', passenger_id: 'passenger-1', driver_id: 'driver-1',
+      bus_id: 'bus-1', status: 'completed', seat_released_at: null,
+    };
+    const repaired = { ...completed, seat_released_at: '2026-08-21T00:00:00Z' };
+    bookingModel.findByIdForUpdate.mockResolvedValue(completed);
+    bookingModel.releaseSeatForBooking.mockResolvedValue(repaired);
+
+    const result = await bookingService.complete('completed-legacy-1', {
+      id: 'driver-1', role: 'driver',
+    });
+
+    expect(result.seat_released_at).toBe('2026-08-21T00:00:00Z');
+    expect(bookingModel.releaseSeatForBooking).toHaveBeenCalledWith('completed-legacy-1', expect.anything());
+    expect(bookingModel.updateStatus).not.toHaveBeenCalled();
+    expect(codeModel.findByBookingId).not.toHaveBeenCalled();
+  });
+
+  it('returns a completed booking without changing it on a repeated completion request', async () => {
+    const completed = {
+      id: 'completed-1', passenger_id: 'passenger-1', driver_id: 'driver-1',
+      bus_id: 'bus-1', status: 'completed', seat_released_at: '2026-08-21T00:00:00Z',
+    };
+    bookingModel.findByIdForUpdate.mockResolvedValue(completed);
+
+    const result = await bookingService.complete('completed-1', {
+      id: 'driver-1', role: 'driver',
+    });
+
+    expect(result).toEqual(completed);
+    expect(bookingModel.updateStatus).not.toHaveBeenCalled();
+    expect(bookingModel.releaseSeatForBooking).not.toHaveBeenCalled();
   });
 });
