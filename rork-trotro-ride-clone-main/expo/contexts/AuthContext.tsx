@@ -152,18 +152,6 @@ export const [AuthProvider, useAuth] = createContextHook(() => {
     },
   });
 
-  const deleteAccountMutation = useMutation({
-    mutationFn: async () => {
-      await api.delete('/profiles/me');
-      await clearAuthToken();
-      await clearProfile();
-    },
-    onSuccess: () => {
-      setUser(null);
-      queryClient.clear();
-    },
-  });
-
   const logout = useCallback(async () => {
     await clearAuthToken();
     await clearProfile();
