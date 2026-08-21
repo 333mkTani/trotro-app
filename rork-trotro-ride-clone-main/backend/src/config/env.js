@@ -66,6 +66,10 @@ const env = {
     String(process.env.BUS_ALERTS_ENABLED || 'true').toLowerCase() === 'true',
   BUS_ALERTS_ROLLOUT_PERCENT:
     Math.min(100, Math.max(0, parseInt(process.env.BUS_ALERTS_ROLLOUT_PERCENT || '100', 10))),
+  SYNC_RETENTION_DAYS:
+    Math.max(1, parseInt(process.env.SYNC_RETENTION_DAYS || '90', 10)),
+  SYNC_RETENTION_INTERVAL_MS:
+    Math.max(3600000, parseInt(process.env.SYNC_RETENTION_INTERVAL_MS || '86400000', 10)),
 };
 
 if (!env.DATABASE_URL) {

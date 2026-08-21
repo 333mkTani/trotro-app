@@ -52,13 +52,15 @@ const update = async (id, patch) => {
   return rows[0] || null;
 };
 
-const isActive = async (id) => {
+const getAuthorizationProfile = async (id) => {
   const { rows } = await query(
-    `select 1 from public.profiles where id = $1 and deleted_at is null`,
+    `select id, role from public.profiles where id = $1 and deleted_at is null`,
     [id],
   );
-  return rows.length > 0;
+  return rows[0] || null;
 };
+
+const isActive = async (id) => Boolean(await getAuthorizationProfile(id));
 
 const deactivate = async (id) => withTransaction(async (client) => {
   const { rows } = await client.query(
@@ -90,4 +92,7 @@ const deactivate = async (id) => withTransaction(async (client) => {
   return rows[0];
 });
 
-module.exports = { findById, findByPhone, findByPhoneVariants, update, isActive, deactivate };
+module.exports = {
+  findById, findByPhone, findByPhoneVariants, update,
+  getAuthorizationProfile, isActive, deactivate,
+};

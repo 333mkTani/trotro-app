@@ -1,11 +1,11 @@
 const busModel = require('../models/bus.model');
 const { projectOntoRoute, deriveMovementState, bearingDegrees, MIN_DIRECTION_MOVEMENT_M } = require('../utils/routeProgress');
 
-async function calculateMovementState(bus, { lat, lng }) {
+async function calculateMovementState(bus, { lat, lng }, client) {
   if (!bus?.route_id) {
     return { direction: 'unknown', confidence: 0, progressM: null, offsetM: null, speedMps: null };
   }
-  const routeStops = await busModel.listRouteStops(bus.route_id);
+  const routeStops = await busModel.listRouteStops(bus.route_id, client);
   const currentProjection = projectOntoRoute({ lat, lng }, routeStops);
   const movement = deriveMovementState({
     previousProgressM: bus.route_progress_m,

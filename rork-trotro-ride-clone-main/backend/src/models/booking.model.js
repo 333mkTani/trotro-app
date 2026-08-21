@@ -227,8 +227,9 @@ const markNotified = async (id) => {
 
 // Requires two proximity pings at least ten seconds apart. Leaving the radius
 // resets the first observation, so merely passing nearby once is not enough.
-const detectDestinationArrivals = async (driverId, { lat, lng, radiusM = 150 }) => {
-  await query(
+const detectDestinationArrivals = async (driverId, { lat, lng, radiusM = 150 }, client) => {
+  const runner = client || { query };
+  await runner.query(
     `UPDATE public.bookings b
         SET arrival_near_at = NULL
        FROM public.bus_stops s
@@ -245,7 +246,7 @@ const detectDestinationArrivals = async (driverId, { lat, lng, radiusM = 150 }) 
     [driverId, lng, lat, radiusM],
   );
 
-  const { rows } = await query(
+  const { rows } = await runner.query(
     `UPDATE public.bookings b
         SET arrived_at = CASE
               WHEN b.arrival_near_at <= now() - interval '10 seconds' THEN now()
@@ -306,8 +307,9 @@ const findForPaymentForUpdate = async (id, passengerId, client) => {
 // Records authoritative GPS evidence that the assigned driver reached the
 // passenger's pickup stop. The first observation is retained for no-show
 // eligibility even if the driver later leaves the stop.
-const detectPickupArrivals = async (driverId, { lat, lng, radiusM = 150 }) => {
-  const { rows } = await query(
+const detectPickupArrivals = async (driverId, { lat, lng, radiusM = 150 }, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
     `update public.bookings b
         set driver_pickup_arrived_at = coalesce(driver_pickup_arrived_at, now()),
             updated_at = now()

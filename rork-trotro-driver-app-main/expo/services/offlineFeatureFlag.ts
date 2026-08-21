@@ -1,6 +1,6 @@
 const normalizePercent = (value: string | undefined): number => {
   const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return 100;
+  if (!Number.isFinite(parsed)) return 0;
   return Math.max(0, Math.min(100, parsed));
 };
 

@@ -8,8 +8,9 @@ const { emitToBus, emitToRoute, emitToUser } = require('../realtime/io');
 const routeProgressService = require('./routeProgress.service');
 const noShowPickupRadiusM = Math.min(500, Math.max(25, Number(process.env.NO_SHOW_PICKUP_RADIUS_M) || 150));
 
-const getMyBus = async (driverId) => {
-  const { rows } = await query(
+const getMyBus = async (driverId, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
     `SELECT b.*, r.name AS route_name, r.origin, r.destination
      FROM buses b
      LEFT JOIN routes r ON r.id = b.route_id
@@ -80,13 +81,14 @@ const getDashboard = async (driverId) => {
   };
 };
 
-const setAvailability = async (driverId, isAvailable) => {
-  const bus = await getMyBus(driverId);
+const setAvailability = async (driverId, isAvailable, client) => {
+  const runner = client || { query };
+  const bus = await getMyBus(driverId, client);
   if (!bus) throw ApiError.notFound('No bus assigned to this driver yet');
   // entity_status enum: active | paused | deleted
   const newStatus = isAvailable ? 'active' : 'paused';
   const newDrivingStatus = isAvailable ? bus.driving_status : 'STATIONARY';
-  const { rows } = await query(
+  const { rows } = await runner.query(
     `UPDATE buses
         SET status = $1,
             driving_status = $2
@@ -96,11 +98,12 @@ const setAvailability = async (driverId, isAvailable) => {
   return rows[0];
 };
 
-const setDrivingStatus = async (driverId, drivingStatus) => {
+const setDrivingStatus = async (driverId, drivingStatus, client) => {
+  const runner = client || { query };
   if (!['STATIONARY', 'EN_ROUTE'].includes(drivingStatus)) {
     throw ApiError.badRequest('Driving status must be STATIONARY or EN_ROUTE');
   }
-  const bus = await getMyBus(driverId);
+  const bus = await getMyBus(driverId, client);
   if (!bus) throw ApiError.notFound('No bus assigned to this driver yet');
   if (bus.status !== 'active' && drivingStatus === 'EN_ROUTE') {
     throw ApiError.conflict('Driver must be available before going en route');
@@ -108,7 +111,7 @@ const setDrivingStatus = async (driverId, drivingStatus) => {
   if (drivingStatus === 'EN_ROUTE' && bus.seats_available <= 0) {
     throw ApiError.conflict('No seats available');
   }
-  const { rows } = await query(
+  const { rows } = await runner.query(
     `UPDATE buses SET driving_status = $1 WHERE id = $2 RETURNING *`,
     [drivingStatus, bus.id],
   );
@@ -139,25 +142,9 @@ const updateSeats = async (driverId, { availableSeats, totalSeats }) => {
   return rows[0];
 };
 
-const updateLocation = async (driverId, { lat, lng }) => {
-  const bus = await getMyBus(driverId);
-  if (!bus) throw ApiError.notFound('No active bus assigned to this driver');
-  if (bus.status !== 'active') {
-    throw ApiError.conflict('Location sharing is disabled while the driver is unavailable');
-  }
-  const movementState = await routeProgressService.calculateMovementState(bus, { lat, lng });
-  const updated = await busModel.updateLocation(bus.id, { lat, lng, movementState });
-  await bookingModel.detectPickupArrivals(driverId, { lat, lng, radiusM: noShowPickupRadiusM });
-
-  const event = { busId: updated.id, routeId: updated.route_id, lat, lng, driverId, ts: Date.now() };
-  emitToBus(updated.id, 'bus:location', event);
-  if (updated.route_id) emitToRoute(updated.route_id, 'bus:location', event);
-
-  // The driver app reports through this endpoint (not /buses/:id/location),
-  // so destination detection must run here as part of the same GPS update.
-  // Await the spatial update so a passenger refresh immediately sees
-  // arrived_at; push delivery remains non-blocking.
-  const arrivals = await bookingModel.detectDestinationArrivals(driverId, { lat, lng });
+const publishLocationSideEffects = async ({ event, arrivals = [] }) => {
+  emitToBus(event.busId, 'bus:location', event);
+  if (event.routeId) emitToRoute(event.routeId, 'bus:location', event);
   for (const arrival of arrivals) {
     const payload = {
       bookingId: arrival.id,
@@ -179,7 +166,34 @@ const updateLocation = async (driverId, { lat, lng }) => {
       }
     });
   }
+};
 
+const updateLocation = async (driverId, { lat, lng }, { client, deferSideEffects = false } = {}) => {
+  const bus = await getMyBus(driverId, client);
+  if (!bus) throw ApiError.notFound('No active bus assigned to this driver');
+  if (bus.status !== 'active') {
+    throw ApiError.conflict('Location sharing is disabled while the driver is unavailable');
+  }
+  const movementState = await routeProgressService.calculateMovementState(bus, { lat, lng }, client);
+  const updated = await busModel.updateLocation(bus.id, { lat, lng, movementState }, client);
+  const pickupArrivals = client
+    ? await bookingModel.detectPickupArrivals(driverId, { lat, lng, radiusM: noShowPickupRadiusM }, client)
+    : await bookingModel.detectPickupArrivals(driverId, { lat, lng, radiusM: noShowPickupRadiusM });
+
+  const event = { busId: updated.id, routeId: updated.route_id, lat, lng, driverId, ts: Date.now() };
+
+  // The driver app reports through this endpoint (not /buses/:id/location),
+  // so destination detection must run here as part of the same GPS update.
+  // Await the spatial update so a passenger refresh immediately sees
+  // arrived_at; push delivery remains non-blocking.
+  const arrivals = client
+    ? await bookingModel.detectDestinationArrivals(driverId, { lat, lng }, client)
+    : await bookingModel.detectDestinationArrivals(driverId, { lat, lng });
+  if (deferSideEffects) return {
+    updated,
+    sideEffects: { event, pickupArrivals, arrivals },
+  };
+  await publishLocationSideEffects({ event, arrivals });
   return updated;
 };
 
@@ -203,4 +217,7 @@ const updateRoute = async (driverId, routeId) => {
   return rows[0];
 };
 
-module.exports = { getProfile, getDashboard, setAvailability, setDrivingStatus, updateSeats, updateLocation, updateRoute, getMyBus };
+module.exports = {
+  getProfile, getDashboard, setAvailability, setDrivingStatus, updateSeats,
+  updateLocation, publishLocationSideEffects, updateRoute, getMyBus,
+};

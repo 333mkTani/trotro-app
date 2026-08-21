@@ -20,8 +20,9 @@ const normalizeReceipt = (row) => ({
   processedAt: row.processed_at,
 });
 
-const getExistingReceipt = async (userId, idempotencyKey, eventId) => {
-  const { rows } = await query(
+const getExistingReceipt = async (userId, idempotencyKey, eventId, client) => {
+  const runner = client || { query };
+  const { rows } = await runner.query(
     `select * from public.sync_mutations
       where user_id = $1 and (idempotency_key = $2 or event_id = $3)
       order by created_at desc
@@ -31,29 +32,31 @@ const getExistingReceipt = async (userId, idempotencyKey, eventId) => {
   return rows[0] || null;
 };
 
-const reserveMutation = async ({ userId, deviceId, eventId, idempotencyKey, entity, operation, payload, clientCreatedAt }) => {
-  return withTransaction(async (client) => {
-    await client.query(
-      `insert into public.sync_mutations
-        (user_id, device_id, event_id, idempotency_key, entity, operation, payload, client_created_at, status, result, error_code, error_message)
-       values ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,'processing','{}'::jsonb,null,null)
-       on conflict (user_id, idempotency_key) do nothing`,
-      [userId, deviceId, eventId, idempotencyKey, entity, operation, JSON.stringify(payload), clientCreatedAt],
-    );
-    const { rows } = await client.query(
-      `select * from public.sync_mutations
-        where user_id = $1 and (idempotency_key = $2 or event_id = $3)
-        order by created_at desc
-        limit 1
-        for update`,
-      [userId, idempotencyKey, eventId],
-    );
-    return rows[0];
-  });
+const reserveMutation = async (client, {
+  userId, deviceId, eventId, idempotencyKey, entity, operation, payload, clientCreatedAt,
+}) => {
+  await client.query(
+    `insert into public.sync_mutations
+      (user_id, device_id, event_id, idempotency_key, entity, operation, payload, client_created_at, status, result, error_code, error_message)
+     values ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,'processing','{}'::jsonb,null,null)
+     on conflict (user_id, idempotency_key) do nothing`,
+    [userId, deviceId, eventId, idempotencyKey, entity, operation, JSON.stringify(payload), clientCreatedAt],
+  );
+  const { rows } = await client.query(
+    `select * from public.sync_mutations
+      where user_id = $1 and (idempotency_key = $2 or event_id = $3)
+      order by created_at desc
+      limit 1
+      for update`,
+    [userId, idempotencyKey, eventId],
+  );
+  return rows[0];
 };
 
-const markMutation = async (id, status, { result = {}, errorCode = null, errorMessage = null } = {}) => {
-  const { rows } = await query(
+const markMutation = async (client, id, status, {
+  result = {}, errorCode = null, errorMessage = null,
+} = {}) => {
+  const { rows } = await client.query(
     `update public.sync_mutations
         set status = $2, result = $3::jsonb, error_code = $4, error_message = $5, processed_at = now()
       where id = $1
@@ -63,8 +66,10 @@ const markMutation = async (id, status, { result = {}, errorCode = null, errorMe
   return rows[0];
 };
 
-const appendChange = async ({ audienceUserId = PUBLIC_AUDIENCE, entity, entityId, operation = 'upsert', payload }) => {
-  const { rows } = await query(
+const appendChange = async (client, {
+  audienceUserId = PUBLIC_AUDIENCE, entity, entityId, operation = 'upsert', payload,
+}) => {
+  const { rows } = await client.query(
     `insert into public.sync_changes
       (audience_user_id, entity, entity_id, operation, payload)
      values ($1,$2,$3,$4,$5::jsonb)
@@ -80,7 +85,7 @@ const assertDriver = (user) => {
   }
 };
 
-const applyMutation = async (user, { entity, operation, payload }) => {
+const applyMutation = async (user, { entity, operation, payload }, client) => {
   if (!supportedMutation(entity, operation)) {
     throw ApiError.badRequest('Unsupported offline mutation');
   }
@@ -92,40 +97,50 @@ const applyMutation = async (user, { entity, operation, payload }) => {
     if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) {
       throw ApiError.badRequest('Driver location coordinates are invalid');
     }
-    const updated = await driverProfile.updateLocation(user.id, { lat, lng });
+    const applied = await driverProfile.updateLocation(
+      user.id,
+      { lat, lng },
+      { client, deferSideEffects: true },
+    );
+    const updated = applied.updated;
     const result = { busId: updated.id, routeId: updated.route_id || null, lat, lng };
-    await appendChange({
-      audienceUserId: user.id,
-      entity: 'driver_location',
-      entityId: String(updated.id),
-      payload: { ...result, driverId: user.id, updatedAt: new Date().toISOString() },
-    });
-    return result;
+    return {
+      result,
+      change: {
+        audienceUserId: user.id,
+        entity: 'driver_location',
+        entityId: String(updated.id),
+        payload: { ...result, driverId: user.id, updatedAt: new Date().toISOString() },
+      },
+      sideEffects: applied.sideEffects,
+    };
   }
 
   if (entity === 'driver_availability') {
     if (typeof payload.isAvailable !== 'boolean') throw ApiError.badRequest('isAvailable must be boolean');
-    const updated = await driverProfile.setAvailability(user.id, payload.isAvailable);
+    const updated = await driverProfile.setAvailability(user.id, payload.isAvailable, client);
     const result = { busId: updated.id, status: updated.status, drivingStatus: updated.driving_status };
-    await appendChange({
-      audienceUserId: user.id,
-      entity: 'driver_bus',
-      entityId: String(updated.id),
-      payload: result,
-    });
-    return result;
+    return {
+      result,
+      change: { audienceUserId: user.id, entity: 'driver_bus', entityId: String(updated.id), payload: result },
+      sideEffects: null,
+    };
   }
 
   if (typeof payload.drivingStatus !== 'string') throw ApiError.badRequest('drivingStatus is required');
-  const updated = await driverProfile.setDrivingStatus(user.id, payload.drivingStatus);
+  const updated = await driverProfile.setDrivingStatus(user.id, payload.drivingStatus, client);
   const result = { busId: updated.id, status: updated.status, drivingStatus: updated.driving_status };
-  await appendChange({
-    audienceUserId: user.id,
-    entity: 'driver_bus',
-    entityId: String(updated.id),
-    payload: result,
-  });
-  return result;
+  return {
+    result,
+    change: { audienceUserId: user.id, entity: 'driver_bus', entityId: String(updated.id), payload: result },
+    sideEffects: null,
+  };
+};
+
+const classifyMutationError = (error) => {
+  if (error?.status === 409) return 'conflict';
+  if (error?.status !== undefined && error.status < 500) return 'rejected';
+  return 'retryable';
 };
 
 const processMutation = async (user, input) => {
@@ -141,22 +156,61 @@ const processMutation = async (user, input) => {
     return { ...normalizeReceipt(existing), status: 'retryable', errorCode: 'PROCESSING', errorMessage: 'Mutation is still being processed' };
   }
 
-  const receipt = await reserveMutation({ userId: user.id, ...input });
-  if (receipt.status !== 'processing') {
-    return { ...normalizeReceipt(receipt), status: receipt.status === 'accepted' ? 'duplicate' : receipt.status };
+  let committed = null;
+  try {
+    committed = await withTransaction(async (client) => {
+      const receipt = await reserveMutation(client, { userId: user.id, ...input });
+      if (receipt.status !== 'processing') {
+        const normalized = normalizeReceipt(receipt);
+        return {
+          receipt: {
+            ...normalized,
+            status: receipt.status === 'accepted' ? 'duplicate' : receipt.status,
+          },
+          sideEffects: null,
+        };
+      }
+
+      try {
+        const applied = await applyMutation(user, input, client);
+        await appendChange(client, applied.change);
+        const marked = await markMutation(client, receipt.id, 'accepted', { result: applied.result });
+        return { receipt: normalizeReceipt(marked), sideEffects: applied.sideEffects };
+      } catch (error) {
+        const status = classifyMutationError(error);
+        // Application-level errors can be recorded in the same transaction. A
+        // database/transport failure aborts the transaction and is retried by
+        // the client without leaving a misleading processing receipt behind.
+        if (status === 'retryable' && error?.status === undefined) throw error;
+        const marked = await markMutation(client, receipt.id, status, {
+          errorCode: error.code || `HTTP_${error.status || 400}`,
+          errorMessage: error.message || 'Mutation rejected',
+        });
+        return { receipt: normalizeReceipt(marked), sideEffects: null };
+      }
+    });
+  } catch (error) {
+    return {
+      eventId: input.eventId,
+      idempotencyKey: input.idempotencyKey,
+      status: 'retryable',
+      result: {},
+      errorCode: error.code || 'SYNC_TRANSACTION_FAILED',
+      errorMessage: 'Sync transaction failed; retry the mutation',
+      processedAt: null,
+    };
   }
 
-  try {
-    const result = await applyMutation(user, input);
-    return normalizeReceipt(await markMutation(receipt.id, 'accepted', { result }));
-  } catch (error) {
-    const status = error.status === 409 ? 'conflict' : error.status >= 500 ? 'retryable' : 'rejected';
-    const marked = await markMutation(receipt.id, status, {
-      errorCode: error.code || `HTTP_${error.status || 400}`,
-      errorMessage: error.message || 'Mutation rejected',
-    });
-    return normalizeReceipt(marked);
+  if (committed?.sideEffects) {
+    try {
+      await driverProfile.publishLocationSideEffects(committed.sideEffects);
+    } catch (error) {
+      // The database commit is authoritative; realtime delivery can be retried
+      // independently and must not make a committed mutation appear failed.
+      console.error('[sync] post-commit side effects failed', error);
+    }
   }
+  return committed.receipt;
 };
 
 const pullChanges = async (userId, { cursor = 0, limit = 100 }) => {

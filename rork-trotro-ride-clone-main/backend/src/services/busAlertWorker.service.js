@@ -5,6 +5,7 @@ const { emitToUser } = require('../realtime/io');
 const observability = require('../utils/observability');
 const clock = require('../utils/clock');
 const { isBusAlertsEnabled } = require('../config/busAlertRollout');
+const { pool } = require('../config/db');
 
 const DAY_CODES = new Set(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']);
 
@@ -130,12 +131,25 @@ const deliverDue = async () => {
 };
 
 const runCycle = async (now = clock.now()) => {
-  const triggered = await evaluateDue(now);
-  const delivered = await deliverDue();
-  if (triggered || delivered) {
-    observability.log('info', 'bus_alert.worker.cycle', { triggered, delivered });
+  const client = await pool.connect();
+  let locked = false;
+  try {
+    const result = await client.query(`select pg_try_advisory_lock(hashtext('trotro:bus-alert-cycle')) as locked`);
+    locked = Boolean(result.rows[0]?.locked);
+    if (!locked) {
+      observability.increment('bus_alert.skipped', 1, { reason: 'cycle_lock' });
+      return { triggered: 0, delivered: 0, skipped: true };
+    }
+    const triggered = await evaluateDue(now);
+    const delivered = await deliverDue();
+    if (triggered || delivered) {
+      observability.log('info', 'bus_alert.worker.cycle', { triggered, delivered });
+    }
+    return { triggered, delivered, skipped: false };
+  } finally {
+    if (locked) await client.query(`select pg_advisory_unlock(hashtext('trotro:bus-alert-cycle'))`);
+    client.release();
   }
-  return { triggered, delivered };
 };
 
 module.exports = { localParts, scheduledMinutes, dueFor, evaluateDue, deliverDue, runCycle };

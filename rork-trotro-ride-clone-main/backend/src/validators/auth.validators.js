@@ -4,7 +4,7 @@ const RegisterSchema = z.object({
   phone: z.string().min(6).max(20),
   fullName: z.string().min(1).max(120),
   email: z.string().email().optional(),
-  password: z.string().min(6).max(72),
+  password: z.string().min(8).max(72),
   role: z.enum(['passenger', 'driver']).optional(),
   // Driver-only bus details
   busRegistration: z.string().min(2).max(20).optional(),
@@ -16,7 +16,7 @@ const RegisterVerifiedSchema = z.object({
   idToken: z.string().min(10),
   fullName: z.string().min(1).max(120),
   email: z.string().email().optional(),
-  password: z.string().min(6).max(72),
+  password: z.string().min(8).max(72),
   role: z.enum(['passenger', 'driver']).optional(),
   // Driver-only bus details
   busRegistration: z.string().min(2).max(20).optional(),
@@ -26,12 +26,12 @@ const RegisterVerifiedSchema = z.object({
 
 const LoginSchema = z.object({
   phone: z.string().min(6).max(20),
-  password: z.string().min(6).max(72),
+  password: z.string().min(8).max(72),
 });
 
 const ChangePasswordSchema = z.object({
-  currentPassword: z.string().min(6).max(72),
-  newPassword: z.string().min(6).max(72),
+  currentPassword: z.string().min(8).max(72),
+  newPassword: z.string().min(8).max(72),
 });
 
 const ResetPasswordSchema = z.object({

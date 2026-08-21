@@ -32,10 +32,11 @@ const requireAuth = async (req, _res, next) => {
             payload.user_metadata?.role ||
             (source === 'supabase' ? 'passenger' : payload.role) ||
             'passenger';
-      if (!await profileModel.isActive(payload.sub)) {
+      const account = await profileModel.getAuthorizationProfile(payload.sub);
+      if (!account) {
         return next(ApiError.unauthorized('Account is unavailable'));
       }
-      req.user = { id: payload.sub, role, email: payload.email, phone: payload.phone };
+      req.user = { id: payload.sub, role: account.role || role, email: payload.email, phone: payload.phone };
       return next();
     } catch (_err) {
       // try next secret
