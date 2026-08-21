@@ -10,6 +10,7 @@
     "worker:sync-retention": "node src/syncRetentionWorker.js",
     "verify:staging": "node scripts/verify-staging.mjs",
     "verify:database": "node scripts/verify-database.mjs",
+    "test:integration:sync": "node scripts/integration-sync-postgres.mjs",
     "acceptance:live": "node scripts/acceptance-live.mjs",
     "verify:concurrency": "node scripts/verify-concurrency.mjs",
     "verify:recovery": "node scripts/verify-recovery.mjs",
