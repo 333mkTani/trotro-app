@@ -6,13 +6,13 @@ The production policy retains synchronization history for **90 days**. The clean
 
 ## Worker configuration
 
-Deploy a dedicated Render background worker from the backend service with the start command:
+Deploy a dedicated Render background worker from the backend service. Set the worker **Root Directory** to `backend`, use the same Node runtime/build configuration as the API, and use the start command:
 
 ```bash
 npm run worker:sync-retention
 ```
 
-Set the following environment variables on the worker. The worker must use the same production `DATABASE_URL` as the API.
+Attach the same production environment group as the API, or explicitly provide all production-required backend variables. The worker imports the shared configuration, which validates production settings at startup. In particular, `DATABASE_URL`, `JWT_SECRET`, `CORS_ORIGIN`, `PAYSTACK_SECRET_KEY`, `MAPBOX_ACCESS_TOKEN`, and either `FIREBASE_SERVICE_ACCOUNT` or `FIREBASE_SERVICE_ACCOUNT_PATH` must be present and valid. The worker must use the same production `DATABASE_URL` as the API.
 
 | Variable | Value |
 |---|---:|
@@ -20,6 +20,9 @@ Set the following environment variables on the worker. The worker must use the s
 | `SYNC_RETENTION_DAYS` | `90` |
 | `SYNC_RETENTION_RUN_AT_UTC` | `02:00` |
 | `PGSSL` | The production database SSL setting |
+| `REDIS_URL` | The production Redis URL, if Redis is enabled for the shared backend environment |
+
+Do not configure `SYNC_RETENTION_INTERVAL_MS` for the approved schedule; the worker uses `SYNC_RETENTION_RUN_AT_UTC` for a fixed UTC execution time. Keep all credentials as Render secret environment variables; do not commit them to the repository.
 
 The worker calculates the next 02:00 UTC execution on startup and schedules the following run for the next UTC day. A restart does not cause an immediate cleanup run, which prevents deployment restarts from creating an unexpected database load spike.
 
