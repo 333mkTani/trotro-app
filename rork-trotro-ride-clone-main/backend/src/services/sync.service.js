@@ -55,7 +55,7 @@ const reserveMutation = async (client, {
     `insert into public.sync_mutations
       (user_id, device_id, event_id, idempotency_key, entity, operation, payload, client_created_at, status, result, error_code, error_message)
      values ($1,$2,$3,$4,$5,$6,$7::jsonb,$8,'processing','{}'::jsonb,null,null)
-     on conflict (user_id, idempotency_key) do nothing`,
+     on conflict do nothing`,
     [userId, deviceId, eventId, idempotencyKey, entity, operation, JSON.stringify(payload), clientCreatedAt],
   );
   const { rows } = await client.query(
