@@ -478,7 +478,17 @@ const releaseSeatForBooking = async (id, client) => {
        from target t
        join released_bus rb on rb.id = t.bus_id
       where b.id = t.id
-      returning ${COLUMNS}`,
+      returning b.id, b.passenger_id, b.driver_id, b.bus_id, b.route_id,
+        b.pickup_stop_id, b.pickup_stop_name, b.destination_stop_id, b.destination_stop_name,
+        b.desired_arrival_time, b.buffer_minutes, b.status,
+        b.notification_sent_at, b.confirmed_at, b.completed_at, b.cancelled_at,
+        b.arrival_near_at, b.arrived_at, b.expired_at, b.boarded_at, b.paid_at,
+        b.route_name, b.ride_fare, b.ride_payment_method, b.ride_schedule, b.source_occurrence_id,
+        b.payment_status, b.total_fare, b.deposit_amount, b.remaining_balance,
+        b.boarding_deadline, b.cancellation_deadline, b.no_show_marked_at, b.hold_expires_at,
+        b.boarded_recovery_status, b.boarded_recovery_at, b.boarded_recovery_reason,
+        b.seat_released_at, b.driver_pickup_arrived_at, b.no_show_compensation_amount,
+        b.no_show_compensated_at, b.created_at, b.updated_at`,
     [id],
   );
   return rows[0] || null;
