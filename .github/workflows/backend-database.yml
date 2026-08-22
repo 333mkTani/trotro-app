@@ -31,6 +31,7 @@ jobs:
     env:
       NODE_ENV: test
       DATABASE_URL: postgresql://trotro:trotro@localhost:5432/trotro_test
+      PGPASSWORD: trotro
       PGSSL: 'false'
       JWT_SECRET: ci-only-jwt-secret-at-least-32-characters-long
       CORS_ORIGIN: http://localhost:3000
@@ -72,14 +73,14 @@ jobs:
             set -euo pipefail
             pg_dump --version
             pg_restore --version
-            pg_dump --format=custom --no-owner --no-privileges --file=ci-backup.dump "$DATABASE_URL"
-            dropdb --if-exists --host=localhost --username=trotro trotro_restore
-            createdb --host=localhost --username=trotro trotro_restore
+            pg_dump --no-password --format=custom --no-owner --no-privileges --file=ci-backup.dump "$DATABASE_URL"
+            dropdb --no-password --if-exists --host=localhost --username=trotro trotro_restore
+            createdb --no-password --host=localhost --username=trotro trotro_restore
             RESTORE_DATABASE_URL=postgresql://trotro:trotro@localhost:5432/trotro_restore
-            pg_restore --exit-on-error --no-owner --no-privileges --dbname="$RESTORE_DATABASE_URL" ci-backup.dump
-            psql "$RESTORE_DATABASE_URL" --set=ON_ERROR_STOP=1 --command="select postgis_version();"
-            psql "$RESTORE_DATABASE_URL" --set=ON_ERROR_STOP=1 --command="select count(*) as migration_rows from public.schema_migrations;"
-            psql "$RESTORE_DATABASE_URL" --set=ON_ERROR_STOP=1 --command="select count(*) as booking_rows from public.bookings;"
+            pg_restore --no-password --exit-on-error --no-owner --no-privileges --dbname="$RESTORE_DATABASE_URL" ci-backup.dump
+            psql --no-password "$RESTORE_DATABASE_URL" --set=ON_ERROR_STOP=1 --command="select postgis_version();"
+            psql --no-password "$RESTORE_DATABASE_URL" --set=ON_ERROR_STOP=1 --command="select count(*) as migration_rows from public.schema_migrations;"
+            psql --no-password "$RESTORE_DATABASE_URL" --set=ON_ERROR_STOP=1 --command="select count(*) as booking_rows from public.bookings;"
             rm -f ci-backup.dump
           } 2>&1 | tee backup-restore.log
       - name: Upload backup and restore evidence
