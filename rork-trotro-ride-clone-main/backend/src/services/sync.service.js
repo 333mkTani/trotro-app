@@ -5,10 +5,26 @@ const driverProfile = require('./driverProfile.service');
 const PROCESSING_TIMEOUT_MS = 5 * 60 * 1000;
 const PUBLIC_AUDIENCE = null;
 
-const supportedMutation = (entity, operation) =>
-  (entity === 'driver_location' && operation === 'update') ||
-  (entity === 'driver_availability' && operation === 'set') ||
-  (entity === 'driver_driving_status' && operation === 'set');
+const mutationKey = (entity, operation) => `${entity}:${operation}`;
+
+const assertTransactionClient = (client) => {
+  if (!client || typeof client.query !== 'function') {
+    throw new Error('Sync mutation handlers require the active transaction client');
+  }
+};
+
+const MUTATION_HANDLERS = new Map();
+
+const registerMutationHandler = (entity, operation, handler) => {
+  if (typeof handler !== 'function') throw new TypeError('Mutation handler must be a function');
+  const key = mutationKey(entity, operation);
+  MUTATION_HANDLERS.set(key, async (user, payload, client) => {
+    assertTransactionClient(client);
+    return handler(user, payload, client);
+  });
+};
+
+const supportedMutation = (entity, operation) => MUTATION_HANDLERS.has(mutationKey(entity, operation));
 
 const normalizeReceipt = (row) => ({
   eventId: row.event_id,
@@ -85,48 +101,43 @@ const assertDriver = (user) => {
   }
 };
 
-const applyMutation = async (user, { entity, operation, payload }, client) => {
-  if (!supportedMutation(entity, operation)) {
-    throw ApiError.badRequest('Unsupported offline mutation');
+registerMutationHandler('driver_location', 'update', async (user, payload, client) => {
+  const lat = Number(payload.lat);
+  const lng = Number(payload.lng);
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) {
+    throw ApiError.badRequest('Driver location coordinates are invalid');
   }
-  assertDriver(user);
+  const applied = await driverProfile.updateLocation(
+    user.id,
+    { lat, lng },
+    { client, deferSideEffects: true },
+  );
+  const updated = applied.updated;
+  const result = { busId: updated.id, routeId: updated.route_id || null, lat, lng };
+  return {
+    result,
+    change: {
+      audienceUserId: user.id,
+      entity: 'driver_location',
+      entityId: String(updated.id),
+      payload: { ...result, driverId: user.id, updatedAt: new Date().toISOString() },
+    },
+    sideEffects: applied.sideEffects,
+  };
+});
 
-  if (entity === 'driver_location') {
-    const lat = Number(payload.lat);
-    const lng = Number(payload.lng);
-    if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) {
-      throw ApiError.badRequest('Driver location coordinates are invalid');
-    }
-    const applied = await driverProfile.updateLocation(
-      user.id,
-      { lat, lng },
-      { client, deferSideEffects: true },
-    );
-    const updated = applied.updated;
-    const result = { busId: updated.id, routeId: updated.route_id || null, lat, lng };
-    return {
-      result,
-      change: {
-        audienceUserId: user.id,
-        entity: 'driver_location',
-        entityId: String(updated.id),
-        payload: { ...result, driverId: user.id, updatedAt: new Date().toISOString() },
-      },
-      sideEffects: applied.sideEffects,
-    };
-  }
+registerMutationHandler('driver_availability', 'set', async (user, payload, client) => {
+  if (typeof payload.isAvailable !== 'boolean') throw ApiError.badRequest('isAvailable must be boolean');
+  const updated = await driverProfile.setAvailability(user.id, payload.isAvailable, client);
+  const result = { busId: updated.id, status: updated.status, drivingStatus: updated.driving_status };
+  return {
+    result,
+    change: { audienceUserId: user.id, entity: 'driver_bus', entityId: String(updated.id), payload: result },
+    sideEffects: null,
+  };
+});
 
-  if (entity === 'driver_availability') {
-    if (typeof payload.isAvailable !== 'boolean') throw ApiError.badRequest('isAvailable must be boolean');
-    const updated = await driverProfile.setAvailability(user.id, payload.isAvailable, client);
-    const result = { busId: updated.id, status: updated.status, drivingStatus: updated.driving_status };
-    return {
-      result,
-      change: { audienceUserId: user.id, entity: 'driver_bus', entityId: String(updated.id), payload: result },
-      sideEffects: null,
-    };
-  }
-
+registerMutationHandler('driver_driving_status', 'set', async (user, payload, client) => {
   if (typeof payload.drivingStatus !== 'string') throw ApiError.badRequest('drivingStatus is required');
   const updated = await driverProfile.setDrivingStatus(user.id, payload.drivingStatus, client);
   const result = { busId: updated.id, status: updated.status, drivingStatus: updated.driving_status };
@@ -135,6 +146,14 @@ const applyMutation = async (user, { entity, operation, payload }, client) => {
     change: { audienceUserId: user.id, entity: 'driver_bus', entityId: String(updated.id), payload: result },
     sideEffects: null,
   };
+});
+
+const applyMutation = async (user, { entity, operation, payload }, client) => {
+  assertDriver(user);
+  assertTransactionClient(client);
+  const handler = MUTATION_HANDLERS.get(mutationKey(entity, operation));
+  if (!handler) throw ApiError.badRequest('Unsupported offline mutation');
+  return handler(user, payload || {}, client);
 };
 
 const classifyMutationError = (error) => {
@@ -242,4 +261,10 @@ const pullChanges = async (userId, { cursor = 0, limit = 100 }) => {
   };
 };
 
-module.exports = { processMutation, pullChanges, supportedMutation };
+module.exports = {
+  processMutation,
+  pullChanges,
+  supportedMutation,
+  applyMutation,
+  registerMutationHandler,
+};

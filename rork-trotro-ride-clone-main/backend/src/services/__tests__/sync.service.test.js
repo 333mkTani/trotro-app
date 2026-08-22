@@ -148,3 +148,37 @@ describe('pullChanges', () => {
     expect(query).toHaveBeenCalledWith(expect.stringContaining('limit $3'), [0, 'driver-1', 101]);
   });
 });
+
+describe('client-aware mutation handler contract', () => {
+  test('refuses to apply a mutation without an active transaction client', async () => {
+    await expect(syncService.applyMutation(driver, baseInput)).rejects.toThrow(
+      'Sync mutation handlers require the active transaction client',
+    );
+    expect(driverProfile.setAvailability).not.toHaveBeenCalled();
+  });
+
+  test('passes the active transaction client to every registered future handler', async () => {
+    const handler = jest.fn().mockResolvedValue({
+      result: { ok: true },
+      change: { entity: 'future_entity', entityId: 'future-1', payload: { ok: true } },
+      sideEffects: null,
+    });
+    syncService.registerMutationHandler('future_entity', 'apply', handler);
+    const client = { query: jest.fn() };
+
+    const result = await syncService.applyMutation(
+      driver,
+      { entity: 'future_entity', operation: 'apply', payload: { value: 1 } },
+      client,
+    );
+
+    expect(result.result).toEqual({ ok: true });
+    expect(handler).toHaveBeenCalledWith(driver, { value: 1 }, client);
+  });
+
+  test('exposes only explicitly registered mutation combinations as supported', () => {
+    expect(syncService.supportedMutation('driver_location', 'update')).toBe(true);
+    expect(syncService.supportedMutation('driver_location', 'delete')).toBe(false);
+    expect(syncService.supportedMutation('unregistered_future_entity', 'apply')).toBe(false);
+  });
+});
