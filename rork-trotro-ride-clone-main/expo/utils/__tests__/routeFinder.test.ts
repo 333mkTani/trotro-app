@@ -211,6 +211,11 @@ describe('searchStops', () => {
     expect(result.map((s) => s.id)).toEqual([stopNear.id]);
   });
 
+  it('returns matches for a partial stop name', () => {
+    const result = searchStops('spi', allStops);
+    expect(result.map((s) => s.id)).toEqual([stopNear.id, stopFar.id]);
+  });
+
   it('excludes non-active stops even on a name match', () => {
     const result = searchStops('old stop', allStops);
     expect(result).toEqual([]);

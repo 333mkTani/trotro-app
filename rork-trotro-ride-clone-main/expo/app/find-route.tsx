@@ -109,6 +109,7 @@ export default function FindRouteScreen() {
   const [placeResults, setPlaceResults] = useState<PlaceResult[]>([]);
   const [geocoding, setGeocoding] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const searchRequestId = useRef(0);
 
   const [activeField, setActiveField] = useState<"pickup" | "destination">("destination");
   const [pickupOverride, setPickupOverride] = useState<{ lat: number; lng: number; label: string } | null>(null);
@@ -118,6 +119,7 @@ export default function FindRouteScreen() {
   const [pickupPlaceResults, setPickupPlaceResults] = useState<PlaceResult[]>([]);
   const [pickupGeocoding, setPickupGeocoding] = useState(false);
   const pickupSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pickupSearchRequestId = useRef(0);
   const pickupInputRef = useRef<TextInput>(null);
 
   const fadeIn = useRef(new Animated.Value(0)).current;
@@ -139,6 +141,17 @@ export default function FindRouteScreen() {
     () => regionStops.filter((stop) => stop.status === 'active'),
     [regionStops],
   );
+
+  // A user can start typing before the cached/API stop catalogue has loaded.
+  // Re-run the local match when that catalogue changes so results appear as
+  // soon as the data is ready, without requiring another keystroke.
+  useEffect(() => {
+    setSearchResults(query.trim().length >= 2 ? searchStops(query, stopsForSearch) : []);
+  }, [query, stopsForSearch]);
+
+  useEffect(() => {
+    setPickupResults(pickupQuery.trim().length >= 2 ? searchStops(pickupQuery, stopsForSearch) : []);
+  }, [pickupQuery, stopsForSearch]);
 
   useEffect(() => {
     // Wait for stops to finish loading before deciding there's nothing nearby —
@@ -174,8 +187,9 @@ export default function FindRouteScreen() {
   const onSearch = useCallback((text: string) => {
     setQuery(text);
     if (searchTimer.current) clearTimeout(searchTimer.current);
+    const requestId = ++searchRequestId.current;
 
-    if (text.length < 2) {
+    if (text.trim().length < 2) {
       setSearchResults([]);
       setPlaceResults([]);
       setGeocoding(false);
@@ -199,11 +213,13 @@ export default function FindRouteScreen() {
           `&viewbox=${viewbox}&bounded=0`;
         const res = await fetch(url, { headers: { "User-Agent": "TrotroPassengerApp/1.0" } });
         const data: PlaceResult[] = await res.json();
+        if (requestId !== searchRequestId.current) return;
         setPlaceResults(data);
       } catch {
+        if (requestId !== searchRequestId.current) return;
         setPlaceResults([]);
       } finally {
-        setGeocoding(false);
+        if (requestId === searchRequestId.current) setGeocoding(false);
       }
     }, 600);
   }, [stopsForSearch, currentLat, currentLng]);
@@ -365,8 +381,9 @@ export default function FindRouteScreen() {
   const onSearchPickup = useCallback((text: string) => {
     setPickupQuery(text);
     if (pickupSearchTimer.current) clearTimeout(pickupSearchTimer.current);
+    const requestId = ++pickupSearchRequestId.current;
 
-    if (text.length < 2) {
+    if (text.trim().length < 2) {
       setPickupResults([]);
       setPickupPlaceResults([]);
       setPickupGeocoding(false);
@@ -388,11 +405,13 @@ export default function FindRouteScreen() {
           `&viewbox=${viewbox}&bounded=0`;
         const res = await fetch(url, { headers: { "User-Agent": "TrotroPassengerApp/1.0" } });
         const data: PlaceResult[] = await res.json();
+        if (requestId !== pickupSearchRequestId.current) return;
         setPickupPlaceResults(data);
       } catch {
+        if (requestId !== pickupSearchRequestId.current) return;
         setPickupPlaceResults([]);
       } finally {
-        setPickupGeocoding(false);
+        if (requestId === pickupSearchRequestId.current) setPickupGeocoding(false);
       }
     }, 600);
   }, [stopsForSearch, currentLat, currentLng]);
